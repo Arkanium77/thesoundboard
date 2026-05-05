@@ -1,0 +1,22 @@
+app:
+  title: The Soundboard
+  schemaVersion: 1
+  persistence:
+    stateFileName: .soundboard-project.json
+  scanner:
+    supportedExtensions:
+      - mp3
+  workspace:
+    defaultVolume: 0.8
+    defaultMasterVolume: 1.0
+    defaultLoop: false
+    progressRefreshMillis: 200
+  ui:
+    minWidth: 1280
+    minHeight: 760
+    treeWidth: 360
+    trackTileWidth: 260
+    trackTileHeight: 195
+  logging:
+    level: INFO
+    pattern: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger - %msg%n"
