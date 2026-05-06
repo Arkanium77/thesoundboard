@@ -8,8 +8,10 @@ public class UiConfig {
     private double trackTileHeight = 195d;
     private double minTileScale = 0.6d;
     private double maxTileScale = 1.8d;
-    private double tileZoomStep = 0.1d;
+    private double tileZoomStep = 0.05d;
     private int queueWidthInTiles = 3;
+    private int waveformResolution = 512;
+    private double waveformHeight = 28d;
 
     public double getMinWidth() {
         return minWidth;
@@ -81,5 +83,21 @@ public class UiConfig {
 
     public void setQueueWidthInTiles(int queueWidthInTiles) {
         this.queueWidthInTiles = queueWidthInTiles;
+    }
+
+    public int getWaveformResolution() {
+        return waveformResolution;
+    }
+
+    public void setWaveformResolution(int waveformResolution) {
+        this.waveformResolution = waveformResolution;
+    }
+
+    public double getWaveformHeight() {
+        return waveformHeight;
+    }
+
+    public void setWaveformHeight(double waveformHeight) {
+        this.waveformHeight = waveformHeight;
     }
 }

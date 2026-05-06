@@ -6,9 +6,13 @@ import app.model.PlaybackStatus;
 import app.model.QueueTrack;
 import app.ui.UiIcons;
 import app.ui.drag.DragPayload;
+import app.ui.waveform.WaveformSeekView;
 import app.ui.workspace.WorkspaceInsertionMarker;
 import app.ui.workspace.WorkspaceItemView;
 import app.ui.workspace.WorkspaceQueueItem;
+import app.waveform.WaveformData;
+import app.waveform.WaveformService;
+import javafx.application.Platform;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
@@ -41,6 +45,7 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
 import javafx.util.Duration;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -50,10 +55,9 @@ import java.util.function.Consumer;
 public class QueueView extends StackPane implements WorkspaceItemView {
     private static final String BASE_STYLE = "-fx-background-color: #f5f7fb; -fx-border-color: #c9d1e3; -fx-border-radius: 8; -fx-background-radius: 8;";
     private static final String INSERT_SEGMENT_STYLE = "-fx-background-color: #4a83d8;";
-    private static final double SEEK_SETTLE_THRESHOLD_MILLIS = 750d;
-    private static final long SEEK_SETTLE_TIMEOUT_NANOS = 1_500_000_000L;
 
     private final WorkspaceQueueItem workspaceQueueItem;
+    private final WaveformService waveformService;
     private final Runnable removeQueueAction;
     private final Runnable persistenceChangeAction;
     private final QueueAudioDropHandler addAudioFilesAction;
@@ -80,26 +84,26 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private final ToggleButton loopTrackButton = new ToggleButton(UiIcons.LOOP + " Track");
     private final ToggleButton loopQueueButton = new ToggleButton(UiIcons.LOOP + " Queue");
     private final Slider volumeSlider = new Slider(0d, 100d, 80d);
-    private final Slider progressSlider = new Slider(0d, 1d, 0d);
+    private final WaveformSeekView waveformSeekView = new WaveformSeekView();
     private final Label currentTimeLabel = new Label("00:00");
     private final Label totalTimeLabel = new Label("00:00");
     private final FlowPane chipContainer = new FlowPane();
     private final ScrollPane chipScrollPane = new ScrollPane(chipContainer);
 
-    private boolean seeking;
     private boolean editingQueueName;
     private String editingOriginalQueueName;
     private QueueTrackChipView insertionTargetChipView;
     private boolean insertionAfter;
-    private boolean seekCommittedForGesture;
-    private Double pendingSeekMillis;
-    private long pendingSeekDeadlineNanos;
     private double currentScale = 1d;
+    private final double baseWaveformHeight;
+    private Path currentWaveformPath;
+    private long waveformRequestGeneration;
     private SequentialTransition titleAnimation;
 
     public QueueView(
             UiConfig uiConfig,
             WorkspaceQueueItem workspaceQueueItem,
+            WaveformService waveformService,
             int progressRefreshMillis,
             Runnable removeQueueAction,
             Runnable persistenceChangeAction,
@@ -110,6 +114,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
             WorkspaceQueueMoveHandler moveWorkspaceQueueAction
     ) {
         this.workspaceQueueItem = workspaceQueueItem;
+        this.waveformService = waveformService;
         this.removeQueueAction = removeQueueAction;
         this.persistenceChangeAction = persistenceChangeAction;
         this.addAudioFilesAction = addAudioFilesAction;
@@ -117,6 +122,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         this.removeQueueTrackAction = removeQueueTrackAction;
         this.moveQueueTrackAction = moveQueueTrackAction;
         this.moveWorkspaceQueueAction = moveWorkspaceQueueAction;
+        this.baseWaveformHeight = uiConfig.getWaveformHeight();
         this.refreshTimeline = new Timeline(new KeyFrame(Duration.millis(progressRefreshMillis), event -> refresh()));
 
         configureLayout(uiConfig);
@@ -130,6 +136,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
 
     public void dispose() {
         refreshTimeline.stop();
+        waveformRequestGeneration++;
+        currentWaveformPath = null;
+        waveformSeekView.setWaveformData(WaveformData.empty());
         stopTitleAnimation();
     }
 
@@ -240,9 +249,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         HBox progressTimeRow = new HBox(1, currentTimeLabel, createSpacer(), totalTimeLabel);
         progressTimeRow.setAlignment(Pos.CENTER_LEFT);
 
-        HBox progressRow = new HBox(progressSlider);
+        HBox progressRow = new HBox(waveformSeekView);
         progressRow.setAlignment(Pos.CENTER_LEFT);
-        HBox.setHgrow(progressSlider, Priority.ALWAYS);
+        HBox.setHgrow(waveformSeekView, Priority.ALWAYS);
 
         chipContainer.setAlignment(Pos.TOP_LEFT);
         chipScrollPane.setFitToHeight(true);
@@ -266,6 +275,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
 
         StackPane.setAlignment(statusIndicator, Pos.TOP_RIGHT);
         getChildren().setAll(content, insertionMarkers, statusIndicator);
+        waveformSeekView.setWaveformData(WaveformData.empty());
         updateTitleAnimation();
     }
 
@@ -342,20 +352,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         volumeSlider.valueProperty().addListener((observable, oldValue, newValue) ->
                 workspaceQueueItem.setVolume(newValue.doubleValue() / 100d)
         );
-
-        progressSlider.valueChangingProperty().addListener((observable, oldValue, newValue) -> {
-            seeking = newValue;
-            if (!newValue) {
-                commitSeekForGesture();
-            }
-        });
-        progressSlider.setOnMousePressed(event -> {
-            seeking = true;
-            seekCommittedForGesture = false;
-        });
-        progressSlider.setOnMouseReleased(event -> {
-            seeking = false;
-            commitSeekForGesture();
+        waveformSeekView.setSeekHandler(position -> {
+            workspaceQueueItem.seek(position);
+            refresh();
         });
 
         setOnDragOver(event -> {
@@ -419,49 +418,19 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         chipView.setOnDragDone(event -> clearChipInsertionMarker());
     }
 
-    private void seekToSliderValue() {
-        pendingSeekMillis = progressSlider.getValue();
-        pendingSeekDeadlineNanos = System.nanoTime() + SEEK_SETTLE_TIMEOUT_NANOS;
-        workspaceQueueItem.seek(Duration.millis(pendingSeekMillis));
-        refresh();
-    }
-
-    private void commitSeekForGesture() {
-        if (seekCommittedForGesture) {
-            return;
-        }
-        seekCommittedForGesture = true;
-        seekToSliderValue();
-    }
-
     private void refresh() {
         PlaybackStatus playbackStatus = workspaceQueueItem.getStatus();
         Duration currentTime = workspaceQueueItem.getCurrentTime();
         Duration totalTime = workspaceQueueItem.getTotalDuration();
+        refreshWaveformSource();
 
         playPauseButton.setText(playbackStatus == PlaybackStatus.PLAYING ? UiIcons.PAUSE : UiIcons.PLAY);
         shuffleButton.setSelected(workspaceQueueItem.isShuffleEnabled());
         loopTrackButton.setSelected(workspaceQueueItem.isLoopCurrentTrack());
         loopQueueButton.setSelected(workspaceQueueItem.isLoopQueue());
         statusIndicator.setFill(resolveStatusColor(playbackStatus));
-
-        double totalMillis = Math.max(totalTime.toMillis(), 1d);
-        double displayedCurrentMillis = currentTime.toMillis();
-        if (pendingSeekMillis != null) {
-            if (Math.abs(displayedCurrentMillis - pendingSeekMillis) <= SEEK_SETTLE_THRESHOLD_MILLIS
-                    || System.nanoTime() >= pendingSeekDeadlineNanos) {
-                pendingSeekMillis = null;
-            } else if (!seeking) {
-                displayedCurrentMillis = pendingSeekMillis;
-            }
-        }
-
-        progressSlider.setMax(totalMillis);
-        if (!seeking) {
-            progressSlider.setValue(Math.min(displayedCurrentMillis, totalMillis));
-        }
-
-        currentTimeLabel.setText(formatDuration(Duration.millis(displayedCurrentMillis)));
+        waveformSeekView.setPlaybackPosition(currentTime, totalTime);
+        currentTimeLabel.setText(formatDuration(waveformSeekView.getDisplayedPosition()));
         totalTimeLabel.setText(formatDuration(totalTime));
 
         UUID selectedTrackId = workspaceQueueItem.getSelectedTrack().map(QueueTrack::getId).orElse(null);
@@ -655,6 +624,31 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         return bounds != null && bounds.contains(sceneX, sceneY);
     }
 
+    private void refreshWaveformSource() {
+        Path nextWaveformPath = workspaceQueueItem.getSelectedAudioPath().orElse(null);
+        if (Objects.equals(currentWaveformPath, nextWaveformPath)) {
+            return;
+        }
+
+        currentWaveformPath = nextWaveformPath;
+        long requestGeneration = ++waveformRequestGeneration;
+        waveformSeekView.setWaveformData(WaveformData.empty());
+        if (nextWaveformPath == null) {
+            return;
+        }
+
+        waveformService.loadWaveform(nextWaveformPath).thenAccept(waveformData ->
+                Platform.runLater(() -> applyWaveformData(requestGeneration, nextWaveformPath, waveformData))
+        );
+    }
+
+    private void applyWaveformData(long requestGeneration, Path waveformPath, WaveformData waveformData) {
+        if (requestGeneration != waveformRequestGeneration || !Objects.equals(currentWaveformPath, waveformPath)) {
+            return;
+        }
+        waveformSeekView.setWaveformData(waveformData);
+    }
+
     private void startEditingQueueName() {
         editingQueueName = true;
         editingOriginalQueueName = queueNameLabel.getText();
@@ -709,6 +703,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         chipContainer.setVgap(4d * scale);
         chipScrollPane.setMinViewportHeight(62d * scale);
         chipScrollPane.setPrefViewportHeight(92d * scale);
+        waveformSeekView.setMinHeight(baseWaveformHeight * scale);
+        waveformSeekView.setPrefHeight(baseWaveformHeight * scale);
+        waveformSeekView.setMaxHeight(baseWaveformHeight * scale);
         statusIndicator.setRadius(5d * scale);
         StackPane.setMargin(statusIndicator, new Insets(6d * scale, 6d * scale, 0, 0));
         for (var node : chipContainer.getChildren()) {

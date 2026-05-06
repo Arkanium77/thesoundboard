@@ -112,6 +112,40 @@ public class WorkspaceView extends BorderPane {
     }
 
     private void configureContainerDragAndDrop() {
+        contentPane.setOnDragOver(event -> {
+            String payload = event.getDragboard().getString();
+            if (!isSupportedPayload(payload)) {
+                return;
+            }
+
+            if (contentPane.getChildren().isEmpty()) {
+                clearInsertionMarker();
+            } else {
+                updateInsertionMarkerForContent(event.getX(), event.getY());
+            }
+
+            event.acceptTransferModes(TransferMode.COPY_OR_MOVE);
+            event.consume();
+        });
+
+        contentPane.setOnDragExited(event -> {
+            if (!isPointerInside(contentPane, event.getSceneX(), event.getSceneY())) {
+                clearInsertionMarker();
+            }
+        });
+
+        contentPane.setOnDragDropped(event -> {
+            String payload = event.getDragboard().getString();
+            boolean completed = handleWorkspaceDrop(
+                    payload,
+                    insertionTargetView == null ? null : insertionTargetView.getWorkspaceItemId(),
+                    insertionAfter
+            );
+            clearInsertionMarker();
+            event.setDropCompleted(completed);
+            event.consume();
+        });
+
         setOnDragOver(event -> {
             if (!isSupportedPayload(event.getDragboard().getString())) {
                 return;
@@ -127,33 +161,7 @@ public class WorkspaceView extends BorderPane {
 
         setOnDragDropped(event -> {
             String payload = event.getDragboard().getString();
-            if (!isSupportedPayload(payload)) {
-                event.setDropCompleted(false);
-                return;
-            }
-
-            boolean completed = false;
-            List<UUID> audioFileIds = parseAudioFileIds(payload);
-            if (!audioFileIds.isEmpty()) {
-                workspaceDropHandler.addAudioFilesAsSolo(audioFileIds, null, false);
-                completed = true;
-            }
-
-            UUID workspaceItemId = parseWorkspaceTrackId(payload);
-            if (workspaceItemId == null) {
-                workspaceItemId = parseWorkspaceQueueId(payload);
-            }
-            if (workspaceItemId != null) {
-                workspaceDropHandler.moveWorkspaceItemToEnd(workspaceItemId);
-                completed = true;
-            }
-
-            QueueTrackPayload queueTrackPayload = parseQueueTrackPayload(payload);
-            if (queueTrackPayload != null) {
-                workspaceDropHandler.moveQueueTrackToWorkspace(queueTrackPayload.queueId(), queueTrackPayload.queueTrackId(), null, false);
-                completed = true;
-            }
-
+            boolean completed = handleWorkspaceDrop(payload, null, false);
             clearInsertionMarker();
             event.setDropCompleted(completed);
             event.consume();
@@ -210,35 +218,8 @@ public class WorkspaceView extends BorderPane {
 
         node.setOnDragDropped(event -> {
             String payload = event.getDragboard().getString();
-            boolean completed = false;
             boolean placeAfter = event.getX() >= node.getBoundsInLocal().getWidth() / 2d;
-
-            UUID workspaceItemId = parseWorkspaceTrackId(payload);
-            if (workspaceItemId == null) {
-                workspaceItemId = parseWorkspaceQueueId(payload);
-            }
-            if (workspaceItemId != null && !workspaceItemId.equals(workspaceItemView.getWorkspaceItemId())) {
-                workspaceDropHandler.moveWorkspaceItem(workspaceItemId, workspaceItemView.getWorkspaceItemId(), placeAfter);
-                completed = true;
-            }
-
-            List<UUID> audioFileIds = parseAudioFileIds(payload);
-            if (!audioFileIds.isEmpty()) {
-                workspaceDropHandler.addAudioFilesAsSolo(audioFileIds, workspaceItemView.getWorkspaceItemId(), placeAfter);
-                completed = true;
-            }
-
-            QueueTrackPayload queueTrackPayload = parseQueueTrackPayload(payload);
-            if (queueTrackPayload != null) {
-                workspaceDropHandler.moveQueueTrackToWorkspace(
-                        queueTrackPayload.queueId(),
-                        queueTrackPayload.queueTrackId(),
-                        workspaceItemView.getWorkspaceItemId(),
-                        placeAfter
-                );
-                completed = true;
-            }
-
+            boolean completed = handleWorkspaceDrop(payload, workspaceItemView.getWorkspaceItemId(), placeAfter);
             clearInsertionMarker();
             event.setDropCompleted(completed);
             event.consume();
@@ -284,6 +265,87 @@ public class WorkspaceView extends BorderPane {
             insertionTargetView = null;
         }
         insertionAfter = false;
+    }
+
+    private void updateInsertionMarkerForContent(double x, double y) {
+        InsertionSlot nearestSlot = null;
+        double nearestDistance = Double.MAX_VALUE;
+
+        for (Node node : contentPane.getChildren()) {
+            if (!(node instanceof WorkspaceItemView workspaceItemView)) {
+                continue;
+            }
+
+            Bounds bounds = node.getBoundsInParent();
+            double centerY = bounds.getMinY() + bounds.getHeight() / 2d;
+            double leftX = bounds.getMinX();
+            double rightX = bounds.getMaxX();
+
+            double leftDistance = squaredDistance(x, y, leftX, centerY);
+            if (leftDistance < nearestDistance) {
+                nearestDistance = leftDistance;
+                nearestSlot = new InsertionSlot(workspaceItemView, false);
+            }
+
+            double rightDistance = squaredDistance(x, y, rightX, centerY);
+            if (rightDistance < nearestDistance) {
+                nearestDistance = rightDistance;
+                nearestSlot = new InsertionSlot(workspaceItemView, true);
+            }
+        }
+
+        if (nearestSlot == null) {
+            clearInsertionMarker();
+            return;
+        }
+
+        updateInsertionMarker(nearestSlot.workspaceItemView(), nearestSlot.placeAfter());
+    }
+
+    private double squaredDistance(double x1, double y1, double x2, double y2) {
+        double dx = x1 - x2;
+        double dy = y1 - y2;
+        return dx * dx + dy * dy;
+    }
+
+    private boolean handleWorkspaceDrop(String payload, UUID targetWorkspaceItemId, boolean placeAfter) {
+        if (!isSupportedPayload(payload)) {
+            return false;
+        }
+
+        boolean completed = false;
+        List<UUID> audioFileIds = parseAudioFileIds(payload);
+        if (!audioFileIds.isEmpty()) {
+            workspaceDropHandler.addAudioFilesAsSolo(audioFileIds, targetWorkspaceItemId, placeAfter);
+            completed = true;
+        }
+
+        UUID workspaceItemId = parseWorkspaceTrackId(payload);
+        if (workspaceItemId == null) {
+            workspaceItemId = parseWorkspaceQueueId(payload);
+        }
+        if (workspaceItemId != null) {
+            if (targetWorkspaceItemId == null) {
+                workspaceDropHandler.moveWorkspaceItemToEnd(workspaceItemId);
+                completed = true;
+            } else if (!workspaceItemId.equals(targetWorkspaceItemId)) {
+                workspaceDropHandler.moveWorkspaceItem(workspaceItemId, targetWorkspaceItemId, placeAfter);
+                completed = true;
+            }
+        }
+
+        QueueTrackPayload queueTrackPayload = parseQueueTrackPayload(payload);
+        if (queueTrackPayload != null) {
+            workspaceDropHandler.moveQueueTrackToWorkspace(
+                    queueTrackPayload.queueId(),
+                    queueTrackPayload.queueTrackId(),
+                    targetWorkspaceItemId,
+                    placeAfter
+            );
+            completed = true;
+        }
+
+        return completed;
     }
 
     private UUID parseWorkspaceTrackId(String payload) {
@@ -356,5 +418,8 @@ public class WorkspaceView extends BorderPane {
     }
 
     private record QueueTrackPayload(UUID queueId, UUID queueTrackId) {
+    }
+
+    private record InsertionSlot(WorkspaceItemView workspaceItemView, boolean placeAfter) {
     }
 }

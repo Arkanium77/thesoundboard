@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 public class WorkspaceTrackItem {
@@ -49,6 +50,15 @@ public class WorkspaceTrackItem {
 
     public AudioFile getAudioFile() {
         return audioFile;
+    }
+
+    public Optional<Path> getAudioPath() {
+        if (audioFile.isMissing()) {
+            return Optional.empty();
+        }
+
+        Path audioPath = rootPath.resolve(audioFile.getRelativePath());
+        return Files.exists(audioPath) ? Optional.of(audioPath) : Optional.empty();
     }
 
     public boolean isMissing() {

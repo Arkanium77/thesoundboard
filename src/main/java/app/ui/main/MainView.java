@@ -19,6 +19,7 @@ import app.ui.tree.TreeNodeType;
 import app.ui.tree.TreeNodeValue;
 import app.ui.workspace.WorkspaceQueueItem;
 import app.ui.workspace.WorkspaceTrackItem;
+import app.waveform.WaveformService;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
@@ -32,6 +33,7 @@ import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.Slider;
 import javafx.scene.control.SplitPane;
@@ -48,6 +50,9 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.util.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,6 +72,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Stream;
 
 public class MainView extends BorderPane {
     private static final Logger LOGGER = LoggerFactory.getLogger(MainView.class);
@@ -75,6 +81,7 @@ public class MainView extends BorderPane {
     private final ProjectService projectService;
     private final ProjectStateEditor projectStateEditor;
     private final AudioEngine audioEngine;
+    private final WaveformService waveformService;
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     private final Button openFolderButton = new Button("Open Folder");
@@ -89,6 +96,7 @@ public class MainView extends BorderPane {
     private final Label masterVolumeValueLabel = new Label("100%");
     private final Button workspacePlayPauseButton = new Button(UiIcons.PAUSE);
     private final Button workspaceStopButton = new Button(UiIcons.STOP);
+    private final ProgressIndicator waveformLoadingIndicator = new ProgressIndicator();
     private final WorkspaceView workspaceView;
 
     private final Map<UUID, WorkspaceTrackItem> workspaceTrackItems = new LinkedHashMap<>();
@@ -98,11 +106,13 @@ public class MainView extends BorderPane {
     private final AtomicInteger saveGeneration = new AtomicInteger();
     private final double baseTrackTileWidth;
     private final double baseTrackTileHeight;
+    private final Timeline waveformLoadingIndicatorTimeline = new Timeline(new KeyFrame(Duration.millis(150), event -> refreshWaveformLoadingIndicator()));
 
     private Path currentRootPath;
     private ProjectState projectState;
     private boolean loading;
     private boolean workspacePauseLatched;
+    private boolean rebuildingWorkspace;
     private double masterVolume;
 
     public MainView(
@@ -110,13 +120,15 @@ public class MainView extends BorderPane {
             AppConfig appConfig,
             ProjectService projectService,
             ProjectStateEditor projectStateEditor,
-            AudioEngine audioEngine
+            AudioEngine audioEngine,
+            WaveformService waveformService
     ) {
         this.stage = stage;
         this.appConfig = appConfig;
         this.projectService = projectService;
         this.projectStateEditor = projectStateEditor;
         this.audioEngine = audioEngine;
+        this.waveformService = waveformService;
         this.projectState = ProjectState.empty(appConfig.getSchemaVersion());
         this.masterVolume = appConfig.getWorkspace().getDefaultMasterVolume();
         this.baseTrackTileWidth = appConfig.getUi().getTrackTileWidth();
@@ -164,6 +176,8 @@ public class MainView extends BorderPane {
         LOGGER.info("Shutting down application resources");
         saveCurrentProjectSynchronously();
         clearWorkspace();
+        waveformLoadingIndicatorTimeline.stop();
+        waveformService.shutdown();
         executorService.shutdownNow();
     }
 
@@ -214,6 +228,12 @@ public class MainView extends BorderPane {
         masterVolumeValueLabel.setMinWidth(44d);
         workspacePlayPauseButton.setFocusTraversable(false);
         workspaceStopButton.setFocusTraversable(false);
+        waveformLoadingIndicator.setVisible(false);
+        waveformLoadingIndicator.setManaged(false);
+        waveformLoadingIndicator.setProgress(ProgressIndicator.INDETERMINATE_PROGRESS);
+        waveformLoadingIndicator.setPrefSize(18d, 18d);
+        waveformLoadingIndicator.setMinSize(18d, 18d);
+        waveformLoadingIndicator.setMaxSize(18d, 18d);
 
         HBox header = new HBox(
                 12,
@@ -223,7 +243,8 @@ public class MainView extends BorderPane {
                 createSpacer(),
                 masterVolumeLabel,
                 masterVolumeSlider,
-                masterVolumeValueLabel
+                masterVolumeValueLabel,
+                waveformLoadingIndicator
         );
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
@@ -244,6 +265,9 @@ public class MainView extends BorderPane {
         masterVolumeSlider.valueProperty().addListener((observable, oldValue, newValue) -> updateMasterVolume(newValue.doubleValue() / 100d));
         updateMasterVolume(masterVolume);
         refreshWorkspaceTransportButtons();
+        waveformLoadingIndicatorTimeline.setCycleCount(Timeline.INDEFINITE);
+        waveformLoadingIndicatorTimeline.play();
+        refreshWaveformLoadingIndicator();
     }
 
     private void configureTreeView() {
@@ -349,6 +373,13 @@ public class MainView extends BorderPane {
         if (saveBeforeSwitch && currentRootPath != null) {
             saveCurrentProjectSynchronously();
         }
+
+        if (currentRootPath != null && currentRootPath.equals(rootPath)) {
+            waveformService.clearUnderRoot(rootPath);
+        } else {
+            waveformService.clear();
+        }
+        refreshWaveformLoadingIndicator();
 
         clearWorkspace();
         projectState = ProjectState.empty(appConfig.getSchemaVersion());
@@ -475,6 +506,7 @@ public class MainView extends BorderPane {
     }
 
     private void rebuildWorkspace() {
+        rebuildingWorkspace = true;
         clearWorkspace();
 
         for (WorkspaceTrack workspaceTrack : sortedWorkspaceTracks()) {
@@ -490,6 +522,8 @@ public class MainView extends BorderPane {
                 appConfig.getUi().getTrackTileHeight(),
                 currentTileScale()
         );
+        rebuildingWorkspace = false;
+        preloadWorkspaceWaveforms();
     }
 
     private void createQueue() {
@@ -521,6 +555,7 @@ public class MainView extends BorderPane {
         QueueView queueView = new QueueView(
                 appConfig.getUi(),
                 workspaceQueueItem,
+                waveformService,
                 appConfig.getWorkspace().getProgressRefreshMillis(),
                 () -> removeQueue(workspaceQueue.getId()),
                 this::requestProjectSave,
@@ -531,6 +566,9 @@ public class MainView extends BorderPane {
                 this::moveWorkspaceItem
         );
         queueViews.put(workspaceQueue.getId(), queueView);
+        if (!rebuildingWorkspace) {
+            preloadQueueWaveforms(workspaceQueueItem);
+        }
     }
 
     private void addSelectedAudioFilesToQueue(UUID queueId, UUID preferredAudioFileId) {
@@ -768,6 +806,8 @@ public class MainView extends BorderPane {
         }
 
         try {
+            waveformService.clearUnderRoot(currentRootPath);
+            refreshWaveformLoadingIndicator();
             clearWorkspace();
             ProjectLoadResult loadResult = projectService.rebuildProjectState(currentRootPath);
             projectState = loadResult.getProjectState();
@@ -815,10 +855,54 @@ public class MainView extends BorderPane {
                 appConfig.getUi(),
                 appConfig.getWorkspace().getProgressRefreshMillis(),
                 workspaceTrackItem,
+                waveformService,
                 () -> removeWorkspaceTrack(workspaceTrack.getId()),
                 this::requestProjectSave
         );
         trackTileViews.put(workspaceTrack.getId(), trackTileView);
+        workspaceTrackItem.getAudioPath().ifPresent(waveformService::loadWaveform);
+    }
+
+    private void preloadWorkspaceWaveforms() {
+        List<Path> audioPaths = new ArrayList<>();
+        audioPaths.addAll(workspaceTrackItems.values().stream()
+                .map(WorkspaceTrackItem::getAudioPath)
+                .flatMap(Optional::stream)
+                .toList());
+        audioPaths.addAll(collectRoundRobinQueueWaveformPaths());
+        audioPaths = audioPaths.stream()
+                .distinct()
+                .toList();
+        waveformService.preloadWaveforms(audioPaths);
+    }
+
+    private void preloadQueueWaveforms(WorkspaceQueueItem workspaceQueueItem) {
+        waveformService.preloadWaveforms(workspaceQueueItem.getAudioPaths());
+    }
+
+    private List<Path> collectRoundRobinQueueWaveformPaths() {
+        List<List<Path>> queueAudioPathLists = sortedWorkspaceQueues().stream()
+                .map(WorkspaceQueue::getId)
+                .map(workspaceQueueItems::get)
+                .filter(Objects::nonNull)
+                .map(WorkspaceQueueItem::getAudioPaths)
+                .toList();
+
+        List<Path> orderedPaths = new ArrayList<>();
+        int maxTrackCount = queueAudioPathLists.stream()
+                .mapToInt(List::size)
+                .max()
+                .orElse(0);
+
+        for (int trackIndex = 0; trackIndex < maxTrackCount; trackIndex++) {
+            for (List<Path> queueAudioPaths : queueAudioPathLists) {
+                if (trackIndex < queueAudioPaths.size()) {
+                    orderedPaths.add(queueAudioPaths.get(trackIndex));
+                }
+            }
+        }
+
+        return orderedPaths;
     }
 
     private void rebuildWorkspaceViews() {
@@ -997,6 +1081,12 @@ public class MainView extends BorderPane {
 
     private void refreshWorkspaceTransportButtons() {
         workspacePlayPauseButton.setText(workspacePauseLatched ? UiIcons.PLAY : UiIcons.PAUSE);
+    }
+
+    private void refreshWaveformLoadingIndicator() {
+        boolean loadingWaveforms = waveformService.getPendingLoadCount() > 0;
+        waveformLoadingIndicator.setVisible(loadingWaveforms);
+        waveformLoadingIndicator.setManaged(loadingWaveforms);
     }
 
     private void requestProjectSave() {

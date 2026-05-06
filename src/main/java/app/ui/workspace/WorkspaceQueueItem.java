@@ -89,6 +89,37 @@ public class WorkspaceQueueItem {
         return Optional.ofNullable(audioFilesById.get(audioFileId));
     }
 
+    public Optional<Path> getSelectedAudioPath() {
+        QueueTrack selectedTrack = getSelectedTrack().orElse(null);
+        if (selectedTrack == null) {
+            return Optional.empty();
+        }
+
+        AudioFile audioFile = audioFilesById.get(selectedTrack.getAudioFileId());
+        if (audioFile == null || audioFile.isMissing()) {
+            return Optional.empty();
+        }
+
+        Path audioPath = rootPath.resolve(audioFile.getRelativePath());
+        return Files.exists(audioPath) ? Optional.of(audioPath) : Optional.empty();
+    }
+
+    public List<Path> getAudioPaths() {
+        List<Path> audioPaths = new ArrayList<>();
+        for (QueueTrack queueTrack : workspaceQueue.getTracks()) {
+            AudioFile audioFile = audioFilesById.get(queueTrack.getAudioFileId());
+            if (audioFile == null || audioFile.isMissing()) {
+                continue;
+            }
+
+            Path audioPath = rootPath.resolve(audioFile.getRelativePath());
+            if (Files.exists(audioPath)) {
+                audioPaths.add(audioPath);
+            }
+        }
+        return audioPaths;
+    }
+
     public PlaybackStatus getStatus() {
         refreshPlaybackState();
 

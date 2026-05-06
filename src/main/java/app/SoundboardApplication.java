@@ -11,6 +11,8 @@ import app.project.ProjectStateEditor;
 import app.project.ProjectStateSynchronizer;
 import app.scan.AudioScanner;
 import app.ui.main.MainView;
+import app.waveform.AudioInputStreamWaveformExtractor;
+import app.waveform.WaveformService;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
@@ -34,8 +36,13 @@ public class SoundboardApplication extends Application {
         );
         ProjectStateEditor projectStateEditor = new ProjectStateEditor();
         AudioEngine audioEngine = new JavaFxAudioEngine();
+        int waveformWorkerCount = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
+        WaveformService waveformService = new WaveformService(
+                new AudioInputStreamWaveformExtractor(appConfig.getUi().getWaveformResolution()),
+                waveformWorkerCount
+        );
 
-        mainView = new MainView(stage, appConfig, projectService, projectStateEditor, audioEngine);
+        mainView = new MainView(stage, appConfig, projectService, projectStateEditor, audioEngine, waveformService);
 
         Scene scene = new Scene(mainView, appConfig.getUi().getMinWidth(), appConfig.getUi().getMinHeight());
         stage.setTitle(appConfig.getTitle());
