@@ -41,7 +41,6 @@ public class WorkspaceTrackItem {
         this.audioEngine = audioEngine;
         this.masterVolume = masterVolume;
         this.errorHandler = errorHandler;
-        initializeTrack();
     }
 
     public WorkspaceTrack getWorkspaceTrack() {
@@ -75,7 +74,7 @@ public class WorkspaceTrackItem {
     }
 
     public void togglePlayPause() {
-        if (audioFile.isMissing() || playingTrack == null) {
+        if (audioFile.isMissing() || !ensureTrackInitialized() || playingTrack == null) {
             return;
         }
 
@@ -93,8 +92,26 @@ public class WorkspaceTrackItem {
         }
     }
 
+    public boolean pauseIfPlaying() {
+        if (playingTrack == null || playingTrack.getStatus() != PlaybackStatus.PLAYING) {
+            return false;
+        }
+
+        playingTrack.pause();
+        return true;
+    }
+
+    public boolean resumeIfPaused() {
+        if (playingTrack == null || playingTrack.getStatus() != PlaybackStatus.PAUSED) {
+            return false;
+        }
+
+        playingTrack.play();
+        return true;
+    }
+
     public void seek(Duration position) {
-        if (playingTrack != null) {
+        if (ensureTrackInitialized() && playingTrack != null) {
             playingTrack.seek(position);
         }
     }
@@ -132,32 +149,37 @@ public class WorkspaceTrackItem {
         }
     }
 
-    private void initializeTrack() {
-        if (audioFile.isMissing()) {
-            return;
+    private void applyVolume() {
+        if (playingTrack != null) {
+            double effectiveVolume = muted ? 0d : workspaceTrack.getVolume() * masterVolume;
+            playingTrack.setVolume(effectiveVolume);
+        }
+    }
+
+    private boolean ensureTrackInitialized() {
+        if (playingTrack != null) {
+            return true;
+        }
+        if (audioFile.isMissing() || trackCreationFailed) {
+            return false;
         }
 
         Path audioPath = rootPath.resolve(audioFile.getRelativePath());
         if (!Files.exists(audioPath)) {
             audioFile.setMissing(true);
-            return;
+            return false;
         }
 
         try {
             playingTrack = audioEngine.createTrack(audioPath);
             applyVolume();
             playingTrack.setLoop(workspaceTrack.isLoop());
+            return true;
         } catch (Exception exception) {
             trackCreationFailed = true;
             LOGGER.error("Failed to initialize track for {}", audioPath, exception);
             errorHandler.accept(exception);
-        }
-    }
-
-    private void applyVolume() {
-        if (playingTrack != null) {
-            double effectiveVolume = muted ? 0d : workspaceTrack.getVolume() * masterVolume;
-            playingTrack.setVolume(effectiveVolume);
+            return false;
         }
     }
 }

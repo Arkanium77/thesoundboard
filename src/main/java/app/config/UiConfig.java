@@ -6,6 +6,10 @@ public class UiConfig {
     private double treeWidth = 360d;
     private double trackTileWidth = 260d;
     private double trackTileHeight = 195d;
+    private double minTileScale = 0.6d;
+    private double maxTileScale = 1.8d;
+    private double tileZoomStep = 0.1d;
+    private int queueWidthInTiles = 3;
 
     public double getMinWidth() {
         return minWidth;
@@ -45,5 +49,37 @@ public class UiConfig {
 
     public void setTrackTileHeight(double trackTileHeight) {
         this.trackTileHeight = trackTileHeight;
+    }
+
+    public double getMinTileScale() {
+        return minTileScale;
+    }
+
+    public void setMinTileScale(double minTileScale) {
+        this.minTileScale = minTileScale;
+    }
+
+    public double getMaxTileScale() {
+        return maxTileScale;
+    }
+
+    public void setMaxTileScale(double maxTileScale) {
+        this.maxTileScale = maxTileScale;
+    }
+
+    public double getTileZoomStep() {
+        return tileZoomStep;
+    }
+
+    public void setTileZoomStep(double tileZoomStep) {
+        this.tileZoomStep = tileZoomStep;
+    }
+
+    public int getQueueWidthInTiles() {
+        return queueWidthInTiles;
+    }
+
+    public void setQueueWidthInTiles(int queueWidthInTiles) {
+        this.queueWidthInTiles = queueWidthInTiles;
     }
 }

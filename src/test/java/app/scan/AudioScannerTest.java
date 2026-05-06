@@ -1,8 +1,8 @@
 package app.scan;
 
+import app.support.TestDirectorySupport;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -10,11 +10,9 @@ import java.nio.file.Path;
 import java.util.List;
 
 class AudioScannerTest {
-    @TempDir
-    Path tempDir;
-
     @Test
     void scansRecursivelyAndStoresRelativePaths() throws IOException {
+        Path tempDir = TestDirectorySupport.createTempDirectory("audio-scanner-");
         Path nestedFolder = Files.createDirectories(tempDir.resolve("battle").resolve("dragons"));
         Files.writeString(nestedFolder.resolve("roar.mp3"), "audio");
 
@@ -29,6 +27,7 @@ class AudioScannerTest {
 
     @Test
     void ignoresFilesWithUnsupportedExtensions() throws IOException {
+        Path tempDir = TestDirectorySupport.createTempDirectory("audio-scanner-");
         Files.writeString(tempDir.resolve("roar.mp3"), "audio");
         Files.writeString(tempDir.resolve("notes.txt"), "text");
         Files.writeString(tempDir.resolve("cover.wav"), "audio");
@@ -44,6 +43,7 @@ class AudioScannerTest {
 
     @Test
     void handlesExtensionCaseInsensitively() throws IOException {
+        Path tempDir = TestDirectorySupport.createTempDirectory("audio-scanner-");
         Files.writeString(tempDir.resolve("roar.MP3"), "audio");
         Files.writeString(tempDir.resolve("wind.Mp3"), "audio");
         Files.writeString(tempDir.resolve("rain.mp3"), "audio");

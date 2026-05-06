@@ -1,6 +1,7 @@
 package app.persistence;
 
 import app.model.ProjectState;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
@@ -17,6 +18,7 @@ public class ProjectStateRepository {
 
     public ProjectStateRepository(String stateFileName) {
         this.objectMapper = new ObjectMapper().findAndRegisterModules()
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
                 .enable(SerializationFeature.INDENT_OUTPUT);
         this.stateFileName = stateFileName;
     }
@@ -48,14 +50,15 @@ public class ProjectStateRepository {
     }
 
     private void normalize(ProjectState projectState) {
+        projectState.setMasterVolume(projectState.getMasterVolume());
         if (projectState.getAudioFiles() == null) {
             projectState.setAudioFiles(null);
         }
-        if (projectState.getVirtualFolders() == null) {
-            projectState.setVirtualFolders(null);
-        }
         if (projectState.getWorkspaceTracks() == null) {
             projectState.setWorkspaceTracks(null);
+        }
+        if (projectState.getWorkspaceQueues() == null) {
+            projectState.setWorkspaceQueues(null);
         }
     }
 }

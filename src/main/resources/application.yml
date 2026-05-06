@@ -1,6 +1,6 @@
 app:
   title: The Soundboard
-  schemaVersion: 1
+  schemaVersion: 2
   persistence:
     stateFileName: .soundboard-project.json
   scanner:
@@ -17,6 +17,10 @@ app:
     treeWidth: 360
     trackTileWidth: 260
     trackTileHeight: 195
+    minTileScale: 0.6
+    maxTileScale: 1.8
+    tileZoomStep: 0.1
+    queueWidthInTiles: 3
   logging:
     level: INFO
     pattern: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger - %msg%n"

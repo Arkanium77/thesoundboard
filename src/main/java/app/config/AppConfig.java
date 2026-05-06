@@ -2,7 +2,7 @@ package app.config;
 
 public class AppConfig {
     private String title = "The Soundboard";
-    private int schemaVersion = 1;
+    private int schemaVersion = 2;
     private PersistenceConfig persistence = new PersistenceConfig();
     private ScannerConfig scanner = new ScannerConfig();
     private WorkspaceConfig workspace = new WorkspaceConfig();

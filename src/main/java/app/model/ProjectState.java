@@ -4,10 +4,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ProjectState {
-    private int schemaVersion = 1;
+    private int schemaVersion = 2;
+    private Double masterVolume = 1.0d;
     private List<AudioFile> audioFiles = new ArrayList<>();
-    private List<VirtualFolder> virtualFolders = new ArrayList<>();
     private List<WorkspaceTrack> workspaceTracks = new ArrayList<>();
+    private List<WorkspaceQueue> workspaceQueues = new ArrayList<>();
 
     public ProjectState() {
     }
@@ -28,6 +29,14 @@ public class ProjectState {
         this.schemaVersion = schemaVersion;
     }
 
+    public double getMasterVolume() {
+        return masterVolume == null ? 1.0d : masterVolume;
+    }
+
+    public void setMasterVolume(Double masterVolume) {
+        this.masterVolume = masterVolume == null ? 1.0d : masterVolume;
+    }
+
     public List<AudioFile> getAudioFiles() {
         return audioFiles;
     }
@@ -36,19 +45,19 @@ public class ProjectState {
         this.audioFiles = audioFiles == null ? new ArrayList<>() : new ArrayList<>(audioFiles);
     }
 
-    public List<VirtualFolder> getVirtualFolders() {
-        return virtualFolders;
-    }
-
-    public void setVirtualFolders(List<VirtualFolder> virtualFolders) {
-        this.virtualFolders = virtualFolders == null ? new ArrayList<>() : new ArrayList<>(virtualFolders);
-    }
-
     public List<WorkspaceTrack> getWorkspaceTracks() {
         return workspaceTracks;
     }
 
     public void setWorkspaceTracks(List<WorkspaceTrack> workspaceTracks) {
         this.workspaceTracks = workspaceTracks == null ? new ArrayList<>() : new ArrayList<>(workspaceTracks);
+    }
+
+    public List<WorkspaceQueue> getWorkspaceQueues() {
+        return workspaceQueues;
+    }
+
+    public void setWorkspaceQueues(List<WorkspaceQueue> workspaceQueues) {
+        this.workspaceQueues = workspaceQueues == null ? new ArrayList<>() : new ArrayList<>(workspaceQueues);
     }
 }

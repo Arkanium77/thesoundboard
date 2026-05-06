@@ -4,21 +4,27 @@ import app.audio.AudioEngine;
 import app.config.AppConfig;
 import app.model.AudioFile;
 import app.model.ProjectState;
-import app.model.VirtualFolder;
+import app.model.QueueTrack;
+import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
 import app.project.ProjectLoadResult;
+import app.project.ProjectStateCopySupport;
 import app.project.ProjectService;
 import app.project.ProjectStateEditor;
+import app.ui.UiIcons;
+import app.ui.drag.DragPayload;
+import app.ui.queue.QueueView;
 import app.ui.tile.TrackTileView;
 import app.ui.tree.TreeNodeType;
 import app.ui.tree.TreeNodeValue;
+import app.ui.workspace.WorkspaceQueueItem;
 import app.ui.workspace.WorkspaceTrackItem;
+import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
-import javafx.scene.input.ClipboardContent;
-import javafx.scene.input.TransferMode;
+import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
@@ -29,11 +35,12 @@ import javafx.scene.control.MenuItem;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.Slider;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.ToolBar;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -51,21 +58,18 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 
 public class MainView extends BorderPane {
     private static final Logger LOGGER = LoggerFactory.getLogger(MainView.class);
-
     private final Stage stage;
     private final AppConfig appConfig;
     private final ProjectService projectService;
@@ -83,14 +87,22 @@ public class MainView extends BorderPane {
     private final TreeView<TreeNodeValue> treeView = new TreeView<>();
     private final Slider masterVolumeSlider = new Slider(0d, 100d, 100d);
     private final Label masterVolumeValueLabel = new Label("100%");
+    private final Button workspacePlayPauseButton = new Button(UiIcons.PAUSE);
+    private final Button workspaceStopButton = new Button(UiIcons.STOP);
     private final WorkspaceView workspaceView;
 
     private final Map<UUID, WorkspaceTrackItem> workspaceTrackItems = new LinkedHashMap<>();
     private final Map<UUID, TrackTileView> trackTileViews = new LinkedHashMap<>();
+    private final Map<UUID, WorkspaceQueueItem> workspaceQueueItems = new LinkedHashMap<>();
+    private final Map<UUID, QueueView> queueViews = new LinkedHashMap<>();
+    private final AtomicInteger saveGeneration = new AtomicInteger();
+    private final double baseTrackTileWidth;
+    private final double baseTrackTileHeight;
 
     private Path currentRootPath;
     private ProjectState projectState;
     private boolean loading;
+    private boolean workspacePauseLatched;
     private double masterVolume;
 
     public MainView(
@@ -107,20 +119,37 @@ public class MainView extends BorderPane {
         this.audioEngine = audioEngine;
         this.projectState = ProjectState.empty(appConfig.getSchemaVersion());
         this.masterVolume = appConfig.getWorkspace().getDefaultMasterVolume();
+        this.baseTrackTileWidth = appConfig.getUi().getTrackTileWidth();
+        this.baseTrackTileHeight = appConfig.getUi().getTrackTileHeight();
         this.workspaceView = new WorkspaceView(appConfig.getUi(), new WorkspaceView.WorkspaceDropHandler() {
             @Override
-            public void moveTrack(UUID workspaceTrackId, UUID targetWorkspaceTrackId, boolean placeAfter) {
-                moveWorkspaceTrack(workspaceTrackId, targetWorkspaceTrackId, placeAfter);
+            public void moveWorkspaceItem(UUID workspaceItemId, UUID targetWorkspaceItemId, boolean placeAfter) {
+                MainView.this.moveWorkspaceItem(workspaceItemId, targetWorkspaceItemId, placeAfter);
             }
 
             @Override
-            public void moveTrackToEnd(UUID workspaceTrackId) {
-                moveWorkspaceTrackToEnd(workspaceTrackId);
+            public void moveWorkspaceItemToEnd(UUID workspaceItemId) {
+                MainView.this.moveWorkspaceItemToEnd(workspaceItemId);
             }
 
             @Override
-            public void addAudioFiles(List<UUID> audioFileIds, UUID targetWorkspaceTrackId, boolean placeAfter) {
-                addAudioFilesToWorkspace(audioFileIds, targetWorkspaceTrackId, placeAfter);
+            public void addAudioFilesAsSolo(List<UUID> audioFileIds, UUID targetWorkspaceItemId, boolean placeAfter) {
+                MainView.this.addAudioFilesToWorkspace(audioFileIds, targetWorkspaceItemId, placeAfter);
+            }
+
+            @Override
+            public void moveQueueTrackToWorkspace(UUID sourceQueueId, UUID queueTrackId, UUID targetWorkspaceItemId, boolean placeAfter) {
+                MainView.this.moveQueueTrackToWorkspace(sourceQueueId, queueTrackId, targetWorkspaceItemId, placeAfter);
+            }
+
+            @Override
+            public void adjustWorkspaceZoom(double deltaY) {
+                MainView.this.adjustWorkspaceZoom(deltaY);
+            }
+
+            @Override
+            public void createQueue() {
+                MainView.this.createQueue();
             }
         });
 
@@ -133,7 +162,7 @@ public class MainView extends BorderPane {
 
     public void shutdown() {
         LOGGER.info("Shutting down application resources");
-        saveCurrentProject();
+        saveCurrentProjectSynchronously();
         clearWorkspace();
         executorService.shutdownNow();
     }
@@ -183,8 +212,19 @@ public class MainView extends BorderPane {
         masterVolumeSlider.setValue(masterVolume * 100d);
         masterVolumeSlider.setPrefWidth(180d);
         masterVolumeValueLabel.setMinWidth(44d);
+        workspacePlayPauseButton.setFocusTraversable(false);
+        workspaceStopButton.setFocusTraversable(false);
 
-        HBox header = new HBox(12, workspaceLabel, createSpacer(), masterVolumeLabel, masterVolumeSlider, masterVolumeValueLabel);
+        HBox header = new HBox(
+                12,
+                workspaceLabel,
+                workspacePlayPauseButton,
+                workspaceStopButton,
+                createSpacer(),
+                masterVolumeLabel,
+                masterVolumeSlider,
+                masterVolumeValueLabel
+        );
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
     }
@@ -196,11 +236,14 @@ public class MainView extends BorderPane {
                 loadProject(currentRootPath, false);
             }
         });
-        saveButton.setOnAction(event -> saveCurrentProject());
+        saveButton.setOnAction(event -> saveCurrentProjectSynchronously());
         clearWorkspaceButton.setOnAction(event -> clearWorkspaceTracks());
         rebuildStateButton.setOnAction(event -> rebuildStateFile());
+        workspacePlayPauseButton.setOnAction(event -> toggleWorkspacePlayPause());
+        workspaceStopButton.setOnAction(event -> stopWorkspacePlayback());
         masterVolumeSlider.valueProperty().addListener((observable, oldValue, newValue) -> updateMasterVolume(newValue.doubleValue() / 100d));
         updateMasterVolume(masterVolume);
+        refreshWorkspaceTransportButtons();
     }
 
     private void configureTreeView() {
@@ -222,7 +265,7 @@ public class MainView extends BorderPane {
                     setContextMenu(createContextMenu(item));
                     if (item.isMissing()) {
                         setStyle("-fx-text-fill: #aa3b3b;");
-                    } else if (item.getType() == TreeNodeType.REAL_ROOT || item.getType() == TreeNodeType.VIRTUAL_ROOT) {
+                    } else if (item.getType() == TreeNodeType.REAL_ROOT) {
                         setStyle("-fx-font-weight: bold;");
                     } else {
                         setStyle("");
@@ -233,7 +276,7 @@ public class MainView extends BorderPane {
             cell.setOnMouseClicked(event -> {
                 if (event.getClickCount() == 2 && !cell.isEmpty()) {
                     TreeNodeValue item = cell.getItem();
-                    if (item.getType() == TreeNodeType.REAL_AUDIO_FILE || item.getType() == TreeNodeType.VIRTUAL_AUDIO_FILE) {
+                    if (item.getType() == TreeNodeType.REAL_AUDIO_FILE) {
                         addSelectedAudioFilesToWorkspace(item.getAudioFileId());
                     }
                 }
@@ -256,9 +299,7 @@ public class MainView extends BorderPane {
 
                 var dragboard = cell.startDragAndDrop(TransferMode.COPY);
                 ClipboardContent content = new ClipboardContent();
-                content.putString("audio-files:" + selectedAudioFileIds.stream()
-                        .map(UUID::toString)
-                        .collect(Collectors.joining(",")));
+                content.putString(DragPayload.audioFiles(selectedAudioFileIds));
                 dragboard.setContent(content);
                 event.consume();
             });
@@ -268,67 +309,23 @@ public class MainView extends BorderPane {
     }
 
     private ContextMenu createContextMenu(TreeNodeValue nodeValue) {
-        ContextMenu contextMenu = new ContextMenu();
-        List<MenuItem> menuItems = new ArrayList<>();
-
-        if (nodeValue.getType() == TreeNodeType.REAL_AUDIO_FILE || nodeValue.getType() == TreeNodeType.VIRTUAL_AUDIO_FILE) {
-            MenuItem addToWorkspaceItem = new MenuItem("Add To Workspace");
-            addToWorkspaceItem.setOnAction(event -> addSelectedAudioFilesToWorkspace(nodeValue.getAudioFileId()));
-            menuItems.add(addToWorkspaceItem);
-
-            Menu addToVirtualFolderMenu = createAddToVirtualFolderMenu(nodeValue.getAudioFileId());
-            if (addToVirtualFolderMenu != null) {
-                menuItems.add(addToVirtualFolderMenu);
-            }
-        }
-
-        if (nodeValue.getType() == TreeNodeType.VIRTUAL_ROOT) {
-            MenuItem createFolderItem = new MenuItem("Create Virtual Folder");
-            createFolderItem.setOnAction(event -> createVirtualFolder(null));
-            menuItems.add(createFolderItem);
-        }
-
-        if (nodeValue.getType() == TreeNodeType.VIRTUAL_FOLDER) {
-            MenuItem createChildFolderItem = new MenuItem("Create Child Virtual Folder");
-            createChildFolderItem.setOnAction(event -> createVirtualFolder(nodeValue.getVirtualFolderId()));
-            menuItems.add(createChildFolderItem);
-
-            MenuItem renameFolderItem = new MenuItem("Rename Virtual Folder");
-            renameFolderItem.setOnAction(event -> renameVirtualFolder(nodeValue.getVirtualFolderId()));
-            menuItems.add(renameFolderItem);
-        }
-
-        if (nodeValue.getType() == TreeNodeType.VIRTUAL_AUDIO_FILE && nodeValue.getParentVirtualFolderId() != null) {
-            MenuItem removeFromVirtualFolderItem = new MenuItem("Remove From Virtual Folder");
-            removeFromVirtualFolderItem.setOnAction(event ->
-                    removeAudioFileFromVirtualFolder(nodeValue.getParentVirtualFolderId(), nodeValue.getAudioFileId())
-            );
-            menuItems.add(removeFromVirtualFolderItem);
-        }
-
-        if (menuItems.isEmpty()) {
+        if (nodeValue.getType() != TreeNodeType.REAL_AUDIO_FILE) {
             return null;
         }
 
-        contextMenu.getItems().setAll(menuItems);
-        return contextMenu;
-    }
+        MenuItem addToWorkspaceItem = new MenuItem("Add To Workspace");
+        addToWorkspaceItem.setOnAction(event -> addSelectedAudioFilesToWorkspace(nodeValue.getAudioFileId()));
 
-    private Menu createAddToVirtualFolderMenu(UUID audioFileId) {
-        Map<UUID, String> folderPaths = collectVirtualFolderPaths();
-        if (folderPaths.isEmpty()) {
-            return null;
+        Menu addToQueueMenu = new Menu("Add To Queue");
+        List<WorkspaceQueue> workspaceQueues = sortedWorkspaceQueues();
+        for (WorkspaceQueue workspaceQueue : workspaceQueues) {
+            MenuItem queueItem = new MenuItem(workspaceQueue.getName());
+            queueItem.setOnAction(event -> addSelectedAudioFilesToQueue(workspaceQueue.getId(), nodeValue.getAudioFileId()));
+            addToQueueMenu.getItems().add(queueItem);
         }
+        addToQueueMenu.setDisable(workspaceQueues.isEmpty());
 
-        Menu menu = new Menu("Add To Virtual Folder");
-        folderPaths.entrySet().stream()
-                .sorted(Map.Entry.comparingByValue(String.CASE_INSENSITIVE_ORDER))
-                .forEach(entry -> {
-                    MenuItem menuItem = new MenuItem(entry.getValue());
-                    menuItem.setOnAction(event -> addAudioFileToVirtualFolder(entry.getKey(), audioFileId));
-                    menu.getItems().add(menuItem);
-                });
-        return menu;
+        return new ContextMenu(addToWorkspaceItem, addToQueueMenu);
     }
 
     private void chooseFolder() {
@@ -340,7 +337,6 @@ public class MainView extends BorderPane {
 
         File selectedDirectory = directoryChooser.showDialog(stage);
         if (selectedDirectory != null) {
-            LOGGER.info("Selected root folder {}", selectedDirectory.toPath());
             loadProject(selectedDirectory.toPath(), true);
         }
     }
@@ -351,7 +347,7 @@ public class MainView extends BorderPane {
         }
 
         if (saveBeforeSwitch && currentRootPath != null) {
-            saveCurrentProject();
+            saveCurrentProjectSynchronously();
         }
 
         clearWorkspace();
@@ -377,6 +373,8 @@ public class MainView extends BorderPane {
             ProjectLoadResult loadResult = loadTask.getValue();
             currentRootPath = loadResult.getRootPath();
             projectState = loadResult.getProjectState();
+            updateMasterVolume(projectState.getMasterVolume());
+            masterVolumeSlider.setValue(masterVolume * 100d);
             projectPathLabel.setText(currentRootPath.toString());
             statusLabel.setText("Loaded " + currentRootPath);
             rescanButton.setDisable(false);
@@ -385,13 +383,13 @@ public class MainView extends BorderPane {
             rebuildTree();
             rebuildWorkspace();
             if (loadResult.getPersistenceLoadException() == null) {
-                saveCurrentProject();
+                requestProjectSave();
             }
 
             if (loadResult.getPersistenceLoadException() != null) {
                 showError(
                         "Failed to read saved project state",
-                        "The folder was opened without persisted state. See logs for details.",
+                        "The folder was opened without fully persisted state. See logs for details.",
                         loadResult.getPersistenceLoadException()
                 );
             }
@@ -410,19 +408,11 @@ public class MainView extends BorderPane {
     }
 
     private void rebuildTree() {
-        TreeItem<TreeNodeValue> rootItem = new TreeItem<>(new TreeNodeValue(TreeNodeType.ROOT, "Root", null, null, null, false));
-        TreeItem<TreeNodeValue> realRoot = new TreeItem<>(new TreeNodeValue(TreeNodeType.REAL_ROOT, "Real Files", null, null, null, false));
-        TreeItem<TreeNodeValue> virtualRoot = new TreeItem<>(new TreeNodeValue(TreeNodeType.VIRTUAL_ROOT, "Virtual Folders", null, null, null, false));
-
-        buildRealTree(realRoot);
-        buildVirtualTree(virtualRoot);
-
-        rootItem.getChildren().addAll(realRoot, virtualRoot);
+        TreeItem<TreeNodeValue> rootItem = new TreeItem<>(new TreeNodeValue(TreeNodeType.ROOT, "Root", null, false));
+        buildRealTree(rootItem);
         sortTree(rootItem);
         treeView.setRoot(rootItem);
         rootItem.setExpanded(true);
-        realRoot.setExpanded(true);
-        virtualRoot.setExpanded(true);
     }
 
     private void buildRealTree(TreeItem<TreeNodeValue> realRoot) {
@@ -446,7 +436,7 @@ public class MainView extends BorderPane {
                         String folderPathKey = currentFolderPath.toString();
                         TreeItem<TreeNodeValue> folderItem = folderIndex.get(folderPathKey);
                         if (folderItem == null) {
-                            folderItem = new TreeItem<>(new TreeNodeValue(TreeNodeType.REAL_FOLDER, pathParts[index], null, null, null, false));
+                            folderItem = new TreeItem<>(new TreeNodeValue(TreeNodeType.REAL_FOLDER, pathParts[index], null, false));
                             folderIndex.put(folderPathKey, folderItem);
                             parentItem.getChildren().add(folderItem);
                         }
@@ -457,76 +447,9 @@ public class MainView extends BorderPane {
                             TreeNodeType.REAL_AUDIO_FILE,
                             audioFile.getDisplayName(),
                             audioFile.getId(),
-                            null,
-                            null,
                             false
                     )));
                 });
-    }
-
-    private void buildVirtualTree(TreeItem<TreeNodeValue> virtualRoot) {
-        Map<UUID, VirtualFolder> folderById = new LinkedHashMap<>();
-        Set<UUID> childFolderIds = new HashSet<>();
-        for (VirtualFolder virtualFolder : projectState.getVirtualFolders()) {
-            folderById.put(virtualFolder.getId(), virtualFolder);
-            childFolderIds.addAll(virtualFolder.getChildFolderIds());
-        }
-
-        List<VirtualFolder> topLevelFolders = projectState.getVirtualFolders().stream()
-                .filter(folder -> !childFolderIds.contains(folder.getId()))
-                .sorted(Comparator.comparing(VirtualFolder::getName, String.CASE_INSENSITIVE_ORDER))
-                .toList();
-
-        for (VirtualFolder topLevelFolder : topLevelFolders) {
-            virtualRoot.getChildren().add(buildVirtualFolderItem(topLevelFolder, folderById));
-        }
-    }
-
-    private TreeItem<TreeNodeValue> buildVirtualFolderItem(VirtualFolder virtualFolder, Map<UUID, VirtualFolder> folderById) {
-        TreeItem<TreeNodeValue> folderItem = new TreeItem<>(new TreeNodeValue(
-                TreeNodeType.VIRTUAL_FOLDER,
-                virtualFolder.getName(),
-                null,
-                virtualFolder.getId(),
-                null,
-                false
-        ));
-
-        List<VirtualFolder> childFolders = virtualFolder.getChildFolderIds().stream()
-                .map(folderById::get)
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(VirtualFolder::getName, String.CASE_INSENSITIVE_ORDER))
-                .toList();
-
-        for (VirtualFolder childFolder : childFolders) {
-            folderItem.getChildren().add(buildVirtualFolderItem(childFolder, folderById));
-        }
-
-        List<AudioFile> audioFiles = virtualFolder.getAudioFileIds().stream()
-                .map(this::findAudioFileForTree)
-                .flatMap(Optional::stream)
-                .sorted(Comparator.comparing(AudioFile::getDisplayName, String.CASE_INSENSITIVE_ORDER))
-                .toList();
-
-        for (AudioFile audioFile : audioFiles) {
-            folderItem.getChildren().add(new TreeItem<>(new TreeNodeValue(
-                    TreeNodeType.VIRTUAL_AUDIO_FILE,
-                    audioFile.isMissing() ? audioFile.getDisplayName() + " (missing)" : audioFile.getDisplayName(),
-                    audioFile.getId(),
-                    null,
-                    virtualFolder.getId(),
-                    audioFile.isMissing()
-            )));
-        }
-
-        folderItem.setExpanded(true);
-        return folderItem;
-    }
-
-    private Optional<AudioFile> findAudioFileForTree(UUID audioFileId) {
-        return projectState.getAudioFiles().stream()
-                .filter(audioFile -> audioFile.getId().equals(audioFileId))
-                .findFirst();
     }
 
     private void sortTree(TreeItem<TreeNodeValue> parentItem) {
@@ -546,7 +469,7 @@ public class MainView extends BorderPane {
 
     private int treeNodeRank(TreeNodeType treeNodeType) {
         return switch (treeNodeType) {
-            case REAL_ROOT, VIRTUAL_ROOT, REAL_FOLDER, VIRTUAL_FOLDER -> 0;
+            case REAL_ROOT, REAL_FOLDER -> 0;
             default -> 1;
         };
     }
@@ -554,20 +477,189 @@ public class MainView extends BorderPane {
     private void rebuildWorkspace() {
         clearWorkspace();
 
-        List<WorkspaceTrack> sortedTracks = new ArrayList<>(projectState.getWorkspaceTracks());
-        sortedTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
-        for (WorkspaceTrack workspaceTrack : sortedTracks) {
-            createWorkspaceTile(workspaceTrack);
+        for (WorkspaceTrack workspaceTrack : sortedWorkspaceTracks()) {
+            createWorkspaceTrackTile(workspaceTrack);
+        }
+        for (WorkspaceQueue workspaceQueue : sortedWorkspaceQueues()) {
+            createQueueView(workspaceQueue);
         }
 
         refreshWorkspaceOrder();
+        workspaceView.refreshTileMetrics(
+                appConfig.getUi().getTrackTileWidth(),
+                appConfig.getUi().getTrackTileHeight(),
+                currentTileScale()
+        );
     }
 
-    private AudioFile findAudioFileForWorkspace(UUID audioFileId) {
-        return projectState.getAudioFiles().stream()
-                .filter(audioFile -> audioFile.getId().equals(audioFileId))
-                .findFirst()
-                .orElseGet(() -> new AudioFile(audioFileId, "", "Unknown file", true));
+    private void createQueue() {
+        if (currentRootPath == null) {
+            return;
+        }
+
+        WorkspaceQueue workspaceQueue = projectStateEditor.createWorkspaceQueue(
+                projectState,
+                nextQueueName(),
+                appConfig.getWorkspace().getDefaultVolume()
+        );
+        createQueueView(workspaceQueue);
+        refreshWorkspaceOrder();
+        requestProjectSave();
+    }
+
+    private void createQueueView(WorkspaceQueue workspaceQueue) {
+        WorkspaceQueueItem workspaceQueueItem = new WorkspaceQueueItem(
+                currentRootPath,
+                workspaceQueue,
+                projectState.getAudioFiles(),
+                audioEngine,
+                masterVolume,
+                exception -> showError("Playback error", "Queue track could not be initialized.", exception)
+        );
+        workspaceQueueItems.put(workspaceQueue.getId(), workspaceQueueItem);
+
+        QueueView queueView = new QueueView(
+                appConfig.getUi(),
+                workspaceQueueItem,
+                appConfig.getWorkspace().getProgressRefreshMillis(),
+                () -> removeQueue(workspaceQueue.getId()),
+                this::requestProjectSave,
+                (audioFileIds, targetQueueTrackId, placeAfter) -> addAudioFilesToQueue(workspaceQueue.getId(), audioFileIds, targetQueueTrackId, placeAfter),
+                (workspaceTrackId, targetQueueTrackId, placeAfter) -> addWorkspaceTrackToQueue(workspaceQueue.getId(), workspaceTrackId, targetQueueTrackId, placeAfter),
+                queueTrack -> removeQueueTrack(workspaceQueue.getId(), queueTrack.getId()),
+                (sourceQueueId, queueTrackId, targetQueueTrackId, placeAfter) -> moveQueueTrack(sourceQueueId, workspaceQueue.getId(), queueTrackId, targetQueueTrackId, placeAfter),
+                this::moveWorkspaceItem
+        );
+        queueViews.put(workspaceQueue.getId(), queueView);
+    }
+
+    private void addSelectedAudioFilesToQueue(UUID queueId, UUID preferredAudioFileId) {
+        addAudioFilesToQueue(queueId, collectSelectedAudioFileIds(preferredAudioFileId), null, false);
+    }
+
+    private void addAudioFilesToQueue(UUID queueId, List<UUID> audioFileIds) {
+        addAudioFilesToQueue(queueId, audioFileIds, null, false);
+    }
+
+    private void addAudioFilesToQueue(UUID queueId, List<UUID> audioFileIds, UUID targetQueueTrackId, boolean placeAfter) {
+        if (audioFileIds == null || audioFileIds.isEmpty()) {
+            return;
+        }
+
+        List<QueueTrack> createdTracks = projectStateEditor.addQueueTracks(projectState, queueId, audioFileIds, targetQueueTrackId, placeAfter);
+        if (createdTracks.isEmpty()) {
+            return;
+        }
+
+        WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.get(queueId);
+        QueueView queueView = queueViews.get(queueId);
+        if (workspaceQueueItem != null) {
+            workspaceQueueItem.refreshAfterMutation();
+        }
+        if (queueView != null) {
+            queueView.rebuildChips();
+        }
+        requestProjectSave();
+    }
+
+    private void addWorkspaceTrackToQueue(UUID queueId, UUID workspaceTrackId, UUID targetQueueTrackId, boolean placeAfter) {
+        if (workspaceTrackId == null) {
+            return;
+        }
+
+        boolean moved = projectStateEditor.moveWorkspaceTrackToQueue(
+                projectState,
+                workspaceTrackId,
+                queueId,
+                targetQueueTrackId,
+                placeAfter
+        );
+        if (!moved) {
+            return;
+        }
+
+        WorkspaceTrackItem workspaceTrackItem = workspaceTrackItems.remove(workspaceTrackId);
+        if (workspaceTrackItem != null) {
+            workspaceTrackItem.dispose();
+        }
+
+        TrackTileView trackTileView = trackTileViews.remove(workspaceTrackId);
+        if (trackTileView != null) {
+            trackTileView.dispose();
+        }
+
+        WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.get(queueId);
+        QueueView queueView = queueViews.get(queueId);
+        if (workspaceQueueItem != null) {
+            workspaceQueueItem.refreshAfterMutation();
+        }
+        if (queueView != null) {
+            queueView.rebuildChips();
+        }
+        refreshWorkspaceOrder();
+        requestProjectSave();
+    }
+
+    private void removeQueueTrack(UUID queueId, UUID queueTrackId) {
+        projectStateEditor.removeQueueTrack(projectState, queueId, queueTrackId);
+
+        WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.get(queueId);
+        QueueView queueView = queueViews.get(queueId);
+        if (workspaceQueueItem != null) {
+            workspaceQueueItem.refreshAfterMutation();
+        }
+        if (queueView != null) {
+            queueView.rebuildChips();
+        }
+        requestProjectSave();
+    }
+
+    private void moveQueueTrack(UUID sourceQueueId, UUID targetQueueId, UUID queueTrackId, UUID targetQueueTrackId, boolean placeAfter) {
+        if (!projectStateEditor.moveQueueTrackToQueue(projectState, sourceQueueId, targetQueueId, queueTrackId, targetQueueTrackId, placeAfter)) {
+            return;
+        }
+
+        refreshQueueView(sourceQueueId);
+        if (!Objects.equals(sourceQueueId, targetQueueId)) {
+            refreshQueueView(targetQueueId);
+        }
+        requestProjectSave();
+    }
+
+    private void moveQueueTrackToWorkspace(UUID sourceQueueId, UUID queueTrackId, UUID targetWorkspaceItemId, boolean placeAfter) {
+        WorkspaceTrack workspaceTrack = projectStateEditor.moveQueueTrackToWorkspace(
+                projectState,
+                sourceQueueId,
+                queueTrackId,
+                appConfig.getWorkspace().getDefaultVolume(),
+                targetWorkspaceItemId,
+                placeAfter
+        );
+        if (workspaceTrack == null) {
+            return;
+        }
+
+        createWorkspaceTrackTile(workspaceTrack);
+        refreshQueueView(sourceQueueId);
+        refreshWorkspaceOrder();
+        requestProjectSave();
+    }
+
+    private void removeQueue(UUID queueId) {
+        WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.remove(queueId);
+        if (workspaceQueueItem != null) {
+            workspaceQueueItem.dispose();
+        }
+
+        QueueView queueView = queueViews.remove(queueId);
+        if (queueView != null) {
+            queueView.dispose();
+        }
+
+        projectStateEditor.removeWorkspaceQueue(projectState, queueId);
+        refreshWorkspaceOrder();
+        refreshWorkspaceTransportButtons();
+        requestProjectSave();
     }
 
     private void addSelectedAudioFilesToWorkspace(UUID preferredAudioFileId) {
@@ -590,14 +682,14 @@ public class MainView extends BorderPane {
                 .sorted(Comparator.comparingInt(treeView::getRow))
                 .map(TreeItem::getValue)
                 .filter(Objects::nonNull)
-                .filter(value -> value.getType() == TreeNodeType.REAL_AUDIO_FILE || value.getType() == TreeNodeType.VIRTUAL_AUDIO_FILE)
+                .filter(value -> value.getType() == TreeNodeType.REAL_AUDIO_FILE)
                 .map(TreeNodeValue::getAudioFileId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
     }
 
-    private void addAudioFilesToWorkspace(List<UUID> audioFileIds, UUID targetWorkspaceTrackId, boolean placeAfter) {
+    private void addAudioFilesToWorkspace(List<UUID> audioFileIds, UUID targetWorkspaceItemId, boolean placeAfter) {
         if (currentRootPath == null || audioFileIds == null || audioFileIds.isEmpty()) {
             return;
         }
@@ -607,13 +699,13 @@ public class MainView extends BorderPane {
                 audioFileIds,
                 appConfig.getWorkspace().getDefaultVolume(),
                 appConfig.getWorkspace().isDefaultLoop(),
-                targetWorkspaceTrackId,
+                targetWorkspaceItemId,
                 placeAfter
         );
 
-        createdTracks.forEach(this::createWorkspaceTile);
+        createdTracks.forEach(this::createWorkspaceTrackTile);
         refreshWorkspaceOrder();
-        saveCurrentProject();
+        requestProjectSave();
     }
 
     private void removeWorkspaceTrack(UUID workspaceTrackId) {
@@ -629,17 +721,18 @@ public class MainView extends BorderPane {
 
         projectStateEditor.removeWorkspaceTrack(projectState, workspaceTrackId);
         refreshWorkspaceOrder();
-        saveCurrentProject();
+        refreshWorkspaceTransportButtons();
+        requestProjectSave();
     }
 
     private void clearWorkspaceTracks() {
-        if (currentRootPath == null || projectState.getWorkspaceTracks().isEmpty()) {
+        if (currentRootPath == null || workspaceItemCount() == 0) {
             return;
         }
 
         Alert alert = new Alert(
                 Alert.AlertType.CONFIRMATION,
-                "Remove all tracks from the workspace?",
+                "Remove all solo tracks and queues from the workspace?",
                 ButtonType.OK,
                 ButtonType.CANCEL
         );
@@ -651,9 +744,9 @@ public class MainView extends BorderPane {
         }
 
         clearWorkspace();
-        projectState.setWorkspaceTracks(List.of());
+        projectStateEditor.clearWorkspace(projectState);
         refreshWorkspaceOrder();
-        saveCurrentProject();
+        requestProjectSave();
     }
 
     private void rebuildStateFile() {
@@ -663,7 +756,7 @@ public class MainView extends BorderPane {
 
         Alert alert = new Alert(
                 Alert.AlertType.CONFIRMATION,
-                "Rebuild the saved project state from the current file scan? This will clear workspace and virtual folders.",
+                "Rebuild the saved project state from the current file scan? This will clear the workspace queues and solo tracks.",
                 ButtonType.OK,
                 ButtonType.CANCEL
         );
@@ -678,9 +771,11 @@ public class MainView extends BorderPane {
             clearWorkspace();
             ProjectLoadResult loadResult = projectService.rebuildProjectState(currentRootPath);
             projectState = loadResult.getProjectState();
+            updateMasterVolume(projectState.getMasterVolume());
+            masterVolumeSlider.setValue(masterVolume * 100d);
             rebuildTree();
             rebuildWorkspace();
-            saveCurrentProject();
+            requestProjectSave();
             statusLabel.setText("Rebuilt save file for " + currentRootPath);
         } catch (IOException exception) {
             LOGGER.error("Failed to rebuild project state for root folder {}", currentRootPath, exception);
@@ -688,133 +783,23 @@ public class MainView extends BorderPane {
         }
     }
 
-    private void moveWorkspaceTrack(UUID workspaceTrackId, UUID targetWorkspaceTrackId, boolean placeAfter) {
-        if (projectStateEditor.moveWorkspaceTrack(projectState, workspaceTrackId, targetWorkspaceTrackId, placeAfter)) {
+    private void moveWorkspaceItem(UUID workspaceItemId, UUID targetWorkspaceItemId, boolean placeAfter) {
+        if (projectStateEditor.moveWorkspaceItem(projectState, workspaceItemId, targetWorkspaceItemId, placeAfter)) {
             refreshWorkspaceOrder();
-            saveCurrentProject();
+            requestProjectSave();
         }
     }
 
-    private void moveWorkspaceTrackToEnd(UUID workspaceTrackId) {
-        List<WorkspaceTrack> sortedTracks = new ArrayList<>(projectState.getWorkspaceTracks());
-        sortedTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
-        WorkspaceTrack lastTrack = sortedTracks.isEmpty() ? null : sortedTracks.getLast();
-        if (lastTrack == null || lastTrack.getId().equals(workspaceTrackId)) {
+    private void moveWorkspaceItemToEnd(UUID workspaceItemId) {
+        List<WorkspaceTopLevelItem> items = collectOrderedWorkspaceItems();
+        if (items.isEmpty() || items.getLast().id().equals(workspaceItemId)) {
             return;
         }
 
-        moveWorkspaceTrack(workspaceTrackId, lastTrack.getId(), true);
+        moveWorkspaceItem(workspaceItemId, items.getLast().id(), true);
     }
 
-    private void createVirtualFolder(UUID parentFolderId) {
-        if (currentRootPath == null) {
-            return;
-        }
-
-        Optional<String> folderName = promptForText("Create Virtual Folder", "Folder name", "");
-        folderName.filter(name -> !name.isBlank()).ifPresent(name -> {
-            projectStateEditor.createVirtualFolder(projectState, parentFolderId, name.trim());
-            rebuildTree();
-            saveCurrentProject();
-        });
-    }
-
-    private void renameVirtualFolder(UUID folderId) {
-        Optional<VirtualFolder> folder = projectStateEditor.findVirtualFolder(projectState, folderId);
-        if (folder.isEmpty()) {
-            return;
-        }
-
-        Optional<String> newName = promptForText("Rename Virtual Folder", "Folder name", folder.get().getName());
-        newName.filter(name -> !name.isBlank()).ifPresent(name -> {
-            projectStateEditor.renameVirtualFolder(projectState, folderId, name.trim());
-            rebuildTree();
-            saveCurrentProject();
-        });
-    }
-
-    private void addAudioFileToVirtualFolder(UUID folderId, UUID audioFileId) {
-        projectStateEditor.addAudioFileToVirtualFolder(projectState, folderId, audioFileId);
-        rebuildTree();
-        saveCurrentProject();
-    }
-
-    private void removeAudioFileFromVirtualFolder(UUID folderId, UUID audioFileId) {
-        projectStateEditor.removeAudioFileFromVirtualFolder(projectState, folderId, audioFileId);
-        rebuildTree();
-        saveCurrentProject();
-    }
-
-    private Optional<String> promptForText(String title, String header, String initialValue) {
-        TextInputDialog dialog = new TextInputDialog(initialValue);
-        dialog.initOwner(stage);
-        dialog.setTitle(title);
-        dialog.setHeaderText(header);
-        dialog.setContentText("Value:");
-        return dialog.showAndWait();
-    }
-
-    private Map<UUID, String> collectVirtualFolderPaths() {
-        Map<UUID, VirtualFolder> folderById = new HashMap<>();
-        Set<UUID> childIds = new HashSet<>();
-        for (VirtualFolder virtualFolder : projectState.getVirtualFolders()) {
-            folderById.put(virtualFolder.getId(), virtualFolder);
-            childIds.addAll(virtualFolder.getChildFolderIds());
-        }
-
-        Map<UUID, String> folderPaths = new LinkedHashMap<>();
-        projectState.getVirtualFolders().stream()
-                .filter(folder -> !childIds.contains(folder.getId()))
-                .sorted(Comparator.comparing(VirtualFolder::getName, String.CASE_INSENSITIVE_ORDER))
-                .forEach(folder -> collectVirtualFolderPaths(folder, folder.getName(), folderById, folderPaths));
-        return folderPaths;
-    }
-
-    private void collectVirtualFolderPaths(
-            VirtualFolder currentFolder,
-            String currentPath,
-            Map<UUID, VirtualFolder> folderById,
-            Map<UUID, String> folderPaths
-    ) {
-        folderPaths.put(currentFolder.getId(), currentPath);
-        currentFolder.getChildFolderIds().stream()
-                .map(folderById::get)
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(VirtualFolder::getName, String.CASE_INSENSITIVE_ORDER))
-                .forEach(childFolder -> collectVirtualFolderPaths(childFolder, currentPath + " / " + childFolder.getName(), folderById, folderPaths));
-    }
-
-    private boolean saveCurrentProject() {
-        if (currentRootPath == null) {
-            return true;
-        }
-
-        try {
-            projectService.saveProject(currentRootPath, projectState);
-            statusLabel.setText("Saved " + currentRootPath);
-            return true;
-        } catch (IOException exception) {
-            LOGGER.error("Failed to save project state for root folder {}", currentRootPath, exception);
-            showError("Save failed", "The project state could not be saved.", exception);
-            return false;
-        }
-    }
-
-    private void clearWorkspace() {
-        workspaceView.clearAndReturnCurrentTiles().forEach(TrackTileView::dispose);
-        disposeWorkspaceTrackItems();
-        trackTileViews.clear();
-    }
-
-    private void disposeWorkspaceTrackItems() {
-        Collection<WorkspaceTrackItem> items = new ArrayList<>(workspaceTrackItems.values());
-        workspaceTrackItems.clear();
-        for (WorkspaceTrackItem item : items) {
-            item.dispose();
-        }
-    }
-
-    private void createWorkspaceTile(WorkspaceTrack workspaceTrack) {
+    private void createWorkspaceTrackTile(WorkspaceTrack workspaceTrack) {
         AudioFile audioFile = findAudioFileForWorkspace(workspaceTrack.getAudioFileId());
         WorkspaceTrackItem workspaceTrackItem = new WorkspaceTrackItem(
                 currentRootPath,
@@ -831,24 +816,226 @@ public class MainView extends BorderPane {
                 appConfig.getWorkspace().getProgressRefreshMillis(),
                 workspaceTrackItem,
                 () -> removeWorkspaceTrack(workspaceTrack.getId()),
-                this::saveCurrentProject
+                this::requestProjectSave
         );
         trackTileViews.put(workspaceTrack.getId(), trackTileView);
     }
 
+    private void rebuildWorkspaceViews() {
+        clearWorkspace();
+        rebuildWorkspace();
+    }
+
+    private void refreshQueueView(UUID queueId) {
+        WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.get(queueId);
+        QueueView queueView = queueViews.get(queueId);
+        if (workspaceQueueItem != null) {
+            workspaceQueueItem.refreshAfterMutation();
+        }
+        if (queueView != null) {
+            queueView.rebuildChips();
+        }
+    }
+
     private void refreshWorkspaceOrder() {
-        List<TrackTileView> orderedTrackTiles = projectState.getWorkspaceTracks().stream()
-                .sorted(Comparator.comparingInt(WorkspaceTrack::getOrder))
-                .map(workspaceTrack -> trackTileViews.get(workspaceTrack.getId()))
+        List<Node> workspaceNodes = collectOrderedWorkspaceItems().stream()
+                .map(WorkspaceTopLevelItem::node)
                 .filter(Objects::nonNull)
                 .toList();
-        workspaceView.setTrackTiles(orderedTrackTiles);
+        workspaceView.setWorkspaceNodes(workspaceNodes);
+        workspaceView.refreshTileMetrics(
+                appConfig.getUi().getTrackTileWidth(),
+                appConfig.getUi().getTrackTileHeight(),
+                currentTileScale()
+        );
+    }
+
+    private void adjustWorkspaceZoom(double deltaY) {
+        double currentScale = currentTileScale();
+        double nextScale = currentScale + (deltaY > 0d ? appConfig.getUi().getTileZoomStep() : -appConfig.getUi().getTileZoomStep());
+        nextScale = Math.max(appConfig.getUi().getMinTileScale(), Math.min(appConfig.getUi().getMaxTileScale(), nextScale));
+        if (Math.abs(nextScale - currentScale) < 0.0001d) {
+            return;
+        }
+
+        double nextWidth = Math.round(baseTrackTileWidth * nextScale);
+        double nextHeight = Math.round(baseTrackTileHeight * nextScale);
+        appConfig.getUi().setTrackTileWidth(nextWidth);
+        appConfig.getUi().setTrackTileHeight(nextHeight);
+        workspaceView.refreshTileMetrics(nextWidth, nextHeight, nextScale);
+    }
+
+    private double currentTileScale() {
+        return appConfig.getUi().getTrackTileWidth() / baseTrackTileWidth;
+    }
+
+    private List<WorkspaceTopLevelItem> collectOrderedWorkspaceItems() {
+        List<WorkspaceTopLevelItem> items = new ArrayList<>();
+        for (WorkspaceTrack workspaceTrack : projectState.getWorkspaceTracks()) {
+            items.add(new WorkspaceTopLevelItem(
+                    workspaceTrack.getId(),
+                    workspaceTrack.getOrder(),
+                    trackTileViews.get(workspaceTrack.getId())
+            ));
+        }
+        for (WorkspaceQueue workspaceQueue : projectState.getWorkspaceQueues()) {
+            items.add(new WorkspaceTopLevelItem(
+                    workspaceQueue.getId(),
+                    workspaceQueue.getOrder(),
+                    queueViews.get(workspaceQueue.getId())
+            ));
+        }
+        items.sort(Comparator.comparingInt(WorkspaceTopLevelItem::order));
+        return items;
+    }
+
+    private List<WorkspaceTrack> sortedWorkspaceTracks() {
+        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(projectState.getWorkspaceTracks());
+        workspaceTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
+        return workspaceTracks;
+    }
+
+    private List<WorkspaceQueue> sortedWorkspaceQueues() {
+        List<WorkspaceQueue> workspaceQueues = new ArrayList<>(projectState.getWorkspaceQueues());
+        workspaceQueues.sort(Comparator.comparingInt(WorkspaceQueue::getOrder));
+        return workspaceQueues;
+    }
+
+    private int workspaceItemCount() {
+        return projectState.getWorkspaceTracks().size() + projectState.getWorkspaceQueues().size();
+    }
+
+    private String nextQueueName() {
+        int queueNumber = projectState.getWorkspaceQueues().size() + 1;
+        return "Queue " + queueNumber;
+    }
+
+    private AudioFile findAudioFileForWorkspace(UUID audioFileId) {
+        return projectState.getAudioFiles().stream()
+                .filter(audioFile -> audioFile.getId().equals(audioFileId))
+                .findFirst()
+                .orElseGet(() -> new AudioFile(audioFileId, "", "Unknown file", true));
+    }
+
+    private void clearWorkspace() {
+        workspaceView.clearAndReturnCurrentNodes().forEach(node -> {
+            if (node instanceof TrackTileView trackTileView) {
+                trackTileView.dispose();
+            } else if (node instanceof QueueView queueView) {
+                queueView.dispose();
+            }
+        });
+        disposeWorkspaceTrackItems();
+        disposeWorkspaceQueueItems();
+        trackTileViews.clear();
+        queueViews.clear();
+        workspacePauseLatched = false;
+        refreshWorkspaceTransportButtons();
+    }
+
+    private void disposeWorkspaceTrackItems() {
+        Collection<WorkspaceTrackItem> items = new ArrayList<>(workspaceTrackItems.values());
+        workspaceTrackItems.clear();
+        for (WorkspaceTrackItem item : items) {
+            item.dispose();
+        }
+    }
+
+    private void disposeWorkspaceQueueItems() {
+        Collection<WorkspaceQueueItem> items = new ArrayList<>(workspaceQueueItems.values());
+        workspaceQueueItems.clear();
+        for (WorkspaceQueueItem item : items) {
+            item.dispose();
+        }
     }
 
     private void updateMasterVolume(double masterVolume) {
         this.masterVolume = Math.max(0d, Math.min(1d, masterVolume));
+        projectState.setMasterVolume(this.masterVolume);
         masterVolumeValueLabel.setText(Math.round(this.masterVolume * 100d) + "%");
         workspaceTrackItems.values().forEach(item -> item.setMasterVolume(this.masterVolume));
+        workspaceQueueItems.values().forEach(item -> item.setMasterVolume(this.masterVolume));
+    }
+
+    private void toggleWorkspacePlayPause() {
+        if (workspacePauseLatched) {
+            resumePausedWorkspaceItems();
+            workspacePauseLatched = false;
+        } else {
+            pausePlayingWorkspaceItems();
+            workspacePauseLatched = true;
+        }
+        refreshWorkspaceTransportButtons();
+    }
+
+    private void pausePlayingWorkspaceItems() {
+        for (WorkspaceTrackItem workspaceTrackItem : workspaceTrackItems.values()) {
+            workspaceTrackItem.pauseIfPlaying();
+        }
+
+        for (WorkspaceQueueItem workspaceQueueItem : workspaceQueueItems.values()) {
+            workspaceQueueItem.pauseIfPlaying();
+        }
+    }
+
+    private void resumePausedWorkspaceItems() {
+        for (WorkspaceTrackItem workspaceTrackItem : workspaceTrackItems.values()) {
+            workspaceTrackItem.resumeIfPaused();
+        }
+
+        for (WorkspaceQueueItem workspaceQueueItem : workspaceQueueItems.values()) {
+            workspaceQueueItem.resumeIfPaused();
+        }
+    }
+
+    private void stopWorkspacePlayback() {
+        workspaceTrackItems.values().forEach(WorkspaceTrackItem::stop);
+        workspaceQueueItems.values().forEach(WorkspaceQueueItem::stop);
+        workspacePauseLatched = false;
+        refreshWorkspaceTransportButtons();
+    }
+
+    private void refreshWorkspaceTransportButtons() {
+        workspacePlayPauseButton.setText(workspacePauseLatched ? UiIcons.PLAY : UiIcons.PAUSE);
+    }
+
+    private void requestProjectSave() {
+        if (currentRootPath == null) {
+            return;
+        }
+
+        Path rootPath = currentRootPath;
+        ProjectState snapshot = ProjectStateCopySupport.copy(projectState);
+        int generation = saveGeneration.incrementAndGet();
+        statusLabel.setText("Saving " + rootPath);
+        executorService.submit(() -> {
+            try {
+                if (generation != saveGeneration.get()) {
+                    return;
+                }
+                projectService.saveProject(rootPath, snapshot);
+            } catch (IOException exception) {
+                LOGGER.error("Failed to save project state for root folder {}", rootPath, exception);
+                Platform.runLater(() -> showError("Save failed", "The project state could not be saved.", exception));
+            }
+        });
+    }
+
+    private boolean saveCurrentProjectSynchronously() {
+        if (currentRootPath == null) {
+            return true;
+        }
+
+        try {
+            saveGeneration.incrementAndGet();
+            projectService.saveProject(currentRootPath, projectState);
+            statusLabel.setText("Saved " + currentRootPath);
+            return true;
+        } catch (IOException exception) {
+            LOGGER.error("Failed to save project state for root folder {}", currentRootPath, exception);
+            showError("Save failed", "The project state could not be saved.", exception);
+            return false;
+        }
     }
 
     private void setControlsDisabled(boolean disabled) {
@@ -875,5 +1062,8 @@ public class MainView extends BorderPane {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         return spacer;
+    }
+
+    private record WorkspaceTopLevelItem(UUID id, int order, Node node) {
     }
 }

@@ -2,48 +2,17 @@ package app.project;
 
 import app.model.AudioFile;
 import app.model.ProjectState;
-import app.model.VirtualFolder;
+import app.model.QueueTrack;
+import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public class ProjectStateEditor {
-    public VirtualFolder createVirtualFolder(ProjectState projectState, UUID parentFolderId, String name) {
-        VirtualFolder virtualFolder = new VirtualFolder(UUID.randomUUID(), name);
-        projectState.getVirtualFolders().add(virtualFolder);
-
-        if (parentFolderId != null) {
-            findVirtualFolder(projectState, parentFolderId)
-                    .ifPresent(parentFolder -> parentFolder.getChildFolderIds().add(virtualFolder.getId()));
-        }
-
-        sortVirtualFolders(projectState);
-        return virtualFolder;
-    }
-
-    public void renameVirtualFolder(ProjectState projectState, UUID folderId, String newName) {
-        findVirtualFolder(projectState, folderId).ifPresent(folder -> folder.setName(newName));
-        sortVirtualFolders(projectState);
-    }
-
-    public void addAudioFileToVirtualFolder(ProjectState projectState, UUID folderId, UUID audioFileId) {
-        findVirtualFolder(projectState, folderId).ifPresent(folder -> {
-            if (!folder.getAudioFileIds().contains(audioFileId)) {
-                folder.getAudioFileIds().add(audioFileId);
-            }
-        });
-    }
-
-    public void removeAudioFileFromVirtualFolder(ProjectState projectState, UUID folderId, UUID audioFileId) {
-        findVirtualFolder(projectState, folderId)
-                .ifPresent(folder -> folder.getAudioFileIds().remove(audioFileId));
-    }
-
     public WorkspaceTrack addWorkspaceTrack(ProjectState projectState, UUID audioFileId, double volume, boolean loop) {
         return addWorkspaceTracks(projectState, List.of(audioFileId), volume, loop, null, false).getFirst();
     }
@@ -53,16 +22,24 @@ public class ProjectStateEditor {
             List<UUID> audioFileIds,
             double volume,
             boolean loop,
-            UUID targetWorkspaceTrackId,
+            UUID targetWorkspaceItemId,
             boolean placeAfter
     ) {
-        normalizeWorkspaceTrackOrder(projectState);
+        normalizeWorkspaceOrder(projectState);
 
-        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(projectState.getWorkspaceTracks());
-        int insertIndex = resolveInsertIndex(workspaceTracks, targetWorkspaceTrackId, placeAfter);
         List<WorkspaceTrack> createdTracks = new ArrayList<>();
-
-        for (UUID audioFileId : new LinkedHashSet<>(audioFileIds)) {
+        int insertOrder = resolveWorkspaceInsertOrder(projectState, targetWorkspaceItemId, placeAfter);
+        for (WorkspaceTrack existingTrack : projectState.getWorkspaceTracks()) {
+            if (existingTrack.getOrder() >= insertOrder) {
+                existingTrack.setOrder(existingTrack.getOrder() + audioFileIds.size());
+            }
+        }
+        for (WorkspaceQueue existingQueue : projectState.getWorkspaceQueues()) {
+            if (existingQueue.getOrder() >= insertOrder) {
+                existingQueue.setOrder(existingQueue.getOrder() + audioFileIds.size());
+            }
+        }
+        for (UUID audioFileId : audioFileIds) {
             if (audioFileId == null) {
                 continue;
             }
@@ -70,104 +47,311 @@ public class ProjectStateEditor {
             WorkspaceTrack workspaceTrack = new WorkspaceTrack(
                     UUID.randomUUID(),
                     audioFileId,
-                    insertIndex + createdTracks.size(),
+                    insertOrder + createdTracks.size(),
                     volume,
                     loop
             );
             createdTracks.add(workspaceTrack);
         }
 
-        workspaceTracks.addAll(insertIndex, createdTracks);
-        for (int index = 0; index < workspaceTracks.size(); index++) {
-            workspaceTracks.get(index).setOrder(index);
-        }
-        projectState.setWorkspaceTracks(workspaceTracks);
+        projectState.getWorkspaceTracks().addAll(createdTracks);
+        normalizeWorkspaceOrder(projectState);
         return createdTracks;
+    }
+
+    public WorkspaceQueue createWorkspaceQueue(ProjectState projectState, String name, double defaultVolume) {
+        normalizeWorkspaceOrder(projectState);
+        WorkspaceQueue workspaceQueue = new WorkspaceQueue(
+                UUID.randomUUID(),
+                name,
+                totalWorkspaceItemCount(projectState),
+                defaultVolume,
+                false
+        );
+        projectState.getWorkspaceQueues().add(workspaceQueue);
+        normalizeWorkspaceOrder(projectState);
+        return workspaceQueue;
+    }
+
+    public void renameWorkspaceQueue(ProjectState projectState, UUID queueId, String name) {
+        findWorkspaceQueue(projectState, queueId).ifPresent(queue -> queue.setName(name));
     }
 
     public void removeWorkspaceTrack(ProjectState projectState, UUID workspaceTrackId) {
         projectState.getWorkspaceTracks().removeIf(track -> track.getId().equals(workspaceTrackId));
-        normalizeWorkspaceTrackOrder(projectState);
+        normalizeWorkspaceOrder(projectState);
     }
 
-    public boolean moveWorkspaceTrack(ProjectState projectState, UUID workspaceTrackId, int direction) {
-        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(projectState.getWorkspaceTracks());
-        workspaceTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
+    public void removeWorkspaceQueue(ProjectState projectState, UUID queueId) {
+        projectState.getWorkspaceQueues().removeIf(queue -> queue.getId().equals(queueId));
+        normalizeWorkspaceOrder(projectState);
+    }
 
-        int currentIndex = -1;
-        for (int index = 0; index < workspaceTracks.size(); index++) {
-            if (workspaceTracks.get(index).getId().equals(workspaceTrackId)) {
-                currentIndex = index;
+    public boolean moveWorkspaceTrackToQueue(
+            ProjectState projectState,
+            UUID workspaceTrackId,
+            UUID queueId,
+            UUID targetQueueTrackId,
+            boolean placeAfter
+    ) {
+        if (workspaceTrackId == null || queueId == null) {
+            return false;
+        }
+
+        WorkspaceTrack workspaceTrack = projectState.getWorkspaceTracks().stream()
+                .filter(track -> track.getId().equals(workspaceTrackId))
+                .findFirst()
+                .orElse(null);
+        if (workspaceTrack == null) {
+            return false;
+        }
+
+        List<QueueTrack> createdTracks = addQueueTracks(
+                projectState,
+                queueId,
+                List.of(workspaceTrack.getAudioFileId()),
+                targetQueueTrackId,
+                placeAfter
+        );
+        if (createdTracks.isEmpty()) {
+            return false;
+        }
+
+        removeWorkspaceTrack(projectState, workspaceTrackId);
+        return true;
+    }
+
+    public WorkspaceTrack moveQueueTrackToWorkspace(
+            ProjectState projectState,
+            UUID sourceQueueId,
+            UUID queueTrackId,
+            double volume,
+            UUID targetWorkspaceItemId,
+            boolean placeAfter
+    ) {
+        if (sourceQueueId == null || queueTrackId == null) {
+            return null;
+        }
+
+        QueueTrack queueTrack = findQueueTrack(projectState, sourceQueueId, queueTrackId);
+        if (queueTrack == null) {
+            return null;
+        }
+
+        List<WorkspaceTrack> createdTracks = addWorkspaceTracks(
+                projectState,
+                List.of(queueTrack.getAudioFileId()),
+                volume,
+                queueTrack.isLoop(),
+                targetWorkspaceItemId,
+                placeAfter
+        );
+        if (createdTracks.isEmpty()) {
+            return null;
+        }
+
+        removeQueueTrack(projectState, sourceQueueId, queueTrackId);
+        return createdTracks.getFirst();
+    }
+
+    public boolean moveQueueTrackToQueue(
+            ProjectState projectState,
+            UUID sourceQueueId,
+            UUID targetQueueId,
+            UUID queueTrackId,
+            UUID targetQueueTrackId,
+            boolean placeAfter
+    ) {
+        if (sourceQueueId == null || targetQueueId == null || queueTrackId == null) {
+            return false;
+        }
+
+        if (sourceQueueId.equals(targetQueueId)) {
+            return moveQueueTrack(projectState, sourceQueueId, queueTrackId, targetQueueTrackId, placeAfter);
+        }
+
+        QueueTrack queueTrack = findQueueTrack(projectState, sourceQueueId, queueTrackId);
+        if (queueTrack == null) {
+            return false;
+        }
+
+        List<QueueTrack> createdTracks = addQueueTracks(
+                projectState,
+                targetQueueId,
+                List.of(queueTrack.getAudioFileId()),
+                targetQueueTrackId,
+                placeAfter
+        );
+        if (createdTracks.isEmpty()) {
+            return false;
+        }
+
+        createdTracks.getFirst().setLoop(queueTrack.isLoop());
+        removeQueueTrack(projectState, sourceQueueId, queueTrackId);
+        return true;
+    }
+
+    public List<QueueTrack> addQueueTracks(ProjectState projectState, UUID queueId, List<UUID> audioFileIds) {
+        return addQueueTracks(projectState, queueId, audioFileIds, null, false);
+    }
+
+    public List<QueueTrack> addQueueTracks(
+            ProjectState projectState,
+            UUID queueId,
+            List<UUID> audioFileIds,
+            UUID targetQueueTrackId,
+            boolean placeAfter
+    ) {
+        Optional<WorkspaceQueue> optionalQueue = findWorkspaceQueue(projectState, queueId);
+        if (optionalQueue.isEmpty()) {
+            return List.of();
+        }
+
+        WorkspaceQueue workspaceQueue = optionalQueue.get();
+        normalizeQueueTrackOrder(workspaceQueue);
+
+        List<QueueTrack> createdTracks = new ArrayList<>();
+        int startOrder = resolveQueueInsertOrder(workspaceQueue, targetQueueTrackId, placeAfter);
+        for (QueueTrack existingTrack : workspaceQueue.getTracks()) {
+            if (existingTrack.getOrder() >= startOrder) {
+                existingTrack.setOrder(existingTrack.getOrder() + audioFileIds.size());
+            }
+        }
+        for (UUID audioFileId : audioFileIds) {
+            if (audioFileId == null) {
+                continue;
+            }
+
+            QueueTrack queueTrack = new QueueTrack(
+                    UUID.randomUUID(),
+                    audioFileId,
+                    startOrder + createdTracks.size(),
+                    false
+            );
+            createdTracks.add(queueTrack);
+        }
+
+        workspaceQueue.getTracks().addAll(createdTracks);
+        normalizeQueueTrackOrder(workspaceQueue);
+        if (workspaceQueue.getSelectedTrackId() == null && !workspaceQueue.getTracks().isEmpty()) {
+            workspaceQueue.setSelectedTrackId(workspaceQueue.getTracks().getFirst().getId());
+        }
+        return createdTracks;
+    }
+
+    public void removeQueueTrack(ProjectState projectState, UUID queueId, UUID queueTrackId) {
+        findWorkspaceQueue(projectState, queueId).ifPresent(queue -> {
+            queue.getTracks().removeIf(track -> track.getId().equals(queueTrackId));
+            normalizeQueueTrackOrder(queue);
+            if (queueTrackId.equals(queue.getSelectedTrackId())) {
+                queue.setSelectedTrackId(queue.getTracks().isEmpty() ? null : queue.getTracks().getFirst().getId());
+            }
+        });
+    }
+
+    public boolean moveQueueTrack(ProjectState projectState, UUID queueId, UUID queueTrackId, UUID targetQueueTrackId, boolean placeAfter) {
+        if (queueId == null || queueTrackId == null || targetQueueTrackId == null || queueTrackId.equals(targetQueueTrackId)) {
+            return false;
+        }
+
+        Optional<WorkspaceQueue> optionalQueue = findWorkspaceQueue(projectState, queueId);
+        if (optionalQueue.isEmpty()) {
+            return false;
+        }
+
+        WorkspaceQueue workspaceQueue = optionalQueue.get();
+        List<QueueTrack> queueTracks = new ArrayList<>(workspaceQueue.getTracks());
+        queueTracks.sort(Comparator.comparingInt(QueueTrack::getOrder));
+
+        QueueTrack sourceTrack = null;
+        for (QueueTrack queueTrack : queueTracks) {
+            if (queueTrack.getId().equals(queueTrackId)) {
+                sourceTrack = queueTrack;
                 break;
             }
         }
 
-        if (currentIndex < 0) {
+        if (sourceTrack == null) {
             return false;
         }
 
-        int targetIndex = currentIndex + direction;
-        if (targetIndex < 0 || targetIndex >= workspaceTracks.size()) {
-            return false;
-        }
+        queueTracks.removeIf(track -> track.getId().equals(queueTrackId));
 
-        WorkspaceTrack currentTrack = workspaceTracks.get(currentIndex);
-        WorkspaceTrack targetTrack = workspaceTracks.get(targetIndex);
-        int currentOrder = currentTrack.getOrder();
-        currentTrack.setOrder(targetTrack.getOrder());
-        targetTrack.setOrder(currentOrder);
-        normalizeWorkspaceTrackOrder(projectState);
-        return true;
-    }
-
-    public boolean moveWorkspaceTrack(ProjectState projectState, UUID workspaceTrackId, UUID targetWorkspaceTrackId, boolean placeAfter) {
-        if (workspaceTrackId == null || targetWorkspaceTrackId == null || workspaceTrackId.equals(targetWorkspaceTrackId)) {
-            return false;
-        }
-
-        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(projectState.getWorkspaceTracks());
-        workspaceTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
-
-        WorkspaceTrack sourceTrack = null;
-        WorkspaceTrack targetTrack = null;
-        for (WorkspaceTrack workspaceTrack : workspaceTracks) {
-            if (workspaceTrack.getId().equals(workspaceTrackId)) {
-                sourceTrack = workspaceTrack;
-            } else if (workspaceTrack.getId().equals(targetWorkspaceTrackId)) {
-                targetTrack = workspaceTrack;
+        int targetIndex = -1;
+        for (int index = 0; index < queueTracks.size(); index++) {
+            if (queueTracks.get(index).getId().equals(targetQueueTrackId)) {
+                targetIndex = index;
+                break;
             }
         }
 
-        if (sourceTrack == null || targetTrack == null) {
+        if (targetIndex < 0) {
             return false;
         }
 
-        workspaceTracks.remove(sourceTrack);
-        int insertIndex = resolveInsertIndex(workspaceTracks, targetWorkspaceTrackId, placeAfter);
-        if (insertIndex < 0 || insertIndex > workspaceTracks.size()) {
-            return false;
+        queueTracks.add(placeAfter ? targetIndex + 1 : targetIndex, sourceTrack);
+        for (int index = 0; index < queueTracks.size(); index++) {
+            queueTracks.get(index).setOrder(index);
         }
-
-        workspaceTracks.add(insertIndex, sourceTrack);
-        for (int index = 0; index < workspaceTracks.size(); index++) {
-            workspaceTracks.get(index).setOrder(index);
-        }
-        projectState.setWorkspaceTracks(workspaceTracks);
+        workspaceQueue.setTracks(queueTracks);
         return true;
     }
 
-    public void normalizeWorkspaceTrackOrder(ProjectState projectState) {
-        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(projectState.getWorkspaceTracks());
-        workspaceTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
-        for (int index = 0; index < workspaceTracks.size(); index++) {
-            workspaceTracks.get(index).setOrder(index);
+    public boolean moveWorkspaceItem(ProjectState projectState, UUID workspaceItemId, UUID targetWorkspaceItemId, boolean placeAfter) {
+        if (workspaceItemId == null || targetWorkspaceItemId == null || workspaceItemId.equals(targetWorkspaceItemId)) {
+            return false;
         }
-        projectState.setWorkspaceTracks(workspaceTracks);
+
+        Optional<WorkspaceOrderEntry> sourceEntry = findWorkspaceOrderEntry(projectState, workspaceItemId);
+        Optional<WorkspaceOrderEntry> targetEntry = findWorkspaceOrderEntry(projectState, targetWorkspaceItemId);
+        if (sourceEntry.isEmpty() || targetEntry.isEmpty()) {
+            return false;
+        }
+
+        List<WorkspaceOrderEntry> entries = collectWorkspaceOrderEntries(projectState);
+        entries.sort(Comparator.comparingInt(WorkspaceOrderEntry::order));
+        entries.removeIf(entry -> entry.id().equals(workspaceItemId));
+
+        int targetIndex = -1;
+        for (int index = 0; index < entries.size(); index++) {
+            if (entries.get(index).id().equals(targetWorkspaceItemId)) {
+                targetIndex = index;
+                break;
+            }
+        }
+
+        if (targetIndex < 0) {
+            return false;
+        }
+
+        entries.add(placeAfter ? targetIndex + 1 : targetIndex, sourceEntry.get());
+        applyWorkspaceOrder(projectState, entries);
+        return true;
     }
 
-    public Optional<VirtualFolder> findVirtualFolder(ProjectState projectState, UUID folderId) {
-        return projectState.getVirtualFolders().stream()
-                .filter(folder -> folder.getId().equals(folderId))
+    public void clearWorkspace(ProjectState projectState) {
+        projectState.setWorkspaceTracks(List.of());
+        projectState.setWorkspaceQueues(List.of());
+    }
+
+    public void normalizeWorkspaceOrder(ProjectState projectState) {
+        List<WorkspaceOrderEntry> entries = collectWorkspaceOrderEntries(projectState);
+        entries.sort(Comparator.comparingInt(WorkspaceOrderEntry::order));
+        applyWorkspaceOrder(projectState, entries);
+    }
+
+    public void normalizeQueueTrackOrder(WorkspaceQueue workspaceQueue) {
+        List<QueueTrack> queueTracks = new ArrayList<>(workspaceQueue.getTracks());
+        queueTracks.sort(Comparator.comparingInt(QueueTrack::getOrder));
+        for (int index = 0; index < queueTracks.size(); index++) {
+            queueTracks.get(index).setOrder(index);
+        }
+        workspaceQueue.setTracks(queueTracks);
+    }
+
+    public Optional<WorkspaceQueue> findWorkspaceQueue(ProjectState projectState, UUID queueId) {
+        return projectState.getWorkspaceQueues().stream()
+                .filter(queue -> queue.getId().equals(queueId))
                 .findFirst();
     }
 
@@ -177,23 +361,87 @@ public class ProjectStateEditor {
                 .findFirst();
     }
 
-    private void sortVirtualFolders(ProjectState projectState) {
-        List<VirtualFolder> virtualFolders = new ArrayList<>(projectState.getVirtualFolders());
-        virtualFolders.sort(Comparator.comparing(VirtualFolder::getName, String.CASE_INSENSITIVE_ORDER));
-        projectState.setVirtualFolders(virtualFolders);
-    }
-
-    private int resolveInsertIndex(List<WorkspaceTrack> workspaceTracks, UUID targetWorkspaceTrackId, boolean placeAfter) {
-        if (targetWorkspaceTrackId == null) {
-            return workspaceTracks.size();
+    private QueueTrack findQueueTrack(ProjectState projectState, UUID queueId, UUID queueTrackId) {
+        Optional<WorkspaceQueue> optionalQueue = findWorkspaceQueue(projectState, queueId);
+        if (optionalQueue.isEmpty()) {
+            return null;
         }
 
-        for (int index = 0; index < workspaceTracks.size(); index++) {
-            if (workspaceTracks.get(index).getId().equals(targetWorkspaceTrackId)) {
+        return optionalQueue.get().getTracks().stream()
+                .filter(track -> track.getId().equals(queueTrackId))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private int resolveWorkspaceInsertOrder(ProjectState projectState, UUID targetWorkspaceItemId, boolean placeAfter) {
+        List<WorkspaceOrderEntry> entries = collectWorkspaceOrderEntries(projectState);
+        entries.sort(Comparator.comparingInt(WorkspaceOrderEntry::order));
+
+        if (targetWorkspaceItemId == null) {
+            return entries.size();
+        }
+
+        for (int index = 0; index < entries.size(); index++) {
+            if (entries.get(index).id().equals(targetWorkspaceItemId)) {
                 return placeAfter ? index + 1 : index;
             }
         }
 
-        return workspaceTracks.size();
+        return entries.size();
+    }
+
+    private int totalWorkspaceItemCount(ProjectState projectState) {
+        return projectState.getWorkspaceTracks().size() + projectState.getWorkspaceQueues().size();
+    }
+
+    private int resolveQueueInsertOrder(WorkspaceQueue workspaceQueue, UUID targetQueueTrackId, boolean placeAfter) {
+        List<QueueTrack> queueTracks = new ArrayList<>(workspaceQueue.getTracks());
+        queueTracks.sort(Comparator.comparingInt(QueueTrack::getOrder));
+
+        if (targetQueueTrackId == null) {
+            return queueTracks.size();
+        }
+
+        for (int index = 0; index < queueTracks.size(); index++) {
+            if (queueTracks.get(index).getId().equals(targetQueueTrackId)) {
+                return placeAfter ? index + 1 : index;
+            }
+        }
+
+        return queueTracks.size();
+    }
+
+    private Optional<WorkspaceOrderEntry> findWorkspaceOrderEntry(ProjectState projectState, UUID workspaceItemId) {
+        return collectWorkspaceOrderEntries(projectState).stream()
+                .filter(entry -> entry.id().equals(workspaceItemId))
+                .findFirst();
+    }
+
+    private List<WorkspaceOrderEntry> collectWorkspaceOrderEntries(ProjectState projectState) {
+        List<WorkspaceOrderEntry> entries = new ArrayList<>();
+        for (WorkspaceTrack workspaceTrack : projectState.getWorkspaceTracks()) {
+            entries.add(new WorkspaceOrderEntry(workspaceTrack.getId(), workspaceTrack.getOrder(), workspaceTrack::setOrder));
+        }
+        for (WorkspaceQueue workspaceQueue : projectState.getWorkspaceQueues()) {
+            entries.add(new WorkspaceOrderEntry(workspaceQueue.getId(), workspaceQueue.getOrder(), workspaceQueue::setOrder));
+        }
+        return entries;
+    }
+
+    private void applyWorkspaceOrder(ProjectState projectState, List<WorkspaceOrderEntry> entries) {
+        for (int index = 0; index < entries.size(); index++) {
+            entries.get(index).orderSetter().accept(index);
+        }
+
+        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(projectState.getWorkspaceTracks());
+        workspaceTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
+        projectState.setWorkspaceTracks(workspaceTracks);
+
+        List<WorkspaceQueue> workspaceQueues = new ArrayList<>(projectState.getWorkspaceQueues());
+        workspaceQueues.sort(Comparator.comparingInt(WorkspaceQueue::getOrder));
+        projectState.setWorkspaceQueues(workspaceQueues);
+    }
+
+    private record WorkspaceOrderEntry(UUID id, int order, java.util.function.IntConsumer orderSetter) {
     }
 }

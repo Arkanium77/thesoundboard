@@ -1,197 +1,123 @@
 package app.ui.main;
 
 import app.config.UiConfig;
+import app.ui.drag.DragPayload;
+import app.ui.queue.QueueView;
 import app.ui.tile.TrackTileView;
+import app.ui.workspace.WorkspaceInsertionMarker;
+import app.ui.workspace.WorkspaceItemView;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
-import javafx.scene.input.TransferMode;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.ScrollEvent;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.TilePane;
+import javafx.scene.layout.FlowPane;
+import javafx.scene.layout.Region;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 public class WorkspaceView extends BorderPane {
-    private static final String WORKSPACE_TRACK_PREFIX = "workspace-track:";
-    private static final String AUDIO_FILE_PREFIX = "audio-files:";
-
-    private final TilePane trackContainer = new TilePane();
-    private final Label emptyStateLabel = new Label("Add tracks from the left tree to build the workspace.");
-    private final ScrollPane scrollPane = new ScrollPane(trackContainer);
+    private final FlowPane contentPane = new FlowPane();
+    private final Label emptyStateLabel = new Label("Add tracks from the left tree or create a queue from the workspace context menu.");
+    private final ScrollPane scrollPane = new ScrollPane(contentPane);
     private final WorkspaceDropHandler workspaceDropHandler;
-    private TrackTileView insertionTargetTile;
+    private final UiConfig uiConfig;
+    private double currentTileWidth;
+    private double currentTileHeight;
+    private ContextMenu workspaceContextMenu;
+    private WorkspaceItemView insertionTargetView;
     private boolean insertionAfter;
 
     public WorkspaceView(UiConfig uiConfig, WorkspaceDropHandler workspaceDropHandler) {
+        this.uiConfig = uiConfig;
         this.workspaceDropHandler = workspaceDropHandler;
-        trackContainer.setPadding(new Insets(12));
-        trackContainer.setHgap(12);
-        trackContainer.setVgap(12);
-        trackContainer.setPrefTileWidth(uiConfig.getTrackTileWidth());
-        trackContainer.setPrefTileHeight(uiConfig.getTrackTileHeight());
-        trackContainer.setAlignment(Pos.TOP_LEFT);
-        configureContainerDragAndDrop();
+        this.currentTileWidth = uiConfig.getTrackTileWidth();
+        this.currentTileHeight = uiConfig.getTrackTileHeight();
+
+        contentPane.setPadding(new Insets(12));
+        contentPane.setHgap(12);
+        contentPane.setVgap(12);
+        contentPane.setPrefWrapLength(uiConfig.getMinWidth());
+        contentPane.setAlignment(Pos.TOP_LEFT);
 
         scrollPane.setFitToWidth(true);
-        scrollPane.setContent(trackContainer);
-        scrollPane.viewportBoundsProperty().addListener((observable, oldValue, newValue) -> updateContainerWidth(newValue));
+        scrollPane.setContent(contentPane);
+        scrollPane.viewportBoundsProperty().addListener((observable, oldValue, newValue) -> updateContainerSize(newValue));
+        addEventFilter(ScrollEvent.SCROLL, event -> {
+            if (!event.isControlDown()) {
+                return;
+            }
+            workspaceDropHandler.adjustWorkspaceZoom(event.getDeltaY());
+            event.consume();
+        });
 
         setCenter(scrollPane);
-        configureRootDragAndDrop();
+        configureContainerDragAndDrop();
+        configureContextMenu();
         updateEmptyState();
     }
 
-    public void setTrackTiles(List<TrackTileView> trackTileViews) {
-        trackTileViews.forEach(this::configureDragAndDrop);
-        trackContainer.getChildren().setAll(trackTileViews);
+    public void setWorkspaceNodes(List<Node> workspaceNodes) {
+        workspaceNodes.forEach(this::configureNodeDragAndDrop);
+        contentPane.getChildren().setAll(workspaceNodes);
+        updateQueueWidths();
         updateEmptyState();
     }
 
-    public List<TrackTileView> clearAndReturnCurrentTiles() {
-        List<TrackTileView> trackTileViews = new ArrayList<>();
-        trackContainer.getChildren().forEach(node -> {
+    public List<Node> clearAndReturnCurrentNodes() {
+        List<Node> workspaceNodes = new ArrayList<>(contentPane.getChildren());
+        contentPane.getChildren().clear();
+        clearInsertionMarker();
+        updateEmptyState();
+        return workspaceNodes;
+    }
+
+    public void refreshTileMetrics(double tileWidth, double tileHeight, double tileScale) {
+        currentTileWidth = tileWidth;
+        currentTileHeight = tileHeight;
+        for (Node node : contentPane.getChildren()) {
             if (node instanceof TrackTileView trackTileView) {
-                trackTileView.setInsertionMarker(TrackTileView.InsertionMarker.NONE);
-                trackTileViews.add(trackTileView);
+                trackTileView.updateTileSize(tileWidth, tileHeight, tileScale);
+            } else if (node instanceof QueueView queueView) {
+                queueView.updateTileMetrics(tileWidth, tileHeight, tileScale);
             }
-        });
-
-        trackContainer.getChildren().clear();
-        updateEmptyState();
-        return trackTileViews;
+        }
+        updateQueueWidths();
     }
 
-    private void updateContainerWidth(Bounds viewportBounds) {
-        trackContainer.setPrefWidth(Math.max(viewportBounds.getWidth(), trackContainer.getPrefTileWidth()));
-    }
+    private void configureContextMenu() {
+        MenuItem createQueueItem = new MenuItem("Create Queue");
+        createQueueItem.setOnAction(event -> workspaceDropHandler.createQueue());
+        workspaceContextMenu = new ContextMenu(createQueueItem);
 
-    private void configureDragAndDrop(TrackTileView trackTileView) {
-        trackTileView.setOnDragDetected(event -> {
-            if (trackContainer.getChildren().size() < 2) {
-                return;
-            }
+        setOnContextMenuRequested(event -> toggleContextMenu(this, event.getScreenX(), event.getScreenY()));
+        scrollPane.setOnContextMenuRequested(event -> toggleContextMenu(scrollPane, event.getScreenX(), event.getScreenY()));
+        contentPane.setOnContextMenuRequested(event -> toggleContextMenu(contentPane, event.getScreenX(), event.getScreenY()));
+        emptyStateLabel.setOnContextMenuRequested(event -> toggleContextMenu(emptyStateLabel, event.getScreenX(), event.getScreenY()));
 
-            var dragboard = trackTileView.startDragAndDrop(TransferMode.MOVE);
-            var content = new javafx.scene.input.ClipboardContent();
-            content.putString(WORKSPACE_TRACK_PREFIX + trackTileView.getWorkspaceTrackId());
-            dragboard.setContent(content);
-            event.consume();
-        });
-
-        trackTileView.setOnDragOver(event -> {
-            if (!isSupportedDragPayload(event.getDragboard().getString())) {
-                return;
-            }
-
-            UUID draggedTrackId = parseWorkspaceTrackId(event.getDragboard().getString());
-            if (draggedTrackId != null && draggedTrackId.equals(trackTileView.getWorkspaceTrackId())) {
-                return;
-            }
-
-            updateInsertionMarker(trackTileView, event.getX() >= trackTileView.getWidth() / 2d);
-            event.acceptTransferModes(TransferMode.COPY_OR_MOVE);
-            event.consume();
-        });
-
-        trackTileView.setOnDragExited(event -> {
-            if (!isPointerInside(trackTileView, event.getSceneX(), event.getSceneY())) {
-                clearInsertionMarker();
-            }
-        });
-
-        trackTileView.setOnDragDropped(event -> {
-            boolean completed = false;
-            String payload = event.getDragboard().getString();
-            boolean placeAfter = event.getX() >= trackTileView.getWidth() / 2d;
-
-            UUID draggedTrackId = parseWorkspaceTrackId(payload);
-            if (draggedTrackId != null && !draggedTrackId.equals(trackTileView.getWorkspaceTrackId())) {
-                workspaceDropHandler.moveTrack(draggedTrackId, trackTileView.getWorkspaceTrackId(), placeAfter);
-                completed = true;
-            }
-
-            List<UUID> audioFileIds = parseAudioFileIds(payload);
-            if (!audioFileIds.isEmpty()) {
-                workspaceDropHandler.addAudioFiles(audioFileIds, trackTileView.getWorkspaceTrackId(), placeAfter);
-                completed = true;
-            }
-
-            clearInsertionMarker();
-            event.setDropCompleted(completed);
-            event.consume();
-        });
-
-        trackTileView.setOnDragDone(event -> clearInsertionMarker());
+        setOnMousePressed(event -> hideContextMenu());
+        scrollPane.setOnMousePressed(event -> hideContextMenu());
+        contentPane.setOnMousePressed(event -> hideContextMenu());
+        emptyStateLabel.setOnMousePressed(event -> hideContextMenu());
     }
 
     private void configureContainerDragAndDrop() {
-        trackContainer.setOnDragOver(event -> {
-            if (!isSupportedDragPayload(event.getDragboard().getString())) {
-                return;
-            }
-
-            Node targetNode = event.getPickResult().getIntersectedNode();
-            if (findTrackTile(targetNode) == null) {
-                showAppendMarker();
-            }
-
-            event.acceptTransferModes(TransferMode.COPY_OR_MOVE);
-            event.consume();
-        });
-
-        trackContainer.setOnDragExited(event -> {
-            if (!isPointerInside(trackContainer, event.getSceneX(), event.getSceneY())) {
-                clearInsertionMarker();
-            }
-        });
-
-        trackContainer.setOnDragDropped(event -> {
-            String payload = event.getDragboard().getString();
-            if (!isSupportedDragPayload(payload)) {
-                event.setDropCompleted(false);
-                return;
-            }
-
-            boolean completed = false;
-            UUID draggedTrackId = parseWorkspaceTrackId(payload);
-            if (draggedTrackId != null && insertionTargetTile != null) {
-                workspaceDropHandler.moveTrack(draggedTrackId, insertionTargetTile.getWorkspaceTrackId(), insertionAfter);
-                completed = true;
-            } else if (draggedTrackId != null) {
-                workspaceDropHandler.moveTrackToEnd(draggedTrackId);
-                completed = true;
-            }
-
-            List<UUID> audioFileIds = parseAudioFileIds(payload);
-            if (!audioFileIds.isEmpty()) {
-                if (insertionTargetTile != null) {
-                    workspaceDropHandler.addAudioFiles(audioFileIds, insertionTargetTile.getWorkspaceTrackId(), insertionAfter);
-                } else {
-                    workspaceDropHandler.addAudioFiles(audioFileIds, null, false);
-                }
-                completed = true;
-            }
-
-            clearInsertionMarker();
-            event.setDropCompleted(completed);
-            event.consume();
-        });
-    }
-
-    private void configureRootDragAndDrop() {
         setOnDragOver(event -> {
-            if (!isSupportedDragPayload(event.getDragboard().getString())) {
+            if (!isSupportedPayload(event.getDragboard().getString())) {
                 return;
             }
 
-            if (trackContainer.getChildren().isEmpty()) {
+            if (contentPane.getChildren().isEmpty()) {
                 clearInsertionMarker();
             }
 
@@ -201,7 +127,7 @@ public class WorkspaceView extends BorderPane {
 
         setOnDragDropped(event -> {
             String payload = event.getDragboard().getString();
-            if (!isSupportedDragPayload(payload)) {
+            if (!isSupportedPayload(payload)) {
                 event.setDropCompleted(false);
                 return;
             }
@@ -209,13 +135,22 @@ public class WorkspaceView extends BorderPane {
             boolean completed = false;
             List<UUID> audioFileIds = parseAudioFileIds(payload);
             if (!audioFileIds.isEmpty()) {
-                workspaceDropHandler.addAudioFiles(audioFileIds, null, false);
+                workspaceDropHandler.addAudioFilesAsSolo(audioFileIds, null, false);
                 completed = true;
             }
 
-            UUID draggedTrackId = parseWorkspaceTrackId(payload);
-            if (draggedTrackId != null) {
-                workspaceDropHandler.moveTrackToEnd(draggedTrackId);
+            UUID workspaceItemId = parseWorkspaceTrackId(payload);
+            if (workspaceItemId == null) {
+                workspaceItemId = parseWorkspaceQueueId(payload);
+            }
+            if (workspaceItemId != null) {
+                workspaceDropHandler.moveWorkspaceItemToEnd(workspaceItemId);
+                completed = true;
+            }
+
+            QueueTrackPayload queueTrackPayload = parseQueueTrackPayload(payload);
+            if (queueTrackPayload != null) {
+                workspaceDropHandler.moveQueueTrackToWorkspace(queueTrackPayload.queueId(), queueTrackPayload.queueTrackId(), null, false);
                 completed = true;
             }
 
@@ -225,87 +160,154 @@ public class WorkspaceView extends BorderPane {
         });
     }
 
-    private void updateInsertionMarker(TrackTileView trackTileView, boolean placeAfter) {
-        if (insertionTargetTile == trackTileView && insertionAfter == placeAfter) {
+    private void configureNodeDragAndDrop(Node node) {
+        if (!(node instanceof WorkspaceItemView workspaceItemView)) {
+            return;
+        }
+
+        node.setOnDragDetected(event -> {
+            var dragboard = node.startDragAndDrop(TransferMode.MOVE);
+            ClipboardContent content = new ClipboardContent();
+            if (node instanceof QueueView) {
+                content.putString(DragPayload.workspaceQueue(workspaceItemView.getWorkspaceItemId()));
+            } else if (node instanceof TrackTileView) {
+                content.putString(DragPayload.workspaceTrack(workspaceItemView.getWorkspaceItemId()));
+            } else {
+                return;
+            }
+            dragboard.setContent(content);
+            event.consume();
+        });
+
+        if (node instanceof QueueView) {
+            return;
+        }
+
+        node.setOnDragOver(event -> {
+            String payload = event.getDragboard().getString();
+            if (!isSupportedPayload(payload)) {
+                return;
+            }
+
+            UUID workspaceItemId = parseWorkspaceTrackId(payload);
+            if (workspaceItemId == null) {
+                workspaceItemId = parseWorkspaceQueueId(payload);
+            }
+            if (workspaceItemId != null && workspaceItemId.equals(workspaceItemView.getWorkspaceItemId())) {
+                return;
+            }
+
+            updateInsertionMarker(workspaceItemView, event.getX() >= node.getBoundsInLocal().getWidth() / 2d);
+            event.acceptTransferModes(TransferMode.COPY_OR_MOVE);
+            event.consume();
+        });
+
+        node.setOnDragExited(event -> {
+            if (!isPointerInside(node, event.getSceneX(), event.getSceneY())) {
+                clearInsertionMarker();
+            }
+        });
+
+        node.setOnDragDropped(event -> {
+            String payload = event.getDragboard().getString();
+            boolean completed = false;
+            boolean placeAfter = event.getX() >= node.getBoundsInLocal().getWidth() / 2d;
+
+            UUID workspaceItemId = parseWorkspaceTrackId(payload);
+            if (workspaceItemId == null) {
+                workspaceItemId = parseWorkspaceQueueId(payload);
+            }
+            if (workspaceItemId != null && !workspaceItemId.equals(workspaceItemView.getWorkspaceItemId())) {
+                workspaceDropHandler.moveWorkspaceItem(workspaceItemId, workspaceItemView.getWorkspaceItemId(), placeAfter);
+                completed = true;
+            }
+
+            List<UUID> audioFileIds = parseAudioFileIds(payload);
+            if (!audioFileIds.isEmpty()) {
+                workspaceDropHandler.addAudioFilesAsSolo(audioFileIds, workspaceItemView.getWorkspaceItemId(), placeAfter);
+                completed = true;
+            }
+
+            QueueTrackPayload queueTrackPayload = parseQueueTrackPayload(payload);
+            if (queueTrackPayload != null) {
+                workspaceDropHandler.moveQueueTrackToWorkspace(
+                        queueTrackPayload.queueId(),
+                        queueTrackPayload.queueTrackId(),
+                        workspaceItemView.getWorkspaceItemId(),
+                        placeAfter
+                );
+                completed = true;
+            }
+
+            clearInsertionMarker();
+            event.setDropCompleted(completed);
+            event.consume();
+        });
+
+        node.setOnDragDone(event -> clearInsertionMarker());
+    }
+
+    private void updateContainerSize(Bounds viewportBounds) {
+        contentPane.setPrefWrapLength(Math.max(viewportBounds.getWidth(), 320d));
+        contentPane.setMinHeight(Math.max(viewportBounds.getHeight(), 0d));
+        contentPane.setPrefHeight(Region.USE_COMPUTED_SIZE);
+        updateQueueWidths();
+    }
+
+    private void updateQueueWidths() {
+        double queueWidth = contentPane.getHgap() <= 0d
+                ? uiConfig.getQueueWidthInTiles() * currentTileWidth
+                : uiConfig.getQueueWidthInTiles() * currentTileWidth + (uiConfig.getQueueWidthInTiles() - 1d) * contentPane.getHgap();
+        for (Node node : contentPane.getChildren()) {
+            if (node instanceof QueueView queueView) {
+                queueView.setMinWidth(queueWidth);
+                queueView.setPrefWidth(queueWidth);
+                queueView.setMaxWidth(queueWidth);
+            }
+        }
+    }
+
+    private void updateInsertionMarker(WorkspaceItemView workspaceItemView, boolean placeAfter) {
+        if (insertionTargetView == workspaceItemView && insertionAfter == placeAfter) {
             return;
         }
 
         clearInsertionMarker();
-        insertionTargetTile = trackTileView;
+        insertionTargetView = workspaceItemView;
         insertionAfter = placeAfter;
-        trackTileView.setInsertionMarker(placeAfter ? TrackTileView.InsertionMarker.RIGHT : TrackTileView.InsertionMarker.LEFT);
-    }
-
-    private void showAppendMarker() {
-        clearInsertionMarker();
-        TrackTileView lastTile = getLastTile();
-        if (lastTile != null) {
-            insertionTargetTile = lastTile;
-            insertionAfter = true;
-            lastTile.setInsertionMarker(TrackTileView.InsertionMarker.RIGHT);
-        }
+        workspaceItemView.setInsertionMarker(placeAfter ? WorkspaceInsertionMarker.RIGHT : WorkspaceInsertionMarker.LEFT);
     }
 
     private void clearInsertionMarker() {
-        if (insertionTargetTile != null) {
-            insertionTargetTile.setInsertionMarker(TrackTileView.InsertionMarker.NONE);
-            insertionTargetTile = null;
+        if (insertionTargetView != null) {
+            insertionTargetView.setInsertionMarker(WorkspaceInsertionMarker.NONE);
+            insertionTargetView = null;
         }
         insertionAfter = false;
     }
 
-    private boolean isSupportedDragPayload(String payload) {
-        return parseWorkspaceTrackId(payload) != null || !parseAudioFileIds(payload).isEmpty();
+    private UUID parseWorkspaceTrackId(String payload) {
+        return DragPayload.parseWorkspaceTrackId(payload);
     }
 
-    private UUID parseWorkspaceTrackId(String payload) {
-        if (payload == null || !payload.startsWith(WORKSPACE_TRACK_PREFIX)) {
-            return null;
-        }
+    private UUID parseWorkspaceQueueId(String payload) {
+        return DragPayload.parseWorkspaceQueueId(payload);
+    }
 
-        return parseTrackId(payload.substring(WORKSPACE_TRACK_PREFIX.length()));
+    private QueueTrackPayload parseQueueTrackPayload(String payload) {
+        DragPayload.QueueTrackRef queueTrackRef = DragPayload.parseQueueTrack(payload);
+        return queueTrackRef == null ? null : new QueueTrackPayload(queueTrackRef.queueId(), queueTrackRef.queueTrackId());
     }
 
     private List<UUID> parseAudioFileIds(String payload) {
-        if (payload == null || !payload.startsWith(AUDIO_FILE_PREFIX)) {
-            return List.of();
-        }
-
-        return List.of(payload.substring(AUDIO_FILE_PREFIX.length()).split(",")).stream()
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .map(this::parseTrackId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        return DragPayload.parseAudioFileIds(payload);
     }
 
-    private UUID parseTrackId(String value) {
-        try {
-            return value == null || value.isBlank() ? null : UUID.fromString(value);
-        } catch (IllegalArgumentException exception) {
-            return null;
-        }
-    }
-
-    private TrackTileView getLastTile() {
-        for (int index = trackContainer.getChildren().size() - 1; index >= 0; index--) {
-            Node node = trackContainer.getChildren().get(index);
-            if (node instanceof TrackTileView trackTileView) {
-                return trackTileView;
-            }
-        }
-        return null;
-    }
-
-    private TrackTileView findTrackTile(Node node) {
-        Node current = node;
-        while (current != null && current != trackContainer) {
-            if (current instanceof TrackTileView trackTileView) {
-                return trackTileView;
-            }
-            current = current.getParent();
-        }
-        return null;
+    private boolean isSupportedPayload(String payload) {
+        return parseWorkspaceTrackId(payload) != null
+                || parseWorkspaceQueueId(payload) != null
+                || parseQueueTrackPayload(payload) != null
+                || !parseAudioFileIds(payload).isEmpty();
     }
 
     private boolean isPointerInside(Node node, double sceneX, double sceneY) {
@@ -314,7 +316,7 @@ public class WorkspaceView extends BorderPane {
     }
 
     private void updateEmptyState() {
-        if (trackContainer.getChildren().isEmpty()) {
+        if (contentPane.getChildren().isEmpty()) {
             setTop(emptyStateLabel);
             BorderPane.setMargin(emptyStateLabel, new Insets(12, 12, 0, 12));
         } else {
@@ -322,11 +324,37 @@ public class WorkspaceView extends BorderPane {
         }
     }
 
+    private void toggleContextMenu(Node owner, double screenX, double screenY) {
+        if (workspaceContextMenu == null) {
+            return;
+        }
+        if (workspaceContextMenu.isShowing()) {
+            workspaceContextMenu.hide();
+            return;
+        }
+        workspaceContextMenu.show(owner, screenX, screenY);
+    }
+
+    private void hideContextMenu() {
+        if (workspaceContextMenu != null && workspaceContextMenu.isShowing()) {
+            workspaceContextMenu.hide();
+        }
+    }
+
     public interface WorkspaceDropHandler {
-        void moveTrack(UUID workspaceTrackId, UUID targetWorkspaceTrackId, boolean placeAfter);
+        void moveWorkspaceItem(UUID workspaceItemId, UUID targetWorkspaceItemId, boolean placeAfter);
 
-        void moveTrackToEnd(UUID workspaceTrackId);
+        void moveWorkspaceItemToEnd(UUID workspaceItemId);
 
-        void addAudioFiles(List<UUID> audioFileIds, UUID targetWorkspaceTrackId, boolean placeAfter);
+        void addAudioFilesAsSolo(List<UUID> audioFileIds, UUID targetWorkspaceItemId, boolean placeAfter);
+
+        void moveQueueTrackToWorkspace(UUID sourceQueueId, UUID queueTrackId, UUID targetWorkspaceItemId, boolean placeAfter);
+
+        void adjustWorkspaceZoom(double deltaY);
+
+        void createQueue();
+    }
+
+    private record QueueTrackPayload(UUID queueId, UUID queueTrackId) {
     }
 }

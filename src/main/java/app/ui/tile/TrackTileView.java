@@ -2,6 +2,9 @@ package app.ui.tile;
 
 import app.config.UiConfig;
 import app.model.PlaybackStatus;
+import app.ui.UiIcons;
+import app.ui.workspace.WorkspaceInsertionMarker;
+import app.ui.workspace.WorkspaceItemView;
 import app.ui.workspace.WorkspaceTrackItem;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
@@ -31,11 +34,13 @@ import javafx.util.Duration;
 
 import java.util.UUID;
 
-public class TrackTileView extends StackPane {
+public class TrackTileView extends StackPane implements WorkspaceItemView {
     private static final String BASE_STYLE = "-fx-background-color: #f5f7fb; -fx-border-color: #c9d1e3; -fx-border-radius: 8; -fx-background-radius: 8;";
     private static final String LOOP_BUTTON_STYLE = "-fx-font-size: 14px; -fx-padding: 2 8 2 8;";
     private static final String MUTE_BUTTON_STYLE = "-fx-font-size: 13px; -fx-padding: 2 8 2 8;";
     private static final String INSERT_SEGMENT_STYLE = "-fx-background-color: #4a83d8;";
+    private static final double SEEK_SETTLE_THRESHOLD_MILLIS = 750d;
+    private static final long SEEK_SETTLE_TIMEOUT_NANOS = 1_500_000_000L;
 
     private final WorkspaceTrackItem workspaceTrackItem;
     private final Runnable removeAction;
@@ -49,17 +54,21 @@ public class TrackTileView extends StackPane {
     private final Label titleLabel = new Label();
     private final Circle statusIndicator = new Circle(5d, Color.web("#97a3b6"));
 
-    private final Button playPauseButton = new Button("Play");
-    private final Button stopButton = new Button("Stop");
+    private final Button playPauseButton = new Button(UiIcons.PLAY);
+    private final Button stopButton = new Button(UiIcons.STOP);
     private final Button removeButton = new Button("Remove");
-    private final ToggleButton loopButton = new ToggleButton("↻");
-    private final ToggleButton muteButton = new ToggleButton("🔊");
+    private final ToggleButton loopButton = new ToggleButton(UiIcons.LOOP);
+    private final ToggleButton muteButton = new ToggleButton(UiIcons.UNMUTED);
     private final Slider volumeSlider = new Slider(0d, 100d, 80d);
     private final Slider progressSlider = new Slider(0d, 1d, 0d);
     private final Label currentTimeLabel = new Label("00:00");
     private final Label totalTimeLabel = new Label("00:00");
 
     private boolean seeking;
+    private boolean seekCommittedForGesture;
+    private Double pendingSeekMillis;
+    private long pendingSeekDeadlineNanos;
+    private double currentScale = 1d;
     private SequentialTransition titleAnimation;
 
     public TrackTileView(
@@ -87,22 +96,22 @@ public class TrackTileView extends StackPane {
         stopTitleAnimation();
     }
 
+    public void updateTileSize(double tileWidth, double tileHeight, double tileScale) {
+        setMinWidth(tileWidth);
+        setPrefWidth(tileWidth);
+        setMaxWidth(tileWidth);
+        setMinHeight(tileHeight);
+        setPrefHeight(tileHeight);
+        setMaxHeight(tileHeight);
+        applyScale(tileScale);
+    }
+
     private void configureLayout(UiConfig uiConfig) {
-        setPadding(new Insets(12));
-        setMinWidth(uiConfig.getTrackTileWidth());
-        setPrefWidth(uiConfig.getTrackTileWidth());
-        setMaxWidth(uiConfig.getTrackTileWidth());
-        setMinHeight(uiConfig.getTrackTileHeight());
-        setPrefHeight(uiConfig.getTrackTileHeight());
-        setMaxHeight(uiConfig.getTrackTileHeight());
+        updateTileSize(uiConfig.getTrackTileWidth(), uiConfig.getTrackTileHeight(), 1d);
         setStyle(BASE_STYLE);
-        contentPane.setPadding(new Insets(12));
 
         titleLabel.setText(workspaceTrackItem.getAudioFile().getDisplayName());
-        titleLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
         titleLabel.setWrapText(false);
-        titleViewport.setMinHeight(22d);
-        titleViewport.setPrefHeight(22d);
         titleViewport.setClip(titleClip);
         titleViewport.getChildren().add(titleLabel);
         titleViewport.widthProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
@@ -119,6 +128,8 @@ public class TrackTileView extends StackPane {
         configureActionButton(stopButton);
         configureActionButton(removeButton);
 
+        playPauseButton.setTooltip(new Tooltip("Play / Pause"));
+        stopButton.setTooltip(new Tooltip("Stop"));
         loopButton.setTooltip(new Tooltip("Loop"));
         loopButton.setStyle(LOOP_BUTTON_STYLE);
         muteButton.setTooltip(new Tooltip("Mute"));
@@ -144,7 +155,6 @@ public class TrackTileView extends StackPane {
         insertionMarkers.setAlignment(Pos.CENTER);
 
         StackPane.setAlignment(statusIndicator, Pos.TOP_RIGHT);
-        StackPane.setMargin(statusIndicator, new Insets(8, 8, 0, 0));
         getChildren().setAll(contentPane, insertionMarkers, statusIndicator);
         updateTitleAnimation();
     }
@@ -189,19 +199,32 @@ public class TrackTileView extends StackPane {
         progressSlider.valueChangingProperty().addListener((observable, oldValue, newValue) -> {
             seeking = newValue;
             if (!newValue) {
-                seekToSliderValue();
+                commitSeekForGesture();
             }
         });
-        progressSlider.setOnMousePressed(event -> seeking = true);
+        progressSlider.setOnMousePressed(event -> {
+            seeking = true;
+            seekCommittedForGesture = false;
+        });
         progressSlider.setOnMouseReleased(event -> {
             seeking = false;
-            seekToSliderValue();
+            commitSeekForGesture();
         });
     }
 
     private void seekToSliderValue() {
-        workspaceTrackItem.seek(Duration.millis(progressSlider.getValue()));
+        pendingSeekMillis = progressSlider.getValue();
+        pendingSeekDeadlineNanos = System.nanoTime() + SEEK_SETTLE_TIMEOUT_NANOS;
+        workspaceTrackItem.seek(Duration.millis(pendingSeekMillis));
         refresh();
+    }
+
+    private void commitSeekForGesture() {
+        if (seekCommittedForGesture) {
+            return;
+        }
+        seekCommittedForGesture = true;
+        seekToSliderValue();
     }
 
     private void refresh() {
@@ -217,17 +240,27 @@ public class TrackTileView extends StackPane {
         progressSlider.setDisable(missing || playbackStatus == PlaybackStatus.ERROR);
         muteButton.setDisable(missing || playbackStatus == PlaybackStatus.ERROR);
 
-        playPauseButton.setText(playbackStatus == PlaybackStatus.PLAYING ? "Pause" : "Play");
+        playPauseButton.setText(playbackStatus == PlaybackStatus.PLAYING ? UiIcons.PAUSE : UiIcons.PLAY);
         refreshMuteButton();
         statusIndicator.setFill(resolveStatusColor(missing, playbackStatus));
 
         double totalMillis = Math.max(totalTime.toMillis(), 1d);
-        progressSlider.setMax(totalMillis);
-        if (!seeking) {
-            progressSlider.setValue(Math.min(currentTime.toMillis(), totalMillis));
+        double displayedCurrentMillis = currentTime.toMillis();
+        if (pendingSeekMillis != null) {
+            if (Math.abs(displayedCurrentMillis - pendingSeekMillis) <= SEEK_SETTLE_THRESHOLD_MILLIS
+                    || System.nanoTime() >= pendingSeekDeadlineNanos) {
+                pendingSeekMillis = null;
+            } else if (!seeking) {
+                displayedCurrentMillis = pendingSeekMillis;
+            }
         }
 
-        currentTimeLabel.setText(formatDuration(currentTime));
+        progressSlider.setMax(totalMillis);
+        if (!seeking) {
+            progressSlider.setValue(Math.min(displayedCurrentMillis, totalMillis));
+        }
+
+        currentTimeLabel.setText(formatDuration(Duration.millis(displayedCurrentMillis)));
         totalTimeLabel.setText(formatDuration(totalTime));
     }
 
@@ -235,9 +268,15 @@ public class TrackTileView extends StackPane {
         return workspaceTrackItem.getWorkspaceTrack().getId();
     }
 
-    public void setInsertionMarker(InsertionMarker insertionMarker) {
-        leftInsertionMarker.setVisible(insertionMarker == InsertionMarker.LEFT);
-        rightInsertionMarker.setVisible(insertionMarker == InsertionMarker.RIGHT);
+    @Override
+    public UUID getWorkspaceItemId() {
+        return getWorkspaceTrackId();
+    }
+
+    @Override
+    public void setInsertionMarker(WorkspaceInsertionMarker insertionMarker) {
+        leftInsertionMarker.setVisible(insertionMarker == WorkspaceInsertionMarker.LEFT);
+        rightInsertionMarker.setVisible(insertionMarker == WorkspaceInsertionMarker.RIGHT);
     }
 
     private String formatDuration(Duration duration) {
@@ -315,7 +354,25 @@ public class TrackTileView extends StackPane {
     private void refreshMuteButton() {
         boolean muted = workspaceTrackItem.isMuted();
         muteButton.setSelected(muted);
-        muteButton.setText(muted ? "🔇" : "🔊");
+        muteButton.setText(muted ? UiIcons.MUTED : UiIcons.UNMUTED);
+    }
+
+    private void applyScale(double tileScale) {
+        currentScale = tileScale;
+        contentPane.setPadding(new Insets(12d * tileScale));
+        titleLabel.setStyle("-fx-font-size: " + (14d * tileScale) + "px; -fx-font-weight: bold;");
+        titleViewport.setMinHeight(22d * tileScale);
+        titleViewport.setPrefHeight(22d * tileScale);
+        playPauseButton.setStyle("-fx-font-size: " + (12d * tileScale) + "px;");
+        stopButton.setStyle("-fx-font-size: " + (12d * tileScale) + "px;");
+        removeButton.setStyle("-fx-font-size: " + (12d * tileScale) + "px;");
+        loopButton.setStyle("-fx-font-size: " + (14d * tileScale) + "px; -fx-padding: " + (2d * tileScale) + " " + (8d * tileScale) + " " + (2d * tileScale) + " " + (8d * tileScale) + ";");
+        muteButton.setStyle("-fx-font-size: " + (13d * tileScale) + "px; -fx-padding: " + (2d * tileScale) + " " + (8d * tileScale) + " " + (2d * tileScale) + " " + (8d * tileScale) + ";");
+        currentTimeLabel.setStyle("-fx-font-size: " + (12d * tileScale) + "px;");
+        totalTimeLabel.setStyle("-fx-font-size: " + (12d * tileScale) + "px;");
+        statusIndicator.setRadius(5d * tileScale);
+        StackPane.setMargin(statusIndicator, new Insets(4d * tileScale, 4d * tileScale, 0, 0));
+        updateTitleAnimation();
     }
 
     private Color resolveStatusColor(boolean missing, PlaybackStatus playbackStatus) {
@@ -333,7 +390,7 @@ public class TrackTileView extends StackPane {
 
     private void updateTitleAnimation() {
         titleClip.setWidth(Math.max(titleViewport.getWidth(), 0d));
-        titleClip.setHeight(Math.max(titleViewport.getHeight(), 22d));
+        titleClip.setHeight(Math.max(titleViewport.getHeight(), 22d * currentScale));
 
         double overflow = titleLabel.getLayoutBounds().getWidth() - titleViewport.getWidth();
         if (overflow <= 4d) {
@@ -371,11 +428,5 @@ public class TrackTileView extends StackPane {
             titleAnimation.stop();
             titleAnimation = null;
         }
-    }
-
-    public enum InsertionMarker {
-        NONE,
-        LEFT,
-        RIGHT
     }
 }

@@ -2,6 +2,8 @@ package app.project;
 
 import app.model.AudioFile;
 import app.model.ProjectState;
+import app.model.QueueTrack;
+import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
 import app.scan.ScannedAudioFile;
 import app.support.RelativePathUtils;
@@ -54,16 +56,40 @@ public class ProjectStateSynchronizer {
 
         projectState.setSchemaVersion(schemaVersion);
         projectState.setAudioFiles(audioFiles);
-        normalizeWorkspaceTracks(projectState);
+        normalizeWorkspaceOrder(projectState);
+        normalizeQueueTracks(projectState);
         return projectState;
     }
 
-    private void normalizeWorkspaceTracks(ProjectState projectState) {
-        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(projectState.getWorkspaceTracks());
-        workspaceTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
-        for (int index = 0; index < workspaceTracks.size(); index++) {
-            workspaceTracks.get(index).setOrder(index);
+    private void normalizeWorkspaceOrder(ProjectState projectState) {
+        List<WorkspaceOrderEntry> entries = new ArrayList<>();
+        for (WorkspaceTrack workspaceTrack : projectState.getWorkspaceTracks()) {
+            entries.add(new WorkspaceOrderEntry(workspaceTrack.getOrder(), workspaceTrack::setOrder));
         }
-        projectState.setWorkspaceTracks(workspaceTracks);
+        for (WorkspaceQueue workspaceQueue : projectState.getWorkspaceQueues()) {
+            entries.add(new WorkspaceOrderEntry(workspaceQueue.getOrder(), workspaceQueue::setOrder));
+        }
+
+        entries.sort(Comparator.comparingInt(WorkspaceOrderEntry::order));
+        for (int index = 0; index < entries.size(); index++) {
+            entries.get(index).orderSetter().accept(index);
+        }
+    }
+
+    private void normalizeQueueTracks(ProjectState projectState) {
+        for (WorkspaceQueue workspaceQueue : projectState.getWorkspaceQueues()) {
+            List<QueueTrack> queueTracks = new ArrayList<>(workspaceQueue.getTracks());
+            queueTracks.sort(Comparator.comparingInt(QueueTrack::getOrder));
+            for (int trackIndex = 0; trackIndex < queueTracks.size(); trackIndex++) {
+                queueTracks.get(trackIndex).setOrder(trackIndex);
+            }
+            workspaceQueue.setTracks(queueTracks);
+            if (workspaceQueue.getSelectedTrackId() == null && !queueTracks.isEmpty()) {
+                workspaceQueue.setSelectedTrackId(queueTracks.getFirst().getId());
+            }
+        }
+    }
+
+    private record WorkspaceOrderEntry(int order, java.util.function.IntConsumer orderSetter) {
     }
 }
