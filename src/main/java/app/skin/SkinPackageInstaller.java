@@ -165,11 +165,7 @@ public class SkinPackageInstaller {
         if (manifest.getUid() == null) {
             throw new IllegalArgumentException("The skin package does not contain a valid uid");
         }
-        return new SkinRepository(repository.getExternalSkinsDirectory()).findAll().stream()
-                .filter(descriptor -> descriptor.directory() != null)
-                .filter(descriptor -> descriptor.directory().normalize().equals(temporaryDirectory.normalize()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("The skin package is incomplete or invalid"));
+        return repository.loadSkinDirectory(temporaryDirectory);
     }
 
     private void replaceInstallation(Path temporaryDirectory, Path targetDirectory, Path packageFile, UUID skinUid) throws IOException {
