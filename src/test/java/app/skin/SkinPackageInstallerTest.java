@@ -1,0 +1,276 @@
+package app.skin;
+
+import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
+
+class SkinPackageInstallerTest {
+    private static final UUID MOON_UID = UUID.fromString("e30ed037-5703-45dd-95c7-4dbe1d196c93");
+    @TempDir
+    private Path temporaryDirectory;
+
+    @Test
+    void installsPackageAndPreservesUtf8EmojiName() throws IOException {
+        Path skinsDirectory = temporaryDirectory.resolve("skins");
+        Path packageFile = temporaryDirectory.resolve("moon.tsbs");
+        Map<String, String> entries = new LinkedHashMap<>();
+        entries.put("skin.yml", """
+                uid: e30ed037-5703-45dd-95c7-4dbe1d196c93
+                name: "🌙 Moon"
+                skinVersion: 1
+                stylesheet: skin.css
+                fonts:
+                  regular: regular.ttf
+                  bold: bold.ttf
+                  italic: italic.ttf
+                """);
+        entries.put("skin.css", ".soundboard-root { -fx-base: #222; }");
+        entries.put("regular.ttf", "font");
+        entries.put("bold.ttf", "font");
+        entries.put("italic.ttf", "font");
+        createPackage(packageFile, entries);
+        SkinRepository repository = new SkinRepository(skinsDirectory);
+
+        SkinDescriptor installed = new SkinPackageInstaller(repository).install(packageFile);
+
+        Assertions.assertThat(installed.manifest().getName()).isEqualTo("🌙 Moon");
+        Assertions.assertThat(skinsDirectory.resolve(MOON_UID + "/skin.yml")).isRegularFile();
+        Assertions.assertThat(skinsDirectory.resolve("_packages").resolve(MOON_UID + ".tsbs")).isRegularFile();
+    }
+
+    @Test
+    void replacesSameUidCompletelyAndCanExportAndDeleteIt() throws IOException {
+        Path skinsDirectory = temporaryDirectory.resolve("skins");
+        SkinRepository repository = new SkinRepository(skinsDirectory);
+        SkinPackageInstaller installer = new SkinPackageInstaller(repository);
+        Path firstPackage = temporaryDirectory.resolve("first.tsbs");
+        Map<String, String> firstEntries = validSkinEntries("First");
+        firstEntries.put("obsolete.txt", "remove me");
+        createPackage(firstPackage, firstEntries);
+        installer.install(firstPackage);
+
+        Path secondPackage = temporaryDirectory.resolve("second.tsbs");
+        Map<String, String> secondEntries = validSkinEntries("Second");
+        secondEntries.put("new.txt", "new file");
+        createPackage(secondPackage, secondEntries);
+
+        Assertions.assertThatThrownBy(() -> installer.install(secondPackage))
+                .isInstanceOf(SkinAlreadyInstalledException.class);
+        SkinDescriptor replaced = installer.install(secondPackage, true);
+
+        Assertions.assertThat(replaced.manifest().getName()).isEqualTo("Second");
+        Assertions.assertThat(replaced.directory().resolve("obsolete.txt")).doesNotExist();
+        Assertions.assertThat(replaced.directory().resolve("new.txt")).hasContent("new file");
+
+        Path exportedPackage = temporaryDirectory.resolve("exported.tsbs");
+        installer.export(replaced, exportedPackage);
+        Assertions.assertThat(packageEntries(exportedPackage))
+                .contains("skin.yml", "skin.css", "new.txt")
+                .doesNotContain("obsolete.txt");
+
+        installer.delete(replaced);
+        Assertions.assertThat(replaced.directory()).doesNotExist();
+        Assertions.assertThat(skinsDirectory.resolve("_packages").resolve(MOON_UID + ".tsbs")).doesNotExist();
+    }
+
+    @Test
+    void appliesScheduledReplacementAndDeletionBeforeNextSkinLoad() throws IOException {
+        Path skinsDirectory = temporaryDirectory.resolve("skins");
+        SkinRepository repository = new SkinRepository(skinsDirectory);
+        SkinPackageInstaller installer = new SkinPackageInstaller(repository);
+        Path firstPackage = temporaryDirectory.resolve("first.tsbs");
+        createPackage(firstPackage, validSkinEntries("First"));
+        installer.install(firstPackage);
+
+        Path replacementPackage = temporaryDirectory.resolve("replacement.tsbs");
+        createPackage(replacementPackage, validSkinEntries("Replacement"));
+        SkinManifest scheduledManifest = installer.scheduleReplacement(replacementPackage);
+
+        Assertions.assertThat(scheduledManifest.getName()).isEqualTo("Replacement");
+        Assertions.assertThat(repository.findSelected(MOON_UID).manifest().getName()).isEqualTo("First");
+
+        SkinPackageInstaller.applyPendingOperations(repository);
+
+        SkinDescriptor replaced = repository.findSelected(MOON_UID);
+        Assertions.assertThat(replaced.manifest().getName()).isEqualTo("Replacement");
+
+        installer.scheduleDeletion(replaced);
+        SkinPackageInstaller.applyPendingOperations(repository);
+
+        Assertions.assertThat(repository.findAll())
+                .singleElement()
+                .satisfies(skin -> Assertions.assertThat(skin.isBuiltIn()).isTrue());
+        Assertions.assertThat(skinsDirectory.resolve("_pending")).doesNotExist();
+    }
+
+    @Test
+    void protectsBuiltInDefaultFromExportAndDeletion() {
+        SkinRepository repository = new SkinRepository(temporaryDirectory.resolve("skins"));
+        SkinPackageInstaller installer = new SkinPackageInstaller(repository);
+        SkinDescriptor defaultSkin = repository.findSelected(SkinRepository.DEFAULT_SKIN_UID);
+
+        Assertions.assertThatThrownBy(() -> installer.export(defaultSkin, temporaryDirectory.resolve("default.tsbs")))
+                .isInstanceOf(IllegalArgumentException.class);
+        Assertions.assertThatThrownBy(() -> installer.delete(defaultSkin))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void createsInstallablePackageFromSkinFolder() throws IOException {
+        Path sourceDirectory = temporaryDirectory.resolve("Sakura");
+        Files.createDirectories(sourceDirectory);
+        for (Map.Entry<String, String> entry : validSkinEntries("Sakura").entrySet()) {
+            Path target = sourceDirectory.resolve(entry.getKey());
+            Files.createDirectories(target.getParent());
+            Files.writeString(target, entry.getValue(), StandardCharsets.UTF_8);
+        }
+        Files.createDirectories(sourceDirectory.resolve("images"));
+        Files.writeString(sourceDirectory.resolve("images/background.png"), "image", StandardCharsets.UTF_8);
+        SkinPackageInstaller installer = new SkinPackageInstaller(
+                new SkinRepository(temporaryDirectory.resolve("skins"))
+        );
+        Path packageFile = temporaryDirectory.resolve("Sakura.tsbs");
+
+        installer.createPackage(sourceDirectory, packageFile);
+
+        Assertions.assertThat(packageEntries(packageFile))
+                .contains("skin.yml", "skin.css", "images/background.png");
+        Assertions.assertThat(installer.install(packageFile).manifest().getName()).isEqualTo("Sakura");
+    }
+
+    @Test
+    void rejectsPackageDestinationInsideSourceFolder() throws IOException {
+        Path sourceDirectory = temporaryDirectory.resolve("skin");
+        Files.createDirectories(sourceDirectory);
+        for (Map.Entry<String, String> entry : validSkinEntries("Nested").entrySet()) {
+            Files.writeString(sourceDirectory.resolve(entry.getKey()), entry.getValue(), StandardCharsets.UTF_8);
+        }
+        SkinPackageInstaller installer = new SkinPackageInstaller(
+                new SkinRepository(temporaryDirectory.resolve("skins"))
+        );
+
+        Assertions.assertThatThrownBy(() -> installer.createPackage(
+                        sourceDirectory,
+                        sourceDirectory.resolve("nested.tsbs")
+                ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("outside");
+    }
+
+    @Test
+    void repositorySkinExamplesCanBePackagedAndInstalled() throws IOException {
+        SkinPackageInstaller installer = new SkinPackageInstaller(
+                new SkinRepository(temporaryDirectory.resolve("installed-skins"))
+        );
+        Path nightPackage = temporaryDirectory.resolve("Night Mode.tsbs");
+        Path sakuraPackage = temporaryDirectory.resolve("Sakura.tsbs");
+
+        installer.createPackage(Path.of("examples", "skins", "Night Mode", "source"), nightPackage);
+        installer.createPackage(Path.of("examples", "skins", "Sakura", "source"), sakuraPackage);
+
+        Assertions.assertThat(installer.install(nightPackage).manifest().getName()).isEqualTo("🌙 Night Mode");
+        Assertions.assertThat(installer.install(sakuraPackage).manifest().getName()).isEqualTo("🌸 Sakura");
+        Assertions.assertThat(packageEntries(sakuraPackage))
+                .contains("images/header.png", "images/workspace.png", "fonts/NotoSansJP-Regular.ttf");
+    }
+
+    @Test
+    void checkedInExamplePackagesCanBeInstalled() throws IOException {
+        SkinPackageInstaller installer = new SkinPackageInstaller(
+                new SkinRepository(temporaryDirectory.resolve("installed-examples"))
+        );
+
+        SkinDescriptor nightMode = installer.install(Path.of(
+                "examples", "skins", "Night Mode", "Night Mode.tsbs"
+        ));
+        SkinDescriptor sakura = installer.install(Path.of(
+                "examples", "skins", "Sakura", "Sakura.tsbs"
+        ));
+
+        Assertions.assertThat(nightMode.manifest().getName()).isEqualTo("🌙 Night Mode");
+        Assertions.assertThat(sakura.manifest().getName()).isEqualTo("🌸 Sakura");
+    }
+
+    @Test
+    void rejectsPackageUsingReservedDefaultUid() throws IOException {
+        Path packageFile = temporaryDirectory.resolve("fake-default.tsbs");
+        Map<String, String> entries = validSkinEntries("Fake Default");
+        entries.put("skin.yml", entries.get("skin.yml").replace(MOON_UID.toString(),
+                SkinRepository.DEFAULT_SKIN_UID.toString()));
+        createPackage(packageFile, entries);
+        SkinPackageInstaller installer = new SkinPackageInstaller(
+                new SkinRepository(temporaryDirectory.resolve("skins"))
+        );
+
+        Assertions.assertThatThrownBy(() -> installer.install(packageFile))
+                .isInstanceOf(IllegalArgumentException.class);
+        Assertions.assertThat(new SkinRepository(temporaryDirectory.resolve("skins")).findAll())
+                .singleElement()
+                .satisfies(skin -> Assertions.assertThat(skin.isBuiltIn()).isTrue());
+    }
+
+    @Test
+    void rejectsPackageEntryOutsideInstallationDirectory() throws IOException {
+        Path packageFile = temporaryDirectory.resolve("unsafe.tsbs");
+        createPackage(packageFile, Map.of("../outside.txt", "unsafe"));
+        SkinPackageInstaller installer = new SkinPackageInstaller(new SkinRepository(temporaryDirectory.resolve("skins")));
+
+        Assertions.assertThatThrownBy(() -> installer.install(packageFile))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsafe path");
+        Assertions.assertThat(temporaryDirectory.resolve("outside.txt")).doesNotExist();
+    }
+
+    private void createPackage(Path packageFile, Map<String, String> entries) throws IOException {
+        try (ZipOutputStream outputStream = new ZipOutputStream(Files.newOutputStream(packageFile))) {
+            for (Map.Entry<String, String> entry : entries.entrySet()) {
+                outputStream.putNextEntry(new ZipEntry(entry.getKey()));
+                outputStream.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                outputStream.closeEntry();
+            }
+        }
+    }
+
+    private Map<String, String> validSkinEntries(String name) {
+        Map<String, String> entries = new LinkedHashMap<>();
+        entries.put("skin.yml", """
+                uid: e30ed037-5703-45dd-95c7-4dbe1d196c93
+                name: %s
+                skinVersion: 1
+                stylesheet: skin.css
+                fonts:
+                  regular: regular.ttf
+                  bold: bold.ttf
+                  italic: italic.ttf
+                """.formatted(name));
+        entries.put("skin.css", ".soundboard-root {}");
+        entries.put("regular.ttf", "font");
+        entries.put("bold.ttf", "font");
+        entries.put("italic.ttf", "font");
+        return entries;
+    }
+
+    private Set<String> packageEntries(Path packageFile) throws IOException {
+        Set<String> entries = new LinkedHashSet<>();
+        try (ZipInputStream inputStream = new ZipInputStream(Files.newInputStream(packageFile))) {
+            ZipEntry entry;
+            while ((entry = inputStream.getNextEntry()) != null) {
+                entries.add(entry.getName());
+            }
+        }
+        return entries;
+    }
+}

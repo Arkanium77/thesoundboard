@@ -1,0 +1,13 @@
+uid: 9f77b268-715e-4b44-a559-df71cd11b269
+name: "🌙 Night Mode"
+skinVersion: 1
+stylesheet: skin.css
+fonts:
+  regular: system
+  bold: system
+  italic: system
+  boldItalic: system
+rendering:
+  windows: AUTOMATIC
+  linux: AUTOMATIC
+  macos: AUTOMATIC

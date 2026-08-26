@@ -1,0 +1,103 @@
+.soundboard-root {
+    -fx-base: #282a36;
+    -fx-background: #282a36;
+    -fx-control-inner-background: #21222c;
+    -fx-accent: #bd93f9;
+    -fx-focus-color: #bd93f9;
+    -fx-faint-focus-color: #bd93f933;
+    -fx-text-background-color: #f8f8f2;
+    -fx-text-base-color: #f8f8f2;
+    -fx-text-fill: #f8f8f2;
+    -tsb-surface: #343746;
+    -tsb-border: #6272a4;
+    -tsb-icon: #f8f8f2;
+    -tsb-insertion: #8be9fd;
+    -tsb-chip-selected: #bd93f9;
+    -tsb-playing-background: #294536;
+    -tsb-playing-border: #50fa7b;
+    -tsb-paused-background: #4a402d;
+    -tsb-paused-border: #f1fa8c;
+    -tsb-finished-background: #4b2d3b;
+    -tsb-finished-border: #ff5555;
+    -tsb-ready-background: #30384e;
+}
+
+.soundboard-root .label,
+.soundboard-root .radio-button,
+.soundboard-root .check-box {
+    -fx-text-fill: #f8f8f2;
+}
+
+.soundboard-root .button,
+.soundboard-root .toggle-button,
+.soundboard-root .menu-button,
+.soundboard-root .combo-box-base {
+    -fx-background-color: #44475a;
+    -fx-text-fill: #f8f8f2;
+}
+
+.soundboard-root .button:hover,
+.soundboard-root .toggle-button:hover,
+.soundboard-root .toggle-button:selected {
+    -fx-background-color: #6272a4;
+}
+
+.soundboard-root .tree-view,
+.soundboard-root .list-view,
+.soundboard-root .scroll-pane,
+.soundboard-root .viewport,
+.soundboard-root .split-pane,
+.soundboard-root .split-pane-divider,
+.soundboard-root .tool-bar {
+    -fx-background-color: #282a36;
+}
+
+.soundboard-root .tree-cell,
+.soundboard-root .list-cell {
+    -fx-background-color: #282a36;
+    -fx-text-fill: #f8f8f2;
+}
+
+.soundboard-root .tree-cell:selected,
+.soundboard-root .list-cell:selected {
+    -fx-background-color: #44475a;
+}
+
+.settings-window,
+.settings-content,
+.settings-navigation,
+.settings-navigation .list-cell,
+.settings-dialog,
+.settings-dialog > .button-bar > .container,
+.settings-dialog:header .header-panel {
+    -fx-background-color: #282a36;
+}
+
+.settings-navigation .list-cell:selected,
+.restart-confirmation-dialog:header .header-panel {
+    -fx-background-color: #44475a;
+}
+
+.settings-dialog .label,
+.settings-dialog:header .header-panel .label {
+    -fx-text-fill: #f8f8f2;
+}
+
+.soundboard-icon {
+    -fx-fill: -tsb-icon;
+}
+
+.track-tile,
+.queue-tile,
+.queue-chip {
+    -fx-background-color: -tsb-surface;
+    -fx-border-color: -tsb-border;
+}
+
+.queue-chip:selected { -fx-border-color: -tsb-chip-selected; }
+.queue-chip:playing { -fx-background-color: -tsb-playing-background; -fx-border-color: -tsb-playing-border; }
+.queue-chip:paused { -fx-background-color: -tsb-paused-background; -fx-border-color: -tsb-paused-border; }
+.queue-chip:finished { -fx-background-color: -tsb-finished-background; -fx-border-color: -tsb-finished-border; }
+.queue-chip:ready { -fx-background-color: -tsb-ready-background; -fx-border-color: -tsb-chip-selected; }
+.insertion-marker { -fx-background-color: -tsb-insertion; }
+.settings-title { -fx-font-size: 18px; -fx-font-weight: bold; }

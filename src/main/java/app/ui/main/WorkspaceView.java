@@ -1,6 +1,8 @@
 package app.ui.main;
 
 import app.config.UiConfig;
+import app.localization.TextKey;
+import app.localization.Texts;
 import app.ui.drag.DragPayload;
 import app.ui.queue.QueueView;
 import app.ui.tile.TrackTileView;
@@ -15,11 +17,13 @@ import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.ContextMenuEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,12 +32,14 @@ import java.util.UUID;
 
 public class WorkspaceView extends BorderPane {
     private final FlowPane contentPane = new FlowPane();
-    private final Label emptyStateLabel = new Label("Add tracks from the left tree or create a queue from the workspace context menu.");
+    private final Label emptyStateLabel = new Label(Texts.text(TextKey.WORKSPACE_EMPTY));
     private final ScrollPane scrollPane = new ScrollPane(contentPane);
+    private final Region background = new Region();
     private final WorkspaceDropHandler workspaceDropHandler;
     private final UiConfig uiConfig;
     private double currentTileWidth;
     private double currentTileHeight;
+    private double interfaceScale = 1d;
     private ContextMenu workspaceContextMenu;
     private WorkspaceItemView insertionTargetView;
     private boolean insertionAfter;
@@ -43,6 +49,12 @@ public class WorkspaceView extends BorderPane {
         this.workspaceDropHandler = workspaceDropHandler;
         this.currentTileWidth = uiConfig.getTrackTileWidth();
         this.currentTileHeight = uiConfig.getTrackTileHeight();
+
+        getStyleClass().add("workspace-view");
+        background.getStyleClass().add("workspace-background");
+        background.setMouseTransparent(true);
+        scrollPane.getStyleClass().add("workspace-scroll");
+        contentPane.getStyleClass().add("workspace-content");
 
         contentPane.setPadding(new Insets(12));
         contentPane.setHgap(12);
@@ -61,7 +73,8 @@ public class WorkspaceView extends BorderPane {
             event.consume();
         });
 
-        setCenter(scrollPane);
+        setCenter(new StackPane(background, scrollPane));
+        addEventFilter(ContextMenuEvent.CONTEXT_MENU_REQUESTED, event -> hideContextMenu());
         configureContainerDragAndDrop();
         configureContextMenu();
         updateEmptyState();
@@ -95,15 +108,29 @@ public class WorkspaceView extends BorderPane {
         updateQueueWidths();
     }
 
+    public void updateInterfaceScale(double interfaceScale) {
+        this.interfaceScale = interfaceScale;
+        contentPane.setPadding(new Insets(12d * interfaceScale));
+        contentPane.setHgap(12d * interfaceScale);
+        contentPane.setVgap(12d * interfaceScale);
+        updateEmptyState();
+        updateQueueWidths();
+    }
+
+    public void refreshLocalization() {
+        emptyStateLabel.setText(Texts.text(TextKey.WORKSPACE_EMPTY));
+        configureContextMenu();
+    }
+
     private void configureContextMenu() {
-        MenuItem createQueueItem = new MenuItem("Create Queue");
+        MenuItem createQueueItem = new MenuItem(Texts.text(TextKey.WORKSPACE_CREATE_QUEUE));
         createQueueItem.setOnAction(event -> workspaceDropHandler.createQueue());
         workspaceContextMenu = new ContextMenu(createQueueItem);
 
-        setOnContextMenuRequested(event -> toggleContextMenu(this, event.getScreenX(), event.getScreenY()));
-        scrollPane.setOnContextMenuRequested(event -> toggleContextMenu(scrollPane, event.getScreenX(), event.getScreenY()));
-        contentPane.setOnContextMenuRequested(event -> toggleContextMenu(contentPane, event.getScreenX(), event.getScreenY()));
-        emptyStateLabel.setOnContextMenuRequested(event -> toggleContextMenu(emptyStateLabel, event.getScreenX(), event.getScreenY()));
+        setOnContextMenuRequested(event -> showWorkspaceContextMenu(event, this));
+        scrollPane.setOnContextMenuRequested(event -> showWorkspaceContextMenu(event, scrollPane));
+        contentPane.setOnContextMenuRequested(event -> showWorkspaceContextMenu(event, contentPane));
+        emptyStateLabel.setOnContextMenuRequested(event -> showWorkspaceContextMenu(event, emptyStateLabel));
 
         setOnMousePressed(event -> hideContextMenu());
         scrollPane.setOnMousePressed(event -> hideContextMenu());
@@ -380,7 +407,7 @@ public class WorkspaceView extends BorderPane {
     private void updateEmptyState() {
         if (contentPane.getChildren().isEmpty()) {
             setTop(emptyStateLabel);
-            BorderPane.setMargin(emptyStateLabel, new Insets(12, 12, 0, 12));
+            BorderPane.setMargin(emptyStateLabel, new Insets(12d * interfaceScale, 12d * interfaceScale, 0, 12d * interfaceScale));
         } else {
             setTop(null);
         }
@@ -395,6 +422,22 @@ public class WorkspaceView extends BorderPane {
             return;
         }
         workspaceContextMenu.show(owner, screenX, screenY);
+    }
+
+    private void showWorkspaceContextMenu(ContextMenuEvent event, Node owner) {
+        if (isInsideWorkspaceItem(event.getTarget())) return;
+        toggleContextMenu(owner, event.getScreenX(), event.getScreenY());
+        event.consume();
+    }
+
+    private boolean isInsideWorkspaceItem(Object target) {
+        if (!(target instanceof Node node)) return false;
+        Node current = node;
+        while (current != null && current != this) {
+            if (current instanceof WorkspaceItemView) return true;
+            current = current.getParent();
+        }
+        return false;
     }
 
     private void hideContextMenu() {

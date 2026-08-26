@@ -1,0 +1,109 @@
+package app.localization;
+
+public enum TextKey {
+    APP_TITLE("app.title", "The Soundboard"),
+    SETTINGS_TITLE("settings.title", "Settings"),
+    SETTINGS_GENERAL("settings.section.general", "General"),
+    SETTINGS_RESTORE_SESSION("settings.general.restore_session", "Restore the last open session on startup"),
+    SETTINGS_SKINS("settings.section.skins", "Skins"),
+    SETTINGS_LOCALIZATION("settings.section.localization", "Localization"),
+    SETTINGS_EXPORT("settings.action.export", "Export..."),
+    SETTINGS_DELETE("settings.action.delete", "Delete"),
+    SETTINGS_ACTIVE("settings.state.active", "Active"),
+    SETTINGS_PENDING("settings.state.pending", "Pending"),
+    SETTINGS_SELECT_OTHER_SKIN("settings.skin.select_other", "Select another skin before deleting this one"),
+    SETTINGS_INSTALL_SKIN("settings.skin.install", "Install .tsbs..."),
+    SETTINGS_CREATE_PACKAGE("settings.action.create_package", "Create Package..."),
+    LOCALIZATION_ENGLISH("localization.english", "English (built in)"),
+    LOCALIZATION_INSTALL("localization.install", "Install .tsbl..."),
+    LOCALIZATION_EXPORT_STRINGS("localization.export_strings", "Export Strings..."),
+    LOCALIZATION_CREATE_PACKAGE("localization.create_package", "Create Package..."),
+    LOCALIZATION_UPDATE("localization.update", "Update..."),
+    LOCALIZATION_UPDATE_FOLDER("localization.update_folder", "Source Folder..."),
+    LOCALIZATION_UPDATE_PACKAGE("localization.update_package", "Package..."),
+    LOCALIZATION_UPDATE_PROMPT("localization.update_prompt", "Choose what to update. Existing translations and obsolete extra strings will be preserved; new IDs will be added in English."),
+    LOCALIZATION_UPDATE_TITLE("localization.update_title", "Update Localization"),
+    LOCALIZATION_UPDATE_COMPLETE("localization.update_complete", "The localization now contains every current string ID. Added new strings: {0}"),
+    LOCALIZATION_INSTALL_TITLE("localization.install_title", "Install Localization"),
+    LOCALIZATION_SELECT_FOLDER("localization.select_folder", "Select Localization Folder"),
+    LOCALIZATION_EXPORT_TITLE("localization.export_title", "Export Localization"),
+    LOCALIZATION_EXPORT_STRINGS_TITLE("localization.export_strings_title", "Export English Strings"),
+    LOCALIZATION_CREATE_TITLE("localization.create_title", "Create Localization Package"),
+    LOCALIZATION_REPLACE_QUESTION("localization.replace_question", "A localization with the same UID is already installed. Replace it completely?"),
+    LOCALIZATION_RESTART_NOTICE("localization.restart_notice", "Restart the application to apply the selected localization."),
+    MAIN_SETTINGS("main.settings", "Settings"),
+    MAIN_OPEN_FOLDER("main.open_folder", "Open Folder"),
+    MAIN_RESCAN("main.rescan", "Rescan"),
+    MAIN_SAVE("main.save", "Save"),
+    MAIN_CLEAR_WORKSPACE("main.clear_workspace", "Clear Workspace"),
+    MAIN_REBUILD_SAVE("main.rebuild_save", "Rebuild Save"),
+    MAIN_NO_FOLDER("main.no_folder", "No folder selected"),
+    MAIN_READY("main.ready", "Ready"),
+    MAIN_PROJECT_TREE("main.project_tree", "Project Tree"),
+    MAIN_WORKSPACE("main.workspace", "Workspace"),
+    MAIN_MASTER_VOLUME("main.master_volume", "Master Volume"),
+    MAIN_SCALE_INTERFACE("main.scale.interface", "Scale the whole interface"),
+    MAIN_SCALE_WORKSPACE("main.scale.workspace", "Scale workspace tiles"),
+    MAIN_OPEN_FOLDER_DIALOG("main.open_folder_dialog", "Open Soundboard Project Folder"),
+    MAIN_ADD_TO_WORKSPACE("main.add_to_workspace", "Add To Workspace"),
+    MAIN_ADD_TO_QUEUE("main.add_to_queue", "Add To Queue"),
+    STATUS_LOADING("status.loading", "Loading {0} ..."),
+    STATUS_LOADED("status.loaded", "Loaded {0}"),
+    STATUS_LOAD_FAILED("status.load_failed", "Failed to load project"),
+    STATUS_REBUILT("status.rebuilt", "Rebuilt save file for {0}"),
+    STATUS_SAVING("status.saving", "Saving {0}"),
+    STATUS_SAVED("status.saved", "Saved {0}"),
+    DIALOG_CLEAR_TITLE("dialog.clear.title", "Clear Workspace"),
+    DIALOG_CLEAR_MESSAGE("dialog.clear.message", "Remove every track and queue from the workspace?"),
+    DIALOG_REBUILD_TITLE("dialog.rebuild.title", "Rebuild Save File"),
+    DIALOG_REBUILD_MESSAGE("dialog.rebuild.message", "Rebuild the saved project state from the current folder?"),
+    DIALOG_INSTALL_SKIN_TITLE("dialog.skin.install_title", "Install Skin"),
+    DIALOG_EXPORT_SKIN_TITLE("dialog.skin.export_title", "Export Skin"),
+    DIALOG_SELECT_SKIN_FOLDER("dialog.skin.select_folder", "Select Skin Folder"),
+    DIALOG_CREATE_SKIN_TITLE("dialog.skin.create_title", "Create Skin Package"),
+    DIALOG_REPLACE_SKIN_TITLE("dialog.skin.replace_title", "Replace Skin"),
+    DIALOG_DELETE_SKIN_TITLE("dialog.skin.delete_title", "Delete Skin"),
+    DIALOG_RESTART_SKIN_HEADER("dialog.restart.skin_header", "Some skin settings require a restart"),
+    DIALOG_RESTART_SAFE_HEADER("dialog.restart.safe_header", "The operation is scheduled safely"),
+    WORKSPACE_EMPTY("workspace.empty", "Add tracks from the left tree or create a queue from the workspace context menu."),
+    WORKSPACE_CREATE_QUEUE("workspace.create_queue", "Create Queue"),
+    TRACK_REMOVE("track.remove", "Remove"),
+    TOOLTIP_PLAY_PAUSE("tooltip.play_pause", "Play / Pause"),
+    TOOLTIP_STOP("tooltip.stop", "Stop"),
+    TOOLTIP_LOOP("tooltip.loop", "Loop"),
+    TOOLTIP_MUTE("tooltip.mute", "Mute"),
+    QUEUE_SHUFFLE("queue.shuffle", "Shuffle"),
+    QUEUE_REMOVE("queue.remove", "Remove Queue"),
+    QUEUE_TRACK("queue.track", "Track"),
+    QUEUE_QUEUE("queue.queue", "Queue"),
+    QUEUE_VOLUME("queue.volume", "Volume"),
+    QUEUE_NAME("queue.name", "Queue name"),
+    QUEUE_LOOP_TRACK("queue.loop_track", "Loop current track"),
+    QUEUE_LOOP_QUEUE("queue.loop_queue", "Loop whole queue"),
+    QUEUE_PREVIOUS("queue.previous", "Previous"),
+    QUEUE_NEXT("queue.next", "Next"),
+    QUEUE_MISSING("queue.missing", "Missing"),
+    QUEUE_REMOVE_TRACK("queue.remove_track", "Remove From Queue"),
+    DIALOG_RESTART_NOW("dialog.restart.now", "Restart Now"),
+    DIALOG_LATER("dialog.restart.later", "Later"),
+    DIALOG_RESTART_TITLE("dialog.restart.title", "Restart Required"),
+    DIALOG_LOCALIZATION_HEADER("dialog.localization.header", "Localization change requires a restart"),
+    DIALOG_OK("dialog.ok", "OK"),
+    DIALOG_CANCEL("dialog.cancel", "Cancel");
+
+    private final String id;
+    private final String english;
+
+    TextKey(String id, String english) {
+        this.id = id;
+        this.english = english;
+    }
+
+    public String id() {
+        return id;
+    }
+
+    public String english() {
+        return english;
+    }
+}

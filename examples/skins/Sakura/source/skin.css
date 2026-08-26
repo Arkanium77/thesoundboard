@@ -1,0 +1,159 @@
+.soundboard-root {
+    -fx-base: #f5eee7;
+    -fx-background: #f7f3ed;
+    -fx-control-inner-background: #fffaf3;
+    -fx-accent: #d98fa3;
+    -fx-focus-color: #d98fa3;
+    -fx-faint-focus-color: #d98fa333;
+    -fx-text-background-color: #40383a;
+    -fx-text-base-color: #40383a;
+    -fx-text-fill: #40383a;
+    -tsb-surface: #fffaf3;
+    -tsb-border: #ddbfc5;
+    -tsb-icon: #55484b;
+    -tsb-insertion: #c96f8b;
+    -tsb-chip-selected: #c96f8b;
+    -tsb-playing-background: #f8e8eb;
+    -tsb-playing-border: #c96f8b;
+    -tsb-paused-background: #fff0d9;
+    -tsb-paused-border: #d7a45d;
+    -tsb-finished-background: #efe9e6;
+    -tsb-finished-border: #a98f91;
+    -tsb-ready-background: #f7edf0;
+}
+
+.soundboard-root,
+.workspace-pane,
+.workspace-header,
+.status-bar,
+.soundboard-root .split-pane,
+.soundboard-root .split-pane-divider {
+    -fx-background-color: #fbeddc;
+}
+
+.main-header {
+    -fx-background-color: #fffaf3;
+    -fx-background-image: url("images/header.png");
+    -fx-background-repeat: no-repeat;
+    -fx-background-position: center right;
+    -fx-background-size: cover;
+}
+
+.project-pane {
+    -fx-background-color: #f7f3ed;
+    -fx-background-image: url("images/header.png");
+    -fx-background-repeat: no-repeat;
+    -fx-background-position: top right;
+    -fx-background-size: 100% auto;
+}
+
+.project-tree-container {
+    -fx-background-color: #fbeddc;
+}
+
+.project-tree-background {
+    -fx-background-image: url("images/workspace.png");
+    -fx-background-repeat: no-repeat;
+    -fx-background-position: bottom right;
+    -fx-background-size: cover;
+    -fx-opacity: 0.38;
+}
+
+.project-tree,
+.project-tree .virtual-flow,
+.project-tree .clipped-container,
+.project-tree .sheet {
+    -fx-background-color: transparent;
+}
+
+.project-tree .tree-cell {
+    -fx-background-color: transparent;
+}
+
+.project-tree .tree-cell:selected {
+    -fx-background-color: rgba(232, 203, 210, 0.88);
+}
+
+.status-bar {
+    -fx-background-color: #fffaf3;
+    -fx-background-image: url("images/header.png");
+    -fx-background-repeat: no-repeat;
+    -fx-background-position: center right;
+    -fx-background-size: cover;
+}
+
+.settings-window,
+.settings-content,
+.settings-navigation,
+.settings-navigation .list-cell {
+    -fx-background-color: #fbeddc;
+}
+
+.settings-navigation .list-cell:selected {
+    -fx-background-color: #e8cbd2;
+}
+
+.settings-dialog,
+.settings-dialog > .button-bar > .container,
+.settings-dialog:header .header-panel {
+    -fx-background-color: #fbeddc;
+}
+
+.restart-confirmation-dialog:header .header-panel {
+    -fx-background-color: #f6dce2;
+}
+
+.workspace-view {
+    -fx-background-color: #fbeddc;
+}
+
+.workspace-background {
+    -fx-background-image: url("images/workspace.png");
+    -fx-background-repeat: no-repeat;
+    -fx-background-position: center right;
+    -fx-background-size: cover;
+    -fx-opacity: 1;
+}
+
+.workspace-scroll,
+.workspace-scroll > .viewport,
+.workspace-content {
+    -fx-background-color: transparent;
+}
+
+.soundboard-root .button,
+.soundboard-root .toggle-button,
+.soundboard-root .menu-button,
+.soundboard-root .combo-box-base {
+    -fx-background-color: #e4dfdc;
+    -fx-text-fill: #40383a;
+    -fx-effect: dropshadow(gaussian, rgba(83, 68, 70, 0.18), 5, 0.08, 0, 1);
+}
+
+.soundboard-root .button:hover,
+.soundboard-root .toggle-button:hover,
+.soundboard-root .toggle-button:selected {
+    -fx-background-color: #d8cace;
+}
+
+.soundboard-root .button:disabled,
+.soundboard-root .toggle-button:disabled,
+.soundboard-root .menu-button:disabled,
+.soundboard-root .combo-box-base:disabled {
+    -fx-effect: none;
+}
+
+.track-tile,
+.queue-tile {
+    -fx-effect: dropshadow(gaussian, rgba(83, 68, 70, 0.22), 10, 0.12, 0, 3);
+}
+
+.soundboard-icon { -fx-fill: -tsb-icon; }
+.track-tile, .queue-tile, .queue-chip { -fx-background-color: -tsb-surface; -fx-border-color: -tsb-border; }
+.queue-chip:selected { -fx-border-color: -tsb-chip-selected; }
+.queue-chip:playing { -fx-background-color: -tsb-playing-background; -fx-border-color: -tsb-playing-border; }
+.queue-chip:paused { -fx-background-color: -tsb-paused-background; -fx-border-color: -tsb-paused-border; }
+.queue-chip:finished { -fx-background-color: -tsb-finished-background; -fx-border-color: -tsb-finished-border; }
+.queue-chip:ready { -fx-background-color: -tsb-ready-background; -fx-border-color: -tsb-chip-selected; }
+.insertion-marker { -fx-background-color: -tsb-insertion; }
+.settings-title { -fx-font-size: 18px; -fx-font-weight: bold; }

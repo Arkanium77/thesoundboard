@@ -1,0 +1,21 @@
+The Soundboard
+Copyright 2026 Arkanium77 & ISAZ Team
+
+This product is distributed under the MIT License. See LICENSE for details.
+
+This product includes third-party software distributed under its own licenses:
+
+- OpenJFX, licensed under GPL-2.0 with the Classpath Exception.
+- Jackson, licensed under Apache License 2.0.
+- SnakeYAML, licensed under Apache License 2.0.
+- SLF4J, licensed under the MIT License.
+- Logback, dual-licensed under EPL-1.0 and LGPL-2.1-or-later.
+- MP3SPI and its audio decoding dependencies, licensed under LGPL-2.1-or-later.
+- Twemoji graphics, Copyright 2019 Twitter, Inc and other contributors,
+  licensed under CC BY 4.0. The application uses the Twemoji 17.0.3 PNG set
+  for platform-independent emoji rendering. License texts are included at
+  `THIRD-PARTY-LICENSES/Twemoji-CC-BY-4.0.txt` and `Twemoji-MIT.txt`.
+
+The full license texts and source information for these components are available
+from their respective projects and source distributions. No endorsement by the
+third-party authors is implied.

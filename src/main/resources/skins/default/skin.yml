@@ -1,0 +1,22 @@
+uid: 00000000-0000-0000-0000-000000000001
+name: The Soundboard
+skinVersion: 1
+stylesheet: skin.css
+fonts:
+  regular: system
+  bold: system
+  italic: system
+  boldItalic: system
+icons:
+  play: icons/play.svg
+  pause: icons/pause.svg
+  stop: icons/stop.svg
+  previous: icons/previous.svg
+  next: icons/next.svg
+  loop: icons/loop.svg
+  muted: icons/muted.svg
+  unmuted: icons/unmuted.svg
+  settings: icons/settings.svg
+rendering:
+  windows: AUTOMATIC
+  linux: AUTOMATIC

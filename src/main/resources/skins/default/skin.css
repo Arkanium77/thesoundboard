@@ -1,0 +1,58 @@
+.soundboard-root {
+    -tsb-surface: #f5f7fb;
+    -tsb-border: #c9d1e3;
+    -tsb-icon: #333333;
+    -tsb-insertion: #4a83d8;
+    -tsb-chip-selected: #4a83d8;
+    -tsb-playing-background: #e8f7ec;
+    -tsb-playing-border: #2f9e44;
+    -tsb-paused-background: #fff5d9;
+    -tsb-paused-border: #f0b429;
+    -tsb-finished-background: #fdeaea;
+    -tsb-finished-border: #d64545;
+    -tsb-ready-background: #eef6ff;
+}
+
+.soundboard-icon {
+    -fx-fill: -tsb-icon;
+}
+
+.track-tile,
+.queue-tile,
+.queue-chip {
+    -fx-background-color: -tsb-surface;
+    -fx-border-color: -tsb-border;
+}
+
+.queue-chip:selected {
+    -fx-border-color: -tsb-chip-selected;
+}
+
+.queue-chip:playing {
+    -fx-background-color: -tsb-playing-background;
+    -fx-border-color: -tsb-playing-border;
+}
+
+.queue-chip:paused {
+    -fx-background-color: -tsb-paused-background;
+    -fx-border-color: -tsb-paused-border;
+}
+
+.queue-chip:finished {
+    -fx-background-color: -tsb-finished-background;
+    -fx-border-color: -tsb-finished-border;
+}
+
+.queue-chip:ready {
+    -fx-background-color: -tsb-ready-background;
+    -fx-border-color: -tsb-chip-selected;
+}
+
+.insertion-marker {
+    -fx-background-color: -tsb-insertion;
+}
+
+.settings-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+}

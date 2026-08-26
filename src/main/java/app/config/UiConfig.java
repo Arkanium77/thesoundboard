@@ -3,6 +3,10 @@ package app.config;
 public class UiConfig {
     private double minWidth = 1280d;
     private double minHeight = 760d;
+    private double defaultScale = 1d;
+    private double minScale = 0.25d;
+    private double maxScale = 2d;
+    private double scaleStep = 0.05d;
     private double treeWidth = 360d;
     private double trackTileWidth = 260d;
     private double trackTileHeight = 195d;
@@ -27,6 +31,38 @@ public class UiConfig {
 
     public void setMinHeight(double minHeight) {
         this.minHeight = minHeight;
+    }
+
+    public double getDefaultScale() {
+        return defaultScale;
+    }
+
+    public void setDefaultScale(double defaultScale) {
+        this.defaultScale = defaultScale;
+    }
+
+    public double getMinScale() {
+        return minScale;
+    }
+
+    public void setMinScale(double minScale) {
+        this.minScale = minScale;
+    }
+
+    public double getMaxScale() {
+        return maxScale;
+    }
+
+    public void setMaxScale(double maxScale) {
+        this.maxScale = maxScale;
+    }
+
+    public double getScaleStep() {
+        return scaleStep;
+    }
+
+    public void setScaleStep(double scaleStep) {
+        this.scaleStep = scaleStep;
     }
 
     public double getTreeWidth() {

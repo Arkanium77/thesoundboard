@@ -3,6 +3,8 @@ package app.ui.queue;
 import app.model.AudioFile;
 import app.model.PlaybackStatus;
 import app.model.QueueTrack;
+import app.localization.TextKey;
+import app.localization.Texts;
 import app.ui.workspace.WorkspaceInsertionMarker;
 import javafx.animation.Animation;
 import javafx.animation.PauseTransition;
@@ -19,13 +21,18 @@ import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
+import javafx.css.PseudoClass;
 import javafx.scene.shape.Rectangle;
 import javafx.util.Duration;
 
 import java.util.function.Consumer;
 
 public class QueueTrackChipView extends StackPane {
-    private static final String INSERT_SEGMENT_STYLE = "-fx-background-color: #4a83d8;";
+    private static final PseudoClass SELECTED = PseudoClass.getPseudoClass("selected");
+    private static final PseudoClass PLAYING = PseudoClass.getPseudoClass("playing");
+    private static final PseudoClass PAUSED = PseudoClass.getPseudoClass("paused");
+    private static final PseudoClass FINISHED = PseudoClass.getPseudoClass("finished");
+    private static final PseudoClass READY = PseudoClass.getPseudoClass("ready");
 
     private final QueueTrack queueTrack;
     private final Pane titleViewport = new Pane();
@@ -34,6 +41,9 @@ public class QueueTrackChipView extends StackPane {
     private final AnchorPane leftInsertionMarker = createInsertionMarker(true);
     private final AnchorPane rightInsertionMarker = createInsertionMarker(false);
     private double currentScale = 1d;
+    private boolean lastSelected;
+    private boolean lastActiveTrack;
+    private PlaybackStatus lastPlaybackStatus;
     private SequentialTransition titleAnimation;
 
     public QueueTrackChipView(
@@ -43,8 +53,9 @@ public class QueueTrackChipView extends StackPane {
             Runnable playAction,
             Consumer<QueueTrack> removeAction
     ) {
+        getStyleClass().add("queue-chip");
         this.queueTrack = queueTrack;
-        titleLabel.setText(audioFile == null ? "Missing" : audioFile.getDisplayName());
+        titleLabel.setText(audioFile == null ? Texts.text(TextKey.QUEUE_MISSING) : audioFile.getDisplayName());
         titleLabel.setWrapText(false);
         titleViewport.setClip(titleClip);
         titleViewport.getChildren().add(titleLabel);
@@ -66,10 +77,13 @@ public class QueueTrackChipView extends StackPane {
             }
         });
 
-        MenuItem removeItem = new MenuItem("Remove From Queue");
+        MenuItem removeItem = new MenuItem(Texts.text(TextKey.QUEUE_REMOVE_TRACK));
         removeItem.setOnAction(event -> removeAction.accept(queueTrack));
         ContextMenu contextMenu = new ContextMenu(removeItem);
-        setOnContextMenuRequested(event -> contextMenu.show(this, event.getScreenX(), event.getScreenY()));
+        setOnContextMenuRequested(event -> {
+            contextMenu.show(this, event.getScreenX(), event.getScreenY());
+            event.consume();
+        });
         updateScale(1d);
         updateTitleAnimation();
     }
@@ -85,6 +99,7 @@ public class QueueTrackChipView extends StackPane {
 
     public void updateScale(double scale) {
         currentScale = scale;
+        lastPlaybackStatus = null;
         titleLabel.setStyle("-fx-font-size: " + (10d * scale) + "px; -fx-font-weight: bold;");
         titleViewport.setMinHeight(14d * scale);
         titleViewport.setPrefHeight(14d * scale);
@@ -95,31 +110,51 @@ public class QueueTrackChipView extends StackPane {
         setMinHeight(26d * scale);
         setPrefHeight(26d * scale);
         setMaxHeight(26d * scale);
+        updateInsertionMarkerScale(leftInsertionMarker, scale);
+        updateInsertionMarkerScale(rightInsertionMarker, scale);
     }
 
     public void refresh(boolean selected, PlaybackStatus playbackStatus, boolean activeTrack) {
-        String borderColor = selected ? "#4a83d8" : "#c9d1e3";
-        String backgroundColor = "#f5f7fb";
-        if (activeTrack) {
-            backgroundColor = switch (playbackStatus) {
-                case PLAYING -> "#e8f7ec";
-                case PAUSED -> "#fff5d9";
-                case FINISHED, ERROR -> "#fdeaea";
-                default -> "#eef6ff";
-            };
-            borderColor = switch (playbackStatus) {
-                case PLAYING -> "#2f9e44";
-                case PAUSED -> "#f0b429";
-                case FINISHED, ERROR -> "#d64545";
-                default -> "#4a83d8";
-            };
+        if (selected == lastSelected && activeTrack == lastActiveTrack && playbackStatus == lastPlaybackStatus) {
+            return;
         }
+        lastSelected = selected;
+        lastActiveTrack = activeTrack;
+        lastPlaybackStatus = playbackStatus;
+        pseudoClassStateChanged(SELECTED, selected && !activeTrack);
+        pseudoClassStateChanged(PLAYING, activeTrack && playbackStatus == PlaybackStatus.PLAYING);
+        pseudoClassStateChanged(PAUSED, activeTrack && playbackStatus == PlaybackStatus.PAUSED);
+        pseudoClassStateChanged(FINISHED, activeTrack
+                && (playbackStatus == PlaybackStatus.FINISHED || playbackStatus == PlaybackStatus.ERROR));
+        pseudoClassStateChanged(READY, activeTrack
+                && playbackStatus != PlaybackStatus.PLAYING
+                && playbackStatus != PlaybackStatus.PAUSED
+                && playbackStatus != PlaybackStatus.FINISHED
+                && playbackStatus != PlaybackStatus.ERROR);
         setStyle(
-                "-fx-background-color: " + backgroundColor + ";" +
-                " -fx-border-color: " + borderColor + ";" +
-                " -fx-border-width: " + (activeTrack ? "2" : "1") + ";" +
-                " -fx-border-radius: 5; -fx-background-radius: 5;"
+                "-fx-border-width: " + ((activeTrack ? 2d : 1d) * currentScale) + ";" +
+                " -fx-border-radius: " + (5d * currentScale) + "; -fx-background-radius: " + (5d * currentScale) + ";"
         );
+    }
+
+    private void updateInsertionMarkerScale(AnchorPane marker, double scale) {
+        setRegionWidth(marker, 8d * scale);
+        setRegionWidth((Region) marker.getChildren().get(0), 3d * scale);
+        setRegionSize((Region) marker.getChildren().get(1), 7d * scale, 3d * scale);
+        setRegionSize((Region) marker.getChildren().get(2), 7d * scale, 3d * scale);
+    }
+
+    private void setRegionWidth(Region region, double width) {
+        region.setMinWidth(width);
+        region.setPrefWidth(width);
+        region.setMaxWidth(width);
+    }
+
+    private void setRegionSize(Region region, double width, double height) {
+        setRegionWidth(region, width);
+        region.setMinHeight(height);
+        region.setPrefHeight(height);
+        region.setMaxHeight(height);
     }
 
     private AnchorPane createInsertionMarker(boolean leftSide) {
@@ -154,7 +189,7 @@ public class QueueTrackChipView extends StackPane {
 
     private Region createMarkerSegment(double width, double height) {
         Region region = new Region();
-        region.setStyle(INSERT_SEGMENT_STYLE);
+        region.getStyleClass().add("insertion-marker");
         region.setMinWidth(width);
         region.setPrefWidth(width);
         region.setMaxWidth(width);

@@ -1,6 +1,8 @@
 package app.ui.tile;
 
 import app.config.UiConfig;
+import app.localization.TextKey;
+import app.localization.Texts;
 import app.model.PlaybackStatus;
 import app.ui.UiIcons;
 import app.ui.waveform.WaveformSeekView;
@@ -18,8 +20,10 @@ import javafx.animation.Timeline;
 import javafx.animation.TranslateTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.Labeled;
 import javafx.scene.control.Slider;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
@@ -41,10 +45,11 @@ import java.util.Objects;
 import java.util.UUID;
 
 public class TrackTileView extends StackPane implements WorkspaceItemView {
-    private static final String BASE_STYLE = "-fx-background-color: #f5f7fb; -fx-border-color: #c9d1e3; -fx-border-radius: 8; -fx-background-radius: 8;";
-    private static final String LOOP_BUTTON_STYLE = "-fx-font-size: 14px; -fx-padding: 2 8 2 8;";
-    private static final String MUTE_BUTTON_STYLE = "-fx-font-size: 13px; -fx-padding: 2 8 2 8;";
-    private static final String INSERT_SEGMENT_STYLE = "-fx-background-color: #4a83d8;";
+    private static final Color ERROR_COLOR = Color.web("#a94442");
+    private static final Color PLAYING_COLOR = Color.web("#2f9e44");
+    private static final Color PAUSED_COLOR = Color.web("#f0b429");
+    private static final Color FINISHED_COLOR = Color.web("#d64545");
+    private static final Color READY_COLOR = Color.web("#97a3b6");
     private final WorkspaceTrackItem workspaceTrackItem;
     private final WaveformService waveformService;
     private final Runnable removeAction;
@@ -56,17 +61,29 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     private final Pane titleViewport = new Pane();
     private final Rectangle titleClip = new Rectangle();
     private final Label titleLabel = new Label();
-    private final Circle statusIndicator = new Circle(5d, Color.web("#97a3b6"));
+    private final Circle statusIndicator = new Circle(5d, READY_COLOR);
 
-    private final Button playPauseButton = new Button(UiIcons.PLAY);
-    private final Button stopButton = new Button(UiIcons.STOP);
-    private final Button removeButton = new Button("Remove");
-    private final ToggleButton loopButton = new ToggleButton(UiIcons.LOOP);
-    private final ToggleButton muteButton = new ToggleButton(UiIcons.UNMUTED);
+    private final Node playGraphic = UiIcons.play();
+    private final Node pauseGraphic = UiIcons.pause();
+    private final Node stopGraphic = UiIcons.stop();
+    private final Node loopGraphic = UiIcons.loop();
+    private final Node mutedGraphic = UiIcons.muted();
+    private final Node unmutedGraphic = UiIcons.unmuted();
+    private final Button playPauseButton = new Button(null, playGraphic);
+    private final Button stopButton = new Button(null, stopGraphic);
+    private final Button removeButton = new Button(Texts.text(TextKey.TRACK_REMOVE));
+    private final ToggleButton loopButton = new ToggleButton(null, loopGraphic);
+    private final ToggleButton muteButton = new ToggleButton(null, unmutedGraphic);
     private final Slider volumeSlider = new Slider(0d, 100d, 80d);
     private final WaveformSeekView waveformSeekView = new WaveformSeekView();
     private final Label currentTimeLabel = new Label("00:00");
     private final Label totalTimeLabel = new Label("00:00");
+    private final HBox titleRow = new HBox();
+    private final HBox controlsRow = new HBox();
+    private final HBox detailsRow = new HBox();
+    private final HBox progressTimeRow = new HBox();
+    private final HBox progressRow = new HBox();
+    private final VBox content = new VBox();
 
     private double currentScale = 1d;
     private final double baseWaveformHeight;
@@ -82,6 +99,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
             Runnable removeAction,
             Runnable persistenceChangeAction
     ) {
+        getStyleClass().add("track-tile");
         this.workspaceTrackItem = workspaceTrackItem;
         this.waveformService = waveformService;
         this.removeAction = removeAction;
@@ -105,6 +123,14 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         stopTitleAnimation();
     }
 
+    public void refreshLocalization() {
+        removeButton.setText(Texts.text(TextKey.TRACK_REMOVE));
+        playPauseButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_PLAY_PAUSE)));
+        stopButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_STOP)));
+        loopButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_LOOP)));
+        muteButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_MUTE)));
+    }
+
     public void updateTileSize(double tileWidth, double tileHeight, double tileScale) {
         setMinWidth(tileWidth);
         setPrefWidth(tileWidth);
@@ -117,7 +143,6 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
 
     private void configureLayout(UiConfig uiConfig) {
         updateTileSize(uiConfig.getTrackTileWidth(), uiConfig.getTrackTileHeight(), 1d);
-        setStyle(BASE_STYLE);
 
         titleLabel.setText(workspaceTrackItem.getAudioFile().getDisplayName());
         titleLabel.setWrapText(false);
@@ -127,35 +152,33 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         titleViewport.heightProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         titleLabel.layoutBoundsProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
 
-        HBox titleRow = new HBox(8, titleViewport);
+        titleRow.getChildren().setAll(titleViewport);
         titleRow.setAlignment(Pos.TOP_LEFT);
         HBox.setHgrow(titleViewport, Priority.ALWAYS);
 
-        HBox controlsRow = new HBox(8, playPauseButton, stopButton, removeButton);
+        controlsRow.getChildren().setAll(playPauseButton, stopButton, removeButton);
         controlsRow.setAlignment(Pos.CENTER_LEFT);
         configureActionButton(playPauseButton);
         configureActionButton(stopButton);
         configureActionButton(removeButton);
 
-        playPauseButton.setTooltip(new Tooltip("Play / Pause"));
-        stopButton.setTooltip(new Tooltip("Stop"));
-        loopButton.setTooltip(new Tooltip("Loop"));
-        loopButton.setStyle(LOOP_BUTTON_STYLE);
-        muteButton.setTooltip(new Tooltip("Mute"));
-        muteButton.setStyle(MUTE_BUTTON_STYLE);
+        playPauseButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_PLAY_PAUSE)));
+        stopButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_STOP)));
+        loopButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_LOOP)));
+        muteButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_MUTE)));
         volumeSlider.setValue(workspaceTrackItem.getWorkspaceTrack().getVolume() * 100d);
-        HBox detailsRow = new HBox(8, loopButton, muteButton, volumeSlider);
+        detailsRow.getChildren().setAll(loopButton, muteButton, volumeSlider);
         detailsRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(volumeSlider, Priority.ALWAYS);
 
-        HBox progressTimeRow = new HBox(8, currentTimeLabel, createSpacer(), totalTimeLabel);
+        progressTimeRow.getChildren().setAll(currentTimeLabel, createSpacer(), totalTimeLabel);
         progressTimeRow.setAlignment(Pos.CENTER_LEFT);
 
-        HBox progressRow = new HBox(waveformSeekView);
+        progressRow.getChildren().setAll(waveformSeekView);
         progressRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(waveformSeekView, Priority.ALWAYS);
 
-        VBox content = new VBox(8, titleRow, controlsRow, detailsRow, progressTimeRow, progressRow);
+        content.getChildren().setAll(titleRow, controlsRow, detailsRow, progressTimeRow, progressRow);
         content.setFillWidth(true);
         contentPane.setCenter(content);
 
@@ -166,6 +189,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         StackPane.setAlignment(statusIndicator, Pos.TOP_RIGHT);
         getChildren().setAll(contentPane, insertionMarkers, statusIndicator);
         waveformSeekView.setWaveformData(WaveformData.empty());
+        applyScale(1d);
         updateTitleAnimation();
     }
 
@@ -225,7 +249,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         waveformSeekView.setDisable(missing || playbackStatus == PlaybackStatus.ERROR);
         muteButton.setDisable(missing || playbackStatus == PlaybackStatus.ERROR);
 
-        playPauseButton.setText(playbackStatus == PlaybackStatus.PLAYING ? UiIcons.PAUSE : UiIcons.PLAY);
+        setGraphicIfChanged(playPauseButton, playbackStatus == PlaybackStatus.PLAYING ? pauseGraphic : playGraphic);
         refreshMuteButton();
         statusIndicator.setFill(resolveStatusColor(missing, playbackStatus));
         waveformSeekView.setPlaybackPosition(currentTime, totalTime);
@@ -333,7 +357,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
 
     private Region createMarkerSegment(double width, double height) {
         Region region = new Region();
-        region.setStyle(INSERT_SEGMENT_STYLE);
+        region.getStyleClass().add("insertion-marker");
         region.setMinWidth(width);
         region.setPrefWidth(width);
         region.setMaxWidth(width);
@@ -348,12 +372,19 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     private void refreshMuteButton() {
         boolean muted = workspaceTrackItem.isMuted();
         muteButton.setSelected(muted);
-        muteButton.setText(muted ? UiIcons.MUTED : UiIcons.UNMUTED);
+        setGraphicIfChanged(muteButton, muted ? mutedGraphic : unmutedGraphic);
     }
 
     private void applyScale(double tileScale) {
         currentScale = tileScale;
+        setStyle("-fx-border-radius: " + (8d * tileScale)
+                + "; -fx-background-radius: " + (8d * tileScale) + ";");
         contentPane.setPadding(new Insets(12d * tileScale));
+        titleRow.setSpacing(8d * tileScale);
+        controlsRow.setSpacing(8d * tileScale);
+        detailsRow.setSpacing(8d * tileScale);
+        progressTimeRow.setSpacing(8d * tileScale);
+        content.setSpacing(8d * tileScale);
         titleLabel.setStyle("-fx-font-size: " + (14d * tileScale) + "px; -fx-font-weight: bold;");
         titleViewport.setMinHeight(22d * tileScale);
         titleViewport.setPrefHeight(22d * tileScale);
@@ -369,19 +400,53 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         waveformSeekView.setMaxHeight(baseWaveformHeight * tileScale);
         statusIndicator.setRadius(5d * tileScale);
         StackPane.setMargin(statusIndicator, new Insets(4d * tileScale, 4d * tileScale, 0, 0));
+        UiIcons.resize(playGraphic, tileScale);
+        UiIcons.resize(pauseGraphic, tileScale);
+        UiIcons.resize(stopGraphic, tileScale);
+        UiIcons.resize(loopGraphic, tileScale);
+        UiIcons.resize(mutedGraphic, tileScale);
+        UiIcons.resize(unmutedGraphic, tileScale);
+        updateInsertionMarkerScale(leftInsertionMarker, tileScale);
+        updateInsertionMarkerScale(rightInsertionMarker, tileScale);
         updateTitleAnimation();
+    }
+
+    private void updateInsertionMarkerScale(AnchorPane marker, double scale) {
+        setRegionWidth(marker, 12d * scale);
+        setRegionWidth((Region) marker.getChildren().get(0), 4d * scale);
+        setRegionSize((Region) marker.getChildren().get(1), 10d * scale, 4d * scale);
+        setRegionSize((Region) marker.getChildren().get(2), 10d * scale, 4d * scale);
+    }
+
+    private void setRegionWidth(Region region, double width) {
+        region.setMinWidth(width);
+        region.setPrefWidth(width);
+        region.setMaxWidth(width);
+    }
+
+    private void setRegionSize(Region region, double width, double height) {
+        setRegionWidth(region, width);
+        region.setMinHeight(height);
+        region.setPrefHeight(height);
+        region.setMaxHeight(height);
+    }
+
+    private void setGraphicIfChanged(Labeled control, Node graphic) {
+        if (control.getGraphic() != graphic) {
+            control.setGraphic(graphic);
+        }
     }
 
     private Color resolveStatusColor(boolean missing, PlaybackStatus playbackStatus) {
         if (missing || playbackStatus == PlaybackStatus.ERROR) {
-            return Color.web("#a94442");
+            return ERROR_COLOR;
         }
 
         return switch (playbackStatus) {
-            case PLAYING -> Color.web("#2f9e44");
-            case PAUSED -> Color.web("#f0b429");
-            case FINISHED -> Color.web("#d64545");
-            default -> Color.web("#97a3b6");
+            case PLAYING -> PLAYING_COLOR;
+            case PAUSED -> PAUSED_COLOR;
+            case FINISHED -> FINISHED_COLOR;
+            default -> READY_COLOR;
         };
     }
 

@@ -4,6 +4,8 @@ import app.config.UiConfig;
 import app.model.AudioFile;
 import app.model.PlaybackStatus;
 import app.model.QueueTrack;
+import app.localization.TextKey;
+import app.localization.Texts;
 import app.ui.UiIcons;
 import app.ui.drag.DragPayload;
 import app.ui.waveform.WaveformSeekView;
@@ -21,6 +23,7 @@ import javafx.animation.Timeline;
 import javafx.animation.TranslateTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
@@ -53,8 +56,10 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 public class QueueView extends StackPane implements WorkspaceItemView {
-    private static final String BASE_STYLE = "-fx-background-color: #f5f7fb; -fx-border-color: #c9d1e3; -fx-border-radius: 8; -fx-background-radius: 8;";
-    private static final String INSERT_SEGMENT_STYLE = "-fx-background-color: #4a83d8;";
+    private static final Color PLAYING_COLOR = Color.web("#2f9e44");
+    private static final Color PAUSED_COLOR = Color.web("#f0b429");
+    private static final Color FINISHED_COLOR = Color.web("#d64545");
+    private static final Color READY_COLOR = Color.web("#97a3b6");
 
     private final WorkspaceQueueItem workspaceQueueItem;
     private final WaveformService waveformService;
@@ -70,25 +75,39 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private final AnchorPane leftInsertionMarker = createInsertionMarker(true);
     private final AnchorPane rightInsertionMarker = createInsertionMarker(false);
     private final Rectangle queueClip = new Rectangle();
-    private final Circle statusIndicator = new Circle(5d, Color.web("#97a3b6"));
+    private final Circle statusIndicator = new Circle(5d, READY_COLOR);
     private final Pane titleViewport = new Pane();
     private final Rectangle titleClip = new Rectangle();
     private final Label queueNameLabel = new Label();
     private final TextField queueNameField = new TextField();
-    private final Button previousButton = new Button(UiIcons.PREVIOUS);
-    private final Button playPauseButton = new Button(UiIcons.PLAY);
-    private final Button stopButton = new Button(UiIcons.STOP);
-    private final Button nextButton = new Button(UiIcons.NEXT);
-    private final ToggleButton shuffleButton = new ToggleButton("Shuffle");
-    private final Button removeQueueButton = new Button("Remove Queue");
-    private final ToggleButton loopTrackButton = new ToggleButton(UiIcons.LOOP + " Track");
-    private final ToggleButton loopQueueButton = new ToggleButton(UiIcons.LOOP + " Queue");
+    private final Node previousGraphic = UiIcons.previous();
+    private final Node playGraphic = UiIcons.play();
+    private final Node pauseGraphic = UiIcons.pause();
+    private final Node stopGraphic = UiIcons.stop();
+    private final Node nextGraphic = UiIcons.next();
+    private final Node loopTrackGraphic = UiIcons.loop();
+    private final Node loopQueueGraphic = UiIcons.loop();
+    private final Button previousButton = new Button(null, previousGraphic);
+    private final Button playPauseButton = new Button(null, playGraphic);
+    private final Button stopButton = new Button(null, stopGraphic);
+    private final Button nextButton = new Button(null, nextGraphic);
+    private final ToggleButton shuffleButton = new ToggleButton(Texts.text(TextKey.QUEUE_SHUFFLE));
+    private final Button removeQueueButton = new Button(Texts.text(TextKey.QUEUE_REMOVE));
+    private final ToggleButton loopTrackButton = new ToggleButton(Texts.text(TextKey.QUEUE_TRACK), loopTrackGraphic);
+    private final ToggleButton loopQueueButton = new ToggleButton(Texts.text(TextKey.QUEUE_QUEUE), loopQueueGraphic);
     private final Slider volumeSlider = new Slider(0d, 100d, 80d);
     private final WaveformSeekView waveformSeekView = new WaveformSeekView();
     private final Label currentTimeLabel = new Label("00:00");
     private final Label totalTimeLabel = new Label("00:00");
+    private final Label volumeLabel = new Label(Texts.text(TextKey.QUEUE_VOLUME));
     private final FlowPane chipContainer = new FlowPane();
     private final ScrollPane chipScrollPane = new ScrollPane(chipContainer);
+    private final BorderPane content = new BorderPane();
+    private final HBox titleRow = new HBox();
+    private final HBox transportRow = new HBox();
+    private final HBox progressTimeRow = new HBox();
+    private final HBox progressRow = new HBox();
+    private final VBox body = new VBox();
 
     private boolean editingQueueName;
     private String editingOriginalQueueName;
@@ -113,6 +132,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
             QueueTrackMoveHandler moveQueueTrackAction,
             WorkspaceQueueMoveHandler moveWorkspaceQueueAction
     ) {
+        getStyleClass().add("queue-tile");
         this.workspaceQueueItem = workspaceQueueItem;
         this.waveformService = waveformService;
         this.removeQueueAction = removeQueueAction;
@@ -192,12 +212,10 @@ public class QueueView extends StackPane implements WorkspaceItemView {
 
     private void configureLayout(UiConfig uiConfig) {
         updateTileMetrics(uiConfig.getTrackTileWidth(), uiConfig.getTrackTileHeight(), 1d);
-        setStyle(BASE_STYLE);
         setClip(queueClip);
         widthProperty().addListener((observable, oldValue, newValue) -> queueClip.setWidth(newValue.doubleValue()));
         heightProperty().addListener((observable, oldValue, newValue) -> queueClip.setHeight(newValue.doubleValue()));
 
-        BorderPane content = new BorderPane();
         content.setPadding(new Insets(5));
 
         String queueName = workspaceQueueItem.getWorkspaceQueue().getName();
@@ -210,28 +228,26 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         queueNameLabel.layoutBoundsProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
 
         queueNameField.setText(queueName);
-        queueNameField.setPromptText("Queue name");
+        queueNameField.setPromptText(Texts.text(TextKey.QUEUE_NAME));
         queueNameField.setVisible(false);
         queueNameField.setManaged(false);
-        titleViewport.maxWidthProperty().bind(widthProperty().subtract(40d));
-        queueNameField.maxWidthProperty().bind(widthProperty().subtract(40d));
+        widthProperty().addListener((observable, oldValue, newValue) -> updateTitleControlWidth());
 
         StackPane titleStack = new StackPane(titleViewport, queueNameField);
         titleStack.setAlignment(Pos.CENTER_LEFT);
-        HBox titleRow = new HBox(8, titleStack);
+        titleRow.getChildren().setAll(titleStack);
         titleRow.setAlignment(Pos.CENTER_LEFT);
         titleRow.setPadding(new Insets(0, 18, 0, 0));
         HBox.setHgrow(titleStack, Priority.ALWAYS);
 
-        loopTrackButton.setTooltip(new Tooltip("Loop current track"));
-        loopQueueButton.setTooltip(new Tooltip("Loop whole queue"));
-        previousButton.setTooltip(new Tooltip("Previous"));
-        playPauseButton.setTooltip(new Tooltip("Play / Pause"));
-        stopButton.setTooltip(new Tooltip("Stop"));
-        nextButton.setTooltip(new Tooltip("Next"));
+        loopTrackButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_LOOP_TRACK)));
+        loopQueueButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_LOOP_QUEUE)));
+        previousButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_PREVIOUS)));
+        playPauseButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_PLAY_PAUSE)));
+        stopButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_STOP)));
+        nextButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_NEXT)));
         volumeSlider.setValue(workspaceQueueItem.getVolume() * 100d);
-        HBox transportRow = new HBox(
-                5,
+        transportRow.getChildren().setAll(
                 previousButton,
                 playPauseButton,
                 stopButton,
@@ -240,16 +256,16 @@ public class QueueView extends StackPane implements WorkspaceItemView {
                 removeQueueButton,
                 loopTrackButton,
                 loopQueueButton,
-                new Label("Volume"),
+                volumeLabel,
                 volumeSlider
         );
         transportRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(volumeSlider, Priority.ALWAYS);
 
-        HBox progressTimeRow = new HBox(1, currentTimeLabel, createSpacer(), totalTimeLabel);
+        progressTimeRow.getChildren().setAll(currentTimeLabel, createSpacer(), totalTimeLabel);
         progressTimeRow.setAlignment(Pos.CENTER_LEFT);
 
-        HBox progressRow = new HBox(waveformSeekView);
+        progressRow.getChildren().setAll(waveformSeekView);
         progressRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(waveformSeekView, Priority.ALWAYS);
 
@@ -260,11 +276,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         chipScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         chipScrollPane.setContent(chipContainer);
         chipScrollPane.setStyle("-fx-background-color: transparent;");
-        chipScrollPane.viewportBoundsProperty().addListener((observable, oldValue, newValue) ->
-                chipContainer.setPrefWrapLength(Math.max(newValue.getWidth() - 8d, 160d))
-        );
+        chipScrollPane.viewportBoundsProperty().addListener((observable, oldValue, newValue) -> updateChipWrapLength());
 
-        VBox body = new VBox(2, titleRow, transportRow, progressTimeRow, progressRow, chipScrollPane);
+        body.getChildren().setAll(titleRow, transportRow, progressTimeRow, progressRow, chipScrollPane);
         body.setFillWidth(true);
         VBox.setVgrow(chipScrollPane, Priority.ALWAYS);
         content.setCenter(body);
@@ -276,7 +290,24 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         StackPane.setAlignment(statusIndicator, Pos.TOP_RIGHT);
         getChildren().setAll(content, insertionMarkers, statusIndicator);
         waveformSeekView.setWaveformData(WaveformData.empty());
+        applyScale(1d);
         updateTitleAnimation();
+    }
+
+    public void refreshLocalization() {
+        shuffleButton.setText(Texts.text(TextKey.QUEUE_SHUFFLE));
+        removeQueueButton.setText(Texts.text(TextKey.QUEUE_REMOVE));
+        loopTrackButton.setText(Texts.text(TextKey.QUEUE_TRACK));
+        loopQueueButton.setText(Texts.text(TextKey.QUEUE_QUEUE));
+        volumeLabel.setText(Texts.text(TextKey.QUEUE_VOLUME));
+        queueNameField.setPromptText(Texts.text(TextKey.QUEUE_NAME));
+        loopTrackButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_LOOP_TRACK)));
+        loopQueueButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_LOOP_QUEUE)));
+        previousButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_PREVIOUS)));
+        playPauseButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_PLAY_PAUSE)));
+        stopButton.setTooltip(new Tooltip(Texts.text(TextKey.TOOLTIP_STOP)));
+        nextButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_NEXT)));
+        rebuildChips();
     }
 
     private void configureActions() {
@@ -424,7 +455,10 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         Duration totalTime = workspaceQueueItem.getTotalDuration();
         refreshWaveformSource();
 
-        playPauseButton.setText(playbackStatus == PlaybackStatus.PLAYING ? UiIcons.PAUSE : UiIcons.PLAY);
+        Node graphic = playbackStatus == PlaybackStatus.PLAYING ? pauseGraphic : playGraphic;
+        if (playPauseButton.getGraphic() != graphic) {
+            playPauseButton.setGraphic(graphic);
+        }
         shuffleButton.setSelected(workspaceQueueItem.isShuffleEnabled());
         loopTrackButton.setSelected(workspaceQueueItem.isLoopCurrentTrack());
         loopQueueButton.setSelected(workspaceQueueItem.isLoopQueue());
@@ -456,10 +490,10 @@ public class QueueView extends StackPane implements WorkspaceItemView {
 
     private Color resolveStatusColor(PlaybackStatus playbackStatus) {
         return switch (playbackStatus) {
-            case PLAYING -> Color.web("#2f9e44");
-            case PAUSED -> Color.web("#f0b429");
-            case FINISHED, ERROR -> Color.web("#d64545");
-            default -> Color.web("#97a3b6");
+            case PLAYING -> PLAYING_COLOR;
+            case PAUSED -> PAUSED_COLOR;
+            case FINISHED, ERROR -> FINISHED_COLOR;
+            default -> READY_COLOR;
         };
     }
 
@@ -495,7 +529,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
 
     private Region createMarkerSegment(double width, double height) {
         Region region = new Region();
-        region.setStyle(INSERT_SEGMENT_STYLE);
+        region.getStyleClass().add("insertion-marker");
         region.setMinWidth(width);
         region.setPrefWidth(width);
         region.setMaxWidth(width);
@@ -682,6 +716,14 @@ public class QueueView extends StackPane implements WorkspaceItemView {
 
     private void applyScale(double scale) {
         currentScale = scale;
+        setStyle("-fx-border-radius: " + (8d * scale)
+                + "; -fx-background-radius: " + (8d * scale) + ";");
+        content.setPadding(new Insets(5d * scale));
+        titleRow.setSpacing(8d * scale);
+        titleRow.setPadding(new Insets(0, 18d * scale, 0, 0));
+        transportRow.setSpacing(5d * scale);
+        progressTimeRow.setSpacing(1d * scale);
+        body.setSpacing(2d * scale);
         queueNameLabel.setStyle("-fx-font-size: " + (14d * scale) + "px; -fx-font-weight: bold;");
         titleViewport.setMinHeight(22d * scale);
         titleViewport.setPrefHeight(22d * scale);
@@ -708,12 +750,54 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         waveformSeekView.setMaxHeight(baseWaveformHeight * scale);
         statusIndicator.setRadius(5d * scale);
         StackPane.setMargin(statusIndicator, new Insets(6d * scale, 6d * scale, 0, 0));
+        UiIcons.resize(previousGraphic, scale);
+        UiIcons.resize(playGraphic, scale);
+        UiIcons.resize(pauseGraphic, scale);
+        UiIcons.resize(stopGraphic, scale);
+        UiIcons.resize(nextGraphic, scale);
+        UiIcons.resize(loopTrackGraphic, scale);
+        UiIcons.resize(loopQueueGraphic, scale);
+        updateInsertionMarkerScale(leftInsertionMarker, scale);
+        updateInsertionMarkerScale(rightInsertionMarker, scale);
+        updateTitleControlWidth();
+        updateChipWrapLength();
         for (var node : chipContainer.getChildren()) {
             if (node instanceof QueueTrackChipView chipView) {
                 chipView.updateScale(scale);
             }
         }
         updateTitleAnimation();
+    }
+
+    private void updateTitleControlWidth() {
+        double maxWidth = Math.max(getWidth() - 40d * currentScale, 0d);
+        titleViewport.setMaxWidth(maxWidth);
+        queueNameField.setMaxWidth(maxWidth);
+    }
+
+    private void updateChipWrapLength() {
+        double viewportWidth = chipScrollPane.getViewportBounds().getWidth();
+        chipContainer.setPrefWrapLength(Math.max(viewportWidth - 8d * currentScale, 160d * currentScale));
+    }
+
+    private void updateInsertionMarkerScale(AnchorPane marker, double scale) {
+        setRegionWidth(marker, 12d * scale);
+        setRegionWidth((Region) marker.getChildren().get(0), 4d * scale);
+        setRegionSize((Region) marker.getChildren().get(1), 10d * scale, 4d * scale);
+        setRegionSize((Region) marker.getChildren().get(2), 10d * scale, 4d * scale);
+    }
+
+    private void setRegionWidth(Region region, double width) {
+        region.setMinWidth(width);
+        region.setPrefWidth(width);
+        region.setMaxWidth(width);
+    }
+
+    private void setRegionSize(Region region, double width, double height) {
+        setRegionWidth(region, width);
+        region.setMinHeight(height);
+        region.setPrefHeight(height);
+        region.setMaxHeight(height);
     }
 
     private String buttonStyle(double fontSize, double verticalPadding, double horizontalPadding) {

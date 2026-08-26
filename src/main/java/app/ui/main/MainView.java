@@ -7,13 +7,19 @@ import app.model.ProjectState;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
+import app.localization.LocalizationService;
+import app.localization.TextKey;
+import app.localization.Texts;
 import app.project.ProjectLoadResult;
+import app.project.LastProjectPreferences;
 import app.project.ProjectStateCopySupport;
 import app.project.ProjectService;
 import app.project.ProjectStateEditor;
+import app.skin.SkinService;
 import app.ui.UiIcons;
 import app.ui.drag.DragPayload;
 import app.ui.queue.QueueView;
+import app.ui.settings.SettingsWindow;
 import app.ui.tile.TrackTileView;
 import app.ui.tree.TreeNodeType;
 import app.ui.tree.TreeNodeValue;
@@ -21,6 +27,7 @@ import app.ui.workspace.WorkspaceQueueItem;
 import app.ui.workspace.WorkspaceTrackItem;
 import app.waveform.WaveformService;
 import javafx.application.Platform;
+import javafx.beans.property.DoubleProperty;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -38,6 +45,9 @@ import javafx.scene.control.SelectionMode;
 import javafx.scene.control.Slider;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.ToolBar;
+import javafx.scene.control.Tooltip;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
@@ -47,6 +57,7 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
@@ -82,22 +93,45 @@ public class MainView extends BorderPane {
     private final ProjectStateEditor projectStateEditor;
     private final AudioEngine audioEngine;
     private final WaveformService waveformService;
+    private final DoubleProperty uiScale;
+    private final SkinService skinService;
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private final LastProjectPreferences lastProjectPreferences;
 
-    private final Button openFolderButton = new Button("Open Folder");
-    private final Button rescanButton = new Button("Rescan");
-    private final Button saveButton = new Button("Save");
-    private final Button clearWorkspaceButton = new Button("Clear Workspace");
-    private final Button rebuildStateButton = new Button("Rebuild Save");
-    private final Label projectPathLabel = new Label("No folder selected");
-    private final Label statusLabel = new Label("Ready");
+    private final Node settingsGraphic = UiIcons.settings();
+    private final Button settingsButton = new Button(null, settingsGraphic);
+    private final Button openFolderButton = new Button(Texts.text(TextKey.MAIN_OPEN_FOLDER));
+    private final Button rescanButton = new Button(Texts.text(TextKey.MAIN_RESCAN));
+    private final Button saveButton = new Button(Texts.text(TextKey.MAIN_SAVE));
+    private final Button clearWorkspaceButton = new Button(Texts.text(TextKey.MAIN_CLEAR_WORKSPACE));
+    private final Button rebuildStateButton = new Button(Texts.text(TextKey.MAIN_REBUILD_SAVE));
+    private final Label projectPathLabel = new Label(Texts.text(TextKey.MAIN_NO_FOLDER));
+    private final Label statusLabel = new Label(Texts.text(TextKey.MAIN_READY));
+    private final Label projectTreeLabel = new Label(Texts.text(TextKey.MAIN_PROJECT_TREE));
+    private final Label workspaceLabel = new Label(Texts.text(TextKey.MAIN_WORKSPACE));
+    private final Label masterVolumeLabel = new Label(Texts.text(TextKey.MAIN_MASTER_VOLUME));
     private final TreeView<TreeNodeValue> treeView = new TreeView<>();
     private final Slider masterVolumeSlider = new Slider(0d, 100d, 100d);
     private final Label masterVolumeValueLabel = new Label("100%");
-    private final Button workspacePlayPauseButton = new Button(UiIcons.PAUSE);
-    private final Button workspaceStopButton = new Button(UiIcons.STOP);
+    private final Node workspacePlayGraphic = UiIcons.play();
+    private final Node workspacePauseGraphic = UiIcons.pause();
+    private final Node workspaceStopGraphic = UiIcons.stop();
+    private final Button workspacePlayPauseButton = new Button(null, workspacePauseGraphic);
+    private final Button workspaceStopButton = new Button(null, workspaceStopGraphic);
     private final ProgressIndicator waveformLoadingIndicator = new ProgressIndicator();
+    private final Button decreaseScaleButton = new Button("-");
+    private final Label scaleValueLabel = new Label();
+    private final Button increaseScaleButton = new Button("+");
+    private final ToggleButton interfaceScaleTargetButton = new ToggleButton("UI");
+    private final ToggleButton workspaceScaleTargetButton = new ToggleButton("WS");
+    private final SettingsWindow settingsWindow;
     private final WorkspaceView workspaceView;
+    private VBox leftPane;
+    private VBox rightPane;
+    private HBox workspaceHeader;
+    private HBox statusBar;
+    private HBox scaleControls;
+    private VBox scaleTargetControls;
 
     private final Map<UUID, WorkspaceTrackItem> workspaceTrackItems = new LinkedHashMap<>();
     private final Map<UUID, TrackTileView> trackTileViews = new LinkedHashMap<>();
@@ -114,6 +148,7 @@ public class MainView extends BorderPane {
     private boolean workspacePauseLatched;
     private boolean rebuildingWorkspace;
     private double masterVolume;
+    private ScaleTarget scaleTarget = ScaleTarget.INTERFACE;
 
     public MainView(
             Stage stage,
@@ -121,7 +156,11 @@ public class MainView extends BorderPane {
             ProjectService projectService,
             ProjectStateEditor projectStateEditor,
             AudioEngine audioEngine,
-            WaveformService waveformService
+            WaveformService waveformService,
+            DoubleProperty uiScale,
+            SkinService skinService,
+            LocalizationService localizationService,
+            LastProjectPreferences lastProjectPreferences
     ) {
         this.stage = stage;
         this.appConfig = appConfig;
@@ -129,6 +168,10 @@ public class MainView extends BorderPane {
         this.projectStateEditor = projectStateEditor;
         this.audioEngine = audioEngine;
         this.waveformService = waveformService;
+        this.uiScale = uiScale;
+        this.skinService = skinService;
+        this.lastProjectPreferences = lastProjectPreferences;
+        this.settingsWindow = new SettingsWindow(stage, skinService, localizationService, lastProjectPreferences, this::refreshLocalization);
         this.projectState = ProjectState.empty(appConfig.getSchemaVersion());
         this.masterVolume = appConfig.getWorkspace().getDefaultMasterVolume();
         this.baseTrackTileWidth = appConfig.getUi().getTrackTileWidth();
@@ -170,6 +213,7 @@ public class MainView extends BorderPane {
         configureActions();
         rebuildTree();
         rebuildWorkspace();
+        refreshInterfaceScale();
     }
 
     public void shutdown() {
@@ -181,16 +225,54 @@ public class MainView extends BorderPane {
         executorService.shutdownNow();
     }
 
+    public void restoreLastProject(boolean forced) {
+        if (forced || lastProjectPreferences.isRestoreOnStart()) {
+            lastProjectPreferences.load().ifPresent(path -> loadProject(path, false));
+        }
+    }
+
+    private void refreshLocalization() {
+        stage.setTitle(Texts.text(TextKey.APP_TITLE));
+        settingsButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_SETTINGS)));
+        openFolderButton.setText(Texts.text(TextKey.MAIN_OPEN_FOLDER));
+        rescanButton.setText(Texts.text(TextKey.MAIN_RESCAN));
+        saveButton.setText(Texts.text(TextKey.MAIN_SAVE));
+        clearWorkspaceButton.setText(Texts.text(TextKey.MAIN_CLEAR_WORKSPACE));
+        rebuildStateButton.setText(Texts.text(TextKey.MAIN_REBUILD_SAVE));
+        projectTreeLabel.setText(Texts.text(TextKey.MAIN_PROJECT_TREE));
+        workspaceLabel.setText(Texts.text(TextKey.MAIN_WORKSPACE));
+        masterVolumeLabel.setText(Texts.text(TextKey.MAIN_MASTER_VOLUME));
+        interfaceScaleTargetButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_SCALE_INTERFACE)));
+        workspaceScaleTargetButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_SCALE_WORKSPACE)));
+        workspaceView.refreshLocalization();
+        trackTileViews.values().forEach(TrackTileView::refreshLocalization);
+        queueViews.values().forEach(QueueView::refreshLocalization);
+        statusLabel.setText(currentRootPath == null
+                ? Texts.text(TextKey.MAIN_READY)
+                : Texts.format(TextKey.STATUS_LOADED, currentRootPath));
+    }
+
     private void configureLayout() {
         setPadding(new Insets(8));
         setTop(createToolBar());
 
-        VBox leftPane = new VBox(8, new Label("Project Tree"), treeView);
+        Region projectTreeBackground = new Region();
+        projectTreeBackground.getStyleClass().add("project-tree-background");
+        projectTreeBackground.setMouseTransparent(true);
+        StackPane projectTreeContainer = new StackPane(projectTreeBackground, treeView);
+        projectTreeContainer.getStyleClass().add("project-tree-container");
+
+        leftPane = new VBox(8, projectTreeLabel, projectTreeContainer);
+        leftPane.getStyleClass().add("project-pane");
+        treeView.getStyleClass().add("project-tree");
         leftPane.setPadding(new Insets(8));
-        VBox.setVgrow(treeView, Priority.ALWAYS);
+        VBox.setVgrow(projectTreeContainer, Priority.ALWAYS);
         leftPane.setPrefWidth(appConfig.getUi().getTreeWidth());
 
-        VBox rightPane = new VBox(8, createWorkspaceHeader(), workspaceView);
+        workspaceHeader = createWorkspaceHeader();
+        workspaceHeader.getStyleClass().add("workspace-header");
+        rightPane = new VBox(8, workspaceHeader, workspaceView);
+        rightPane.getStyleClass().add("workspace-pane");
         rightPane.setPadding(new Insets(8));
         VBox.setVgrow(workspaceView, Priority.ALWAYS);
 
@@ -199,12 +281,13 @@ public class MainView extends BorderPane {
         splitPane.setDividerPositions(0.3d);
 
         setCenter(splitPane);
-        setBottom(statusLabel);
-        BorderPane.setMargin(statusLabel, new Insets(8, 12, 4, 12));
+        setBottom(createStatusBar());
     }
 
     private ToolBar createToolBar() {
+        settingsButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_SETTINGS)));
         ToolBar toolBar = new ToolBar(
+                settingsButton,
                 openFolderButton,
                 rescanButton,
                 saveButton,
@@ -212,6 +295,7 @@ public class MainView extends BorderPane {
                 rebuildStateButton,
                 projectPathLabel
         );
+        toolBar.getStyleClass().add("main-header");
         rescanButton.setDisable(true);
         saveButton.setDisable(true);
         clearWorkspaceButton.setDisable(true);
@@ -219,10 +303,119 @@ public class MainView extends BorderPane {
         return toolBar;
     }
 
-    private HBox createWorkspaceHeader() {
-        Label workspaceLabel = new Label("Workspace");
-        Label masterVolumeLabel = new Label("Master Volume");
+    private HBox createStatusBar() {
+        decreaseScaleButton.setFocusTraversable(false);
+        increaseScaleButton.setFocusTraversable(false);
+        decreaseScaleButton.setMinWidth(28d);
+        increaseScaleButton.setMinWidth(28d);
+        scaleValueLabel.setMinWidth(44d);
+        scaleValueLabel.setAlignment(Pos.CENTER);
 
+        decreaseScaleButton.setOnAction(event -> adjustSelectedScale(-1d));
+        increaseScaleButton.setOnAction(event -> adjustSelectedScale(1d));
+        uiScale.addListener((observable, oldValue, newValue) -> refreshInterfaceScale());
+
+        ToggleGroup scaleTargetGroup = new ToggleGroup();
+        interfaceScaleTargetButton.setToggleGroup(scaleTargetGroup);
+        workspaceScaleTargetButton.setToggleGroup(scaleTargetGroup);
+        interfaceScaleTargetButton.setSelected(true);
+        configureScaleTargetButton(interfaceScaleTargetButton, Texts.text(TextKey.MAIN_SCALE_INTERFACE), ScaleTarget.INTERFACE);
+        configureScaleTargetButton(workspaceScaleTargetButton, Texts.text(TextKey.MAIN_SCALE_WORKSPACE), ScaleTarget.WORKSPACE);
+        interfaceScaleTargetButton.prefHeightProperty().bind(increaseScaleButton.heightProperty().divide(2d));
+        workspaceScaleTargetButton.prefHeightProperty().bind(increaseScaleButton.heightProperty().divide(2d));
+        scaleTargetControls = new VBox(interfaceScaleTargetButton, workspaceScaleTargetButton);
+        scaleTargetControls.prefHeightProperty().bind(increaseScaleButton.heightProperty());
+        refreshScaleControls();
+        refreshWorkspaceScaleAvailability();
+
+        scaleControls = new HBox(
+                4,
+                decreaseScaleButton,
+                scaleValueLabel,
+                increaseScaleButton,
+                scaleTargetControls
+        );
+        scaleControls.setAlignment(Pos.CENTER_RIGHT);
+
+        statusBar = new HBox(8, statusLabel, createSpacer(), scaleControls);
+        statusBar.getStyleClass().add("status-bar");
+        statusBar.setAlignment(Pos.CENTER_LEFT);
+        statusBar.setPadding(new Insets(4, 12, 4, 12));
+        return statusBar;
+    }
+
+    private void configureScaleTargetButton(ToggleButton button, String tooltip, ScaleTarget target) {
+        button.setFocusTraversable(false);
+        button.setTooltip(new Tooltip(tooltip));
+        button.setMinSize(24d, 0d);
+        button.setMaxSize(24d, Double.MAX_VALUE);
+        button.setStyle("-fx-font-size: 8px; -fx-padding: 0 2px;");
+        button.setOnAction(event -> {
+            button.setSelected(true);
+            scaleTarget = target;
+            refreshScaleControls();
+        });
+    }
+
+    private void adjustSelectedScale(double direction) {
+        if (scaleTarget == ScaleTarget.WORKSPACE) {
+            adjustWorkspaceScale(direction);
+        } else {
+            adjustInterfaceScale(direction);
+        }
+    }
+
+    private void adjustInterfaceScale(double direction) {
+        double nextScale = uiScale.get() + direction * appConfig.getUi().getScaleStep();
+        uiScale.set(Math.max(appConfig.getUi().getMinScale(), Math.min(nextScale, appConfig.getUi().getMaxScale())));
+    }
+
+    private void refreshScaleControls() {
+        boolean workspaceSelected = scaleTarget == ScaleTarget.WORKSPACE;
+        double currentScale = workspaceSelected ? currentTileScale() : uiScale.get();
+        double minimumScale = workspaceSelected ? appConfig.getUi().getMinTileScale() : appConfig.getUi().getMinScale();
+        double maximumScale = workspaceSelected ? appConfig.getUi().getMaxTileScale() : appConfig.getUi().getMaxScale();
+        scaleValueLabel.setText(Math.round(currentScale * 100d) + "%");
+        decreaseScaleButton.setDisable(currentScale <= minimumScale + 0.0001d);
+        increaseScaleButton.setDisable(currentScale >= maximumScale - 0.0001d);
+    }
+
+    private void refreshInterfaceScale() {
+        double scale = uiScale.get();
+        refreshScaleControls();
+        setPadding(new Insets(8d * scale));
+        leftPane.setSpacing(8d * scale);
+        leftPane.setPadding(new Insets(8d * scale));
+        leftPane.setPrefWidth(appConfig.getUi().getTreeWidth() * scale);
+        rightPane.setSpacing(8d * scale);
+        rightPane.setPadding(new Insets(8d * scale));
+        workspaceHeader.setSpacing(12d * scale);
+        masterVolumeSlider.setPrefWidth(180d * scale);
+        masterVolumeValueLabel.setMinWidth(44d * scale);
+        waveformLoadingIndicator.setPrefSize(18d * scale, 18d * scale);
+        waveformLoadingIndicator.setMinSize(18d * scale, 18d * scale);
+        waveformLoadingIndicator.setMaxSize(18d * scale, 18d * scale);
+        UiIcons.resize(workspacePlayGraphic, scale);
+        UiIcons.resize(workspacePauseGraphic, scale);
+        UiIcons.resize(workspaceStopGraphic, scale);
+        UiIcons.resize(settingsGraphic, scale);
+        decreaseScaleButton.setMinWidth(28d * scale);
+        increaseScaleButton.setMinWidth(28d * scale);
+        scaleValueLabel.setMinWidth(44d * scale);
+        interfaceScaleTargetButton.setMinWidth(24d * scale);
+        interfaceScaleTargetButton.setMaxWidth(24d * scale);
+        workspaceScaleTargetButton.setMinWidth(24d * scale);
+        workspaceScaleTargetButton.setMaxWidth(24d * scale);
+        interfaceScaleTargetButton.setStyle("-fx-font-size: " + (8d * scale) + "px; -fx-padding: 0 " + (2d * scale) + "px;");
+        workspaceScaleTargetButton.setStyle("-fx-font-size: " + (8d * scale) + "px; -fx-padding: 0 " + (2d * scale) + "px;");
+        scaleControls.setSpacing(4d * scale);
+        statusBar.setSpacing(8d * scale);
+        statusBar.setPadding(new Insets(4d * scale, 12d * scale, 4d * scale, 12d * scale));
+        workspaceView.updateInterfaceScale(scale);
+        refreshWorkspaceTileMetrics();
+    }
+
+    private HBox createWorkspaceHeader() {
         masterVolumeSlider.setValue(masterVolume * 100d);
         masterVolumeSlider.setPrefWidth(180d);
         masterVolumeValueLabel.setMinWidth(44d);
@@ -251,6 +444,8 @@ public class MainView extends BorderPane {
     }
 
     private void configureActions() {
+        settingsButton.setFocusTraversable(false);
+        settingsButton.setOnAction(event -> settingsWindow.show());
         openFolderButton.setOnAction(event -> chooseFolder());
         rescanButton.setOnAction(event -> {
             if (currentRootPath != null) {
@@ -337,10 +532,10 @@ public class MainView extends BorderPane {
             return null;
         }
 
-        MenuItem addToWorkspaceItem = new MenuItem("Add To Workspace");
+        MenuItem addToWorkspaceItem = new MenuItem(Texts.text(TextKey.MAIN_ADD_TO_WORKSPACE));
         addToWorkspaceItem.setOnAction(event -> addSelectedAudioFilesToWorkspace(nodeValue.getAudioFileId()));
 
-        Menu addToQueueMenu = new Menu("Add To Queue");
+        Menu addToQueueMenu = new Menu(Texts.text(TextKey.MAIN_ADD_TO_QUEUE));
         List<WorkspaceQueue> workspaceQueues = sortedWorkspaceQueues();
         for (WorkspaceQueue workspaceQueue : workspaceQueues) {
             MenuItem queueItem = new MenuItem(workspaceQueue.getName());
@@ -354,7 +549,7 @@ public class MainView extends BorderPane {
 
     private void chooseFolder() {
         DirectoryChooser directoryChooser = new DirectoryChooser();
-        directoryChooser.setTitle("Open Soundboard Project Folder");
+        directoryChooser.setTitle(Texts.text(TextKey.MAIN_OPEN_FOLDER_DIALOG));
         if (currentRootPath != null) {
             directoryChooser.setInitialDirectory(currentRootPath.toFile());
         }
@@ -388,7 +583,7 @@ public class MainView extends BorderPane {
 
         loading = true;
         setControlsDisabled(true);
-        statusLabel.setText("Loading " + rootPath + " ...");
+        statusLabel.setText(Texts.format(TextKey.STATUS_LOADING, rootPath));
 
         Task<ProjectLoadResult> loadTask = new Task<>() {
             @Override
@@ -399,15 +594,15 @@ public class MainView extends BorderPane {
 
         loadTask.setOnSucceeded(event -> {
             loading = false;
-            setControlsDisabled(false);
-
             ProjectLoadResult loadResult = loadTask.getValue();
             currentRootPath = loadResult.getRootPath();
+            lastProjectPreferences.save(currentRootPath);
+            setControlsDisabled(false);
             projectState = loadResult.getProjectState();
             updateMasterVolume(projectState.getMasterVolume());
             masterVolumeSlider.setValue(masterVolume * 100d);
             projectPathLabel.setText(currentRootPath.toString());
-            statusLabel.setText("Loaded " + currentRootPath);
+            statusLabel.setText(Texts.format(TextKey.STATUS_LOADED, currentRootPath));
             rescanButton.setDisable(false);
             saveButton.setDisable(false);
 
@@ -428,10 +623,10 @@ public class MainView extends BorderPane {
 
         loadTask.setOnFailed(event -> {
             loading = false;
-            setControlsDisabled(false);
             currentRootPath = null;
-            projectPathLabel.setText("No folder selected");
-            statusLabel.setText("Failed to load project");
+            setControlsDisabled(false);
+            projectPathLabel.setText(Texts.text(TextKey.MAIN_NO_FOLDER));
+            statusLabel.setText(Texts.text(TextKey.STATUS_LOAD_FAILED));
             showError("Failed to open folder", "The project folder could not be loaded.", asException(loadTask.getException()));
         });
 
@@ -518,9 +713,9 @@ public class MainView extends BorderPane {
 
         refreshWorkspaceOrder();
         workspaceView.refreshTileMetrics(
-                appConfig.getUi().getTrackTileWidth(),
-                appConfig.getUi().getTrackTileHeight(),
-                currentTileScale()
+                scaledTrackTileWidth(),
+                scaledTrackTileHeight(),
+                combinedTileScale()
         );
         rebuildingWorkspace = false;
         preloadWorkspaceWaveforms();
@@ -770,13 +965,13 @@ public class MainView extends BorderPane {
 
         Alert alert = new Alert(
                 Alert.AlertType.CONFIRMATION,
-                "Remove all solo tracks and queues from the workspace?",
+                Texts.text(TextKey.DIALOG_CLEAR_MESSAGE),
                 ButtonType.OK,
                 ButtonType.CANCEL
         );
         alert.initOwner(stage);
-        alert.setTitle("Clear Workspace");
-        alert.setHeaderText("Clear Workspace");
+        alert.setTitle(Texts.text(TextKey.DIALOG_CLEAR_TITLE));
+        alert.setHeaderText(Texts.text(TextKey.DIALOG_CLEAR_TITLE));
         if (alert.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
             return;
         }
@@ -794,13 +989,13 @@ public class MainView extends BorderPane {
 
         Alert alert = new Alert(
                 Alert.AlertType.CONFIRMATION,
-                "Rebuild the saved project state from the current file scan? This will clear the workspace queues and solo tracks.",
+                Texts.text(TextKey.DIALOG_REBUILD_MESSAGE),
                 ButtonType.OK,
                 ButtonType.CANCEL
         );
         alert.initOwner(stage);
-        alert.setTitle("Rebuild Save");
-        alert.setHeaderText("Rebuild Save File");
+        alert.setTitle(Texts.text(TextKey.MAIN_REBUILD_SAVE));
+        alert.setHeaderText(Texts.text(TextKey.DIALOG_REBUILD_TITLE));
         if (alert.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
             return;
         }
@@ -816,7 +1011,7 @@ public class MainView extends BorderPane {
             rebuildTree();
             rebuildWorkspace();
             requestProjectSave();
-            statusLabel.setText("Rebuilt save file for " + currentRootPath);
+            statusLabel.setText(Texts.format(TextKey.STATUS_REBUILT, currentRootPath));
         } catch (IOException exception) {
             LOGGER.error("Failed to rebuild project state for root folder {}", currentRootPath, exception);
             showError("Rebuild failed", "The project state file could not be rebuilt.", exception);
@@ -928,15 +1123,25 @@ public class MainView extends BorderPane {
                 .toList();
         workspaceView.setWorkspaceNodes(workspaceNodes);
         workspaceView.refreshTileMetrics(
-                appConfig.getUi().getTrackTileWidth(),
-                appConfig.getUi().getTrackTileHeight(),
-                currentTileScale()
+                scaledTrackTileWidth(),
+                scaledTrackTileHeight(),
+                combinedTileScale()
         );
     }
 
     private void adjustWorkspaceZoom(double deltaY) {
+        if (currentRootPath == null) {
+            return;
+        }
+        adjustWorkspaceScale(deltaY > 0d ? 1d : -1d);
+    }
+
+    private void adjustWorkspaceScale(double direction) {
+        if (currentRootPath == null) {
+            return;
+        }
         double currentScale = currentTileScale();
-        double nextScale = currentScale + (deltaY > 0d ? appConfig.getUi().getTileZoomStep() : -appConfig.getUi().getTileZoomStep());
+        double nextScale = currentScale + direction * appConfig.getUi().getTileZoomStep();
         nextScale = Math.max(appConfig.getUi().getMinTileScale(), Math.min(appConfig.getUi().getMaxTileScale(), nextScale));
         if (Math.abs(nextScale - currentScale) < 0.0001d) {
             return;
@@ -946,11 +1151,28 @@ public class MainView extends BorderPane {
         double nextHeight = Math.round(baseTrackTileHeight * nextScale);
         appConfig.getUi().setTrackTileWidth(nextWidth);
         appConfig.getUi().setTrackTileHeight(nextHeight);
-        workspaceView.refreshTileMetrics(nextWidth, nextHeight, nextScale);
+        refreshWorkspaceTileMetrics();
+        refreshScaleControls();
     }
 
     private double currentTileScale() {
         return appConfig.getUi().getTrackTileWidth() / baseTrackTileWidth;
+    }
+
+    private void refreshWorkspaceTileMetrics() {
+        workspaceView.refreshTileMetrics(scaledTrackTileWidth(), scaledTrackTileHeight(), combinedTileScale());
+    }
+
+    private double scaledTrackTileWidth() {
+        return appConfig.getUi().getTrackTileWidth() * uiScale.get();
+    }
+
+    private double scaledTrackTileHeight() {
+        return appConfig.getUi().getTrackTileHeight() * uiScale.get();
+    }
+
+    private double combinedTileScale() {
+        return currentTileScale() * uiScale.get();
     }
 
     private List<WorkspaceTopLevelItem> collectOrderedWorkspaceItems() {
@@ -1080,7 +1302,10 @@ public class MainView extends BorderPane {
     }
 
     private void refreshWorkspaceTransportButtons() {
-        workspacePlayPauseButton.setText(workspacePauseLatched ? UiIcons.PLAY : UiIcons.PAUSE);
+        Node graphic = workspacePauseLatched ? workspacePlayGraphic : workspacePauseGraphic;
+        if (workspacePlayPauseButton.getGraphic() != graphic) {
+            workspacePlayPauseButton.setGraphic(graphic);
+        }
     }
 
     private void refreshWaveformLoadingIndicator() {
@@ -1097,7 +1322,7 @@ public class MainView extends BorderPane {
         Path rootPath = currentRootPath;
         ProjectState snapshot = ProjectStateCopySupport.copy(projectState);
         int generation = saveGeneration.incrementAndGet();
-        statusLabel.setText("Saving " + rootPath);
+        statusLabel.setText(Texts.format(TextKey.STATUS_SAVING, rootPath));
         executorService.submit(() -> {
             try {
                 if (generation != saveGeneration.get()) {
@@ -1119,7 +1344,7 @@ public class MainView extends BorderPane {
         try {
             saveGeneration.incrementAndGet();
             projectService.saveProject(currentRootPath, projectState);
-            statusLabel.setText("Saved " + currentRootPath);
+            statusLabel.setText(Texts.format(TextKey.STATUS_SAVED, currentRootPath));
             return true;
         } catch (IOException exception) {
             LOGGER.error("Failed to save project state for root folder {}", currentRootPath, exception);
@@ -1134,6 +1359,17 @@ public class MainView extends BorderPane {
         saveButton.setDisable(disabled || currentRootPath == null);
         clearWorkspaceButton.setDisable(disabled || currentRootPath == null);
         rebuildStateButton.setDisable(disabled || currentRootPath == null);
+        refreshWorkspaceScaleAvailability();
+    }
+
+    private void refreshWorkspaceScaleAvailability() {
+        boolean projectClosed = currentRootPath == null;
+        workspaceScaleTargetButton.setDisable(projectClosed);
+        if (projectClosed && scaleTarget == ScaleTarget.WORKSPACE) {
+            scaleTarget = ScaleTarget.INTERFACE;
+            interfaceScaleTargetButton.setSelected(true);
+            refreshScaleControls();
+        }
     }
 
     private void showError(String title, String message, Exception exception) {
@@ -1155,5 +1391,10 @@ public class MainView extends BorderPane {
     }
 
     private record WorkspaceTopLevelItem(UUID id, int order, Node node) {
+    }
+
+    private enum ScaleTarget {
+        INTERFACE,
+        WORKSPACE
     }
 }
