@@ -1,0 +1,5 @@
+# Every change requires review from the repository owner.
+* @Arkanium77
+
+# Protect the ownership and automation rules explicitly as well.
+/.github/ @Arkanium77

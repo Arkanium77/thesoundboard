@@ -100,7 +100,7 @@ The project follows [Semantic Versioning 2.0.0](https://semver.org/). While the 
 
 ## Contributing
 
-Contributions are welcome. Please keep changes focused, follow the style of the surrounding code, add or update tests where behavior changes, and run `./gradlew check` (or `.\gradlew.bat check`) before submitting a pull request. By contributing, you agree that your contribution may be distributed under the repository's MIT License.
+Contributions are welcome. Please keep changes focused, follow the style of the surrounding code, add or update tests where behavior changes, and run `./gradlew check` (or `.\gradlew.bat check`) before submitting a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md) for the fork-and-pull-request workflow and review requirements. By contributing, you agree that your contribution may be distributed under the repository's MIT License.
 
 ## License
 
