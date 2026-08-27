@@ -1,11 +1,15 @@
 package app.skin;
 
+import app.packages.PackageSourceDirectories;
+import app.packages.PackageSourceDirectoryRegistry;
 import app.ui.UiFonts;
 import app.ui.UiIcons;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 
+import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashSet;
@@ -15,17 +19,35 @@ import java.util.UUID;
 public class SkinService {
     private final SkinRepository repository;
     private final SkinPreferences preferences;
+    private final PackageSourceDirectoryRegistry packageSourceDirectories;
     private final List<SkinBinding> bindings = new ArrayList<>();
     private final Set<UUID> loadedSkinUids = new LinkedHashSet<>();
     private SkinDescriptor activeSkin;
 
     public SkinService() {
-        this(new SkinRepository(), new SkinPreferences());
+        this(new SkinRepository(), new SkinPreferences(), PackageSourceDirectories.discover().skinDirectories());
     }
 
     SkinService(SkinRepository repository, SkinPreferences preferences) {
+        this(repository, preferences, new PackageSourceDirectoryRegistry(
+                repository.getExternalSkinsDirectory().resolve("_source-directories"),
+                List.of()
+        ));
+    }
+
+    SkinService(SkinRepository repository, SkinPreferences preferences, List<Path> packageSourceDirectories) {
+        this(repository, preferences, new PackageSourceDirectoryRegistry(
+                repository.getExternalSkinsDirectory().resolve("_source-directories"),
+                packageSourceDirectories
+        ));
+    }
+
+    SkinService(SkinRepository repository, SkinPreferences preferences,
+                PackageSourceDirectoryRegistry packageSourceDirectories) {
         this.repository = repository;
         this.preferences = preferences;
+        this.packageSourceDirectories = packageSourceDirectories;
+        refreshPackageSources();
         this.activeSkin = repository.findAll().stream()
                 .filter(descriptor -> descriptor.manifest().getUid().equals(SkinBootstrap.getStartupSkinUid()))
                 .findFirst()
@@ -69,6 +91,26 @@ public class SkinService {
 
     public List<SkinDescriptor> getAvailableSkins() {
         return repository.findAll();
+    }
+
+    public void refreshPackageSources() {
+        new SkinPackageInstaller(repository).installAvailablePackages(packageSourceDirectories.getDirectories());
+    }
+
+    public List<Path> getPackageSourceDirectories() {
+        return packageSourceDirectories.getDirectories();
+    }
+
+    public List<Path> getBundledPackageSourceDirectories() {
+        return packageSourceDirectories.getBundledDirectories();
+    }
+
+    public void addPackageSourceDirectory(Path directory) throws IOException {
+        packageSourceDirectories.add(directory);
+    }
+
+    public void removePackageSourceDirectory(Path directory) throws IOException {
+        packageSourceDirectories.remove(directory);
     }
 
     public SkinDescriptor getActiveSkin() {
@@ -129,4 +171,5 @@ public class SkinService {
 
     private record SkinBinding(Scene scene, Parent root) {
     }
+
 }

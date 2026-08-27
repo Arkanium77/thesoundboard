@@ -1,6 +1,11 @@
 package app.ui.waveform;
 
 import app.waveform.WaveformData;
+import javafx.css.CssMetaData;
+import javafx.css.SimpleStyleableObjectProperty;
+import javafx.css.Styleable;
+import javafx.css.StyleableObjectProperty;
+import javafx.css.StyleablePropertyFactory;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.input.MouseEvent;
@@ -8,6 +13,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.util.Duration;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 public class WaveformSeekView extends Region {
@@ -17,12 +23,51 @@ public class WaveformSeekView extends Region {
     private static final double SEEK_SETTLE_THRESHOLD_MILLIS = 750d;
     private static final long SEEK_SETTLE_TIMEOUT_NANOS = 1_500_000_000L;
 
-    private static final Color ACTIVE_BAR_COLOR = Color.web("#4a83d8");
-    private static final Color IDLE_BAR_COLOR = Color.web("#c7d3ea");
-    private static final Color ACTIVE_PLAYHEAD_COLOR = Color.web("#2d5fb2");
-    private static final Color DISABLED_BAR_COLOR = Color.web("#d7dce7");
+    private static final Color DEFAULT_ACTIVE_BAR_COLOR = Color.web("#4a83d8");
+    private static final Color DEFAULT_IDLE_BAR_COLOR = Color.web("#c7d3ea");
+    private static final Color DEFAULT_PLAYHEAD_COLOR = Color.web("#2d5fb2");
+    private static final Color DEFAULT_DISABLED_BAR_COLOR = Color.web("#d7dce7");
+
+    private static final StyleablePropertyFactory<WaveformSeekView> STYLEABLE_PROPERTY_FACTORY =
+            new StyleablePropertyFactory<>(Region.getClassCssMetaData());
+    private static final CssMetaData<WaveformSeekView, Color> ACTIVE_BAR_COLOR_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createColorCssMetaData(
+                    "-tsb-waveform-active-color",
+                    view -> view.activeBarColor,
+                    DEFAULT_ACTIVE_BAR_COLOR
+            );
+    private static final CssMetaData<WaveformSeekView, Color> IDLE_BAR_COLOR_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createColorCssMetaData(
+                    "-tsb-waveform-idle-color",
+                    view -> view.idleBarColor,
+                    DEFAULT_IDLE_BAR_COLOR
+            );
+    private static final CssMetaData<WaveformSeekView, Color> PLAYHEAD_COLOR_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createColorCssMetaData(
+                    "-tsb-waveform-playhead-color",
+                    view -> view.playheadColor,
+                    DEFAULT_PLAYHEAD_COLOR
+            );
+    private static final CssMetaData<WaveformSeekView, Color> DISABLED_BAR_COLOR_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createColorCssMetaData(
+                    "-tsb-waveform-disabled-color",
+                    view -> view.disabledBarColor,
+                    DEFAULT_DISABLED_BAR_COLOR
+            );
 
     private final Canvas canvas = new Canvas();
+    private final StyleableObjectProperty<Color> activeBarColor = new SimpleStyleableObjectProperty<>(
+            ACTIVE_BAR_COLOR_META_DATA, this, "activeBarColor", DEFAULT_ACTIVE_BAR_COLOR
+    );
+    private final StyleableObjectProperty<Color> idleBarColor = new SimpleStyleableObjectProperty<>(
+            IDLE_BAR_COLOR_META_DATA, this, "idleBarColor", DEFAULT_IDLE_BAR_COLOR
+    );
+    private final StyleableObjectProperty<Color> playheadColor = new SimpleStyleableObjectProperty<>(
+            PLAYHEAD_COLOR_META_DATA, this, "playheadColor", DEFAULT_PLAYHEAD_COLOR
+    );
+    private final StyleableObjectProperty<Color> disabledBarColor = new SimpleStyleableObjectProperty<>(
+            DISABLED_BAR_COLOR_META_DATA, this, "disabledBarColor", DEFAULT_DISABLED_BAR_COLOR
+    );
 
     private WaveformData waveformData = WaveformData.empty();
     private Consumer<Duration> seekHandler = duration -> {
@@ -35,7 +80,12 @@ public class WaveformSeekView extends Region {
     private long pendingSeekDeadlineNanos;
 
     public WaveformSeekView() {
+        getStyleClass().add("waveform-seek-view");
         getChildren().add(canvas);
+        activeBarColor.addListener((observable, oldValue, newValue) -> redraw());
+        idleBarColor.addListener((observable, oldValue, newValue) -> redraw());
+        playheadColor.addListener((observable, oldValue, newValue) -> redraw());
+        disabledBarColor.addListener((observable, oldValue, newValue) -> redraw());
         widthProperty().addListener((observable, oldValue, newValue) -> redraw());
         heightProperty().addListener((observable, oldValue, newValue) -> redraw());
         disabledProperty().addListener((observable, oldValue, newValue) -> redraw());
@@ -79,6 +129,15 @@ public class WaveformSeekView extends Region {
         canvas.setWidth(snapSizeX(getWidth()));
         canvas.setHeight(snapSizeY(getHeight()));
         redraw();
+    }
+
+    @Override
+    public List<CssMetaData<? extends Styleable, ?>> getCssMetaData() {
+        return getClassCssMetaData();
+    }
+
+    public static List<CssMetaData<? extends Styleable, ?>> getClassCssMetaData() {
+        return STYLEABLE_PROPERTY_FACTORY.getCssMetaData();
     }
 
     private void handleMousePressed(MouseEvent event) {
@@ -158,7 +217,7 @@ public class WaveformSeekView extends Region {
             graphicsContext.fillRoundRect(x, y, barWidth, barHeight, barWidth, barWidth);
         }
 
-        graphicsContext.setFill(isDisabled() ? DISABLED_BAR_COLOR : ACTIVE_PLAYHEAD_COLOR);
+        graphicsContext.setFill(isDisabled() ? disabledBarColor.get() : playheadColor.get());
         graphicsContext.fillRoundRect(Math.max(0d, progressX - 1d), 0d, 2d, height, 2d, 2d);
     }
 
@@ -191,8 +250,8 @@ public class WaveformSeekView extends Region {
 
     private Color resolveBarColor(boolean active) {
         if (isDisabled()) {
-            return DISABLED_BAR_COLOR;
+            return disabledBarColor.get();
         }
-        return active ? ACTIVE_BAR_COLOR : IDLE_BAR_COLOR;
+        return active ? activeBarColor.get() : idleBarColor.get();
     }
 }

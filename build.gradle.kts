@@ -173,6 +173,20 @@ val packageExamples by tasks.registering {
     description = "Rebuilds all example skin and localization packages."
 }
 
+val bundledSkinPackages = fileTree("examples/skins") {
+    include("**/*.tsbs")
+}
+val bundledLocalizationPackages = fileTree("examples/localizations") {
+    include("**/*.tsbl")
+}
+val applicationAssetsDirectory = packageOutputDir.map { outputDirectory ->
+    if (releasePlatform == "macos") {
+        outputDirectory.dir("$appImageDirectoryName/Contents/assets")
+    } else {
+        outputDirectory.dir("$appImageDirectoryName/assets")
+    }
+}
+
 tasks.named("assemble") {
     dependsOn(packageExamples)
 }
@@ -240,8 +254,23 @@ val createAppImage by tasks.registering(Exec::class) {
     }
 }
 
+val bundleApplicationAssets by tasks.registering(Sync::class) {
+    dependsOn(createAppImage, packageExamples)
+    group = "distribution"
+    description = "Copies ready-to-use skin and localization packages into the application image."
+    from(bundledSkinPackages) {
+        eachFile { path = "skins/$name" }
+        includeEmptyDirs = false
+    }
+    from(bundledLocalizationPackages) {
+        eachFile { path = "localization/$name" }
+        includeEmptyDirs = false
+    }
+    into(applicationAssetsDirectory)
+}
+
 val prepareRelease by tasks.registering(Sync::class) {
-    dependsOn(createAppImage)
+    dependsOn(bundleApplicationAssets)
     group = "distribution"
     description = "Stages the application image and release documentation."
     doFirst {

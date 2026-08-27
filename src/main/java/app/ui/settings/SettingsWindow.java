@@ -14,6 +14,7 @@ import app.skin.SkinPackageInstaller;
 import app.skin.SkinManifest;
 import app.skin.SkinService;
 import app.ui.EmojiText;
+import app.ui.UiIcons;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
@@ -45,6 +46,7 @@ import javafx.stage.Stage;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.LinkedHashSet;
@@ -132,8 +134,9 @@ public class SettingsWindow {
     }
 
     private void showSkins() {
-        Label title = new Label(localizationService.text(TextKey.SETTINGS_SKINS));
-        title.getStyleClass().add("settings-title");
+        skinService.refreshPackageSources();
+        HBox header = createPackageSectionHeader(TextKey.SETTINGS_SKINS, this::showSkins,
+                () -> showPackageSourceDirectories(true));
         VBox skinList = new VBox(8d);
         ToggleGroup toggleGroup = new ToggleGroup();
         UUID selectedSkinUid = skinService.getSelectedSkinUid();
@@ -155,17 +158,23 @@ public class SettingsWindow {
             Button deleteButton = new Button(localizationService.text(TextKey.SETTINGS_DELETE));
             boolean activeSkin = skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid());
             boolean pendingDeletion = pendingDeletionUids.contains(skin.manifest().getUid());
+            boolean discoveredSkin = skinPackageInstaller.isDiscovered(skin);
+            Button updateButton = new Button(localizationService.text(TextKey.SETTINGS_UPDATE_INSTALLED));
+            updateButton.setDisable(pendingDeletion || !skinPackageInstaller.canUpdate(skin));
+            updateButton.setOnAction(event -> updateInstalledSkin(skin));
             deleteButton.setText(activeSkin && !skin.isBuiltIn()
                     ? localizationService.text(TextKey.SETTINGS_ACTIVE)
                     : pendingDeletion
                     ? localizationService.text(TextKey.SETTINGS_PENDING)
+                    : discoveredSkin
+                    ? localizationService.text(TextKey.SETTINGS_AVAILABLE)
                     : localizationService.text(TextKey.SETTINGS_DELETE));
-            deleteButton.setDisable(skin.isBuiltIn() || activeSkin || pendingDeletion);
+            deleteButton.setDisable(skin.isBuiltIn() || activeSkin || pendingDeletion || discoveredSkin);
             if (activeSkin && !skin.isBuiltIn()) {
                 deleteButton.setTooltip(new Tooltip(localizationService.text(TextKey.SETTINGS_SELECT_OTHER_SKIN)));
             }
             deleteButton.setOnAction(event -> deleteSkin(skin));
-            HBox skinRow = new HBox(8d, skinButton, spacer, exportButton, deleteButton);
+            HBox skinRow = new HBox(8d, skinButton, spacer, updateButton, exportButton, deleteButton);
             skinRow.setAlignment(Pos.CENTER_LEFT);
             skinRow.setPadding(new Insets(0d, 6d, 0d, 6d));
             skinList.getChildren().add(skinRow);
@@ -179,14 +188,15 @@ public class SettingsWindow {
         Button createPackageButton = new Button(localizationService.text(TextKey.SETTINGS_CREATE_PACKAGE));
         createPackageButton.setOnAction(event -> createSkinPackage());
         HBox packageActions = new HBox(8d, installButton, createPackageButton);
-        VBox body = new VBox(12d, title, scrollPane, packageActions);
+        VBox body = new VBox(12d, header, scrollPane, packageActions);
         body.setPadding(new Insets(16d));
         content.setCenter(body);
     }
 
     private void showLocalization() {
-        Label title = new Label(localizationService.text(TextKey.SETTINGS_LOCALIZATION));
-        title.getStyleClass().add("settings-title");
+        localizationService.refreshPackageSources();
+        HBox header = createPackageSectionHeader(TextKey.SETTINGS_LOCALIZATION, this::showLocalization,
+                () -> showPackageSourceDirectories(false));
         VBox localizationList = new VBox(8d);
         ToggleGroup toggleGroup = new ToggleGroup();
         UUID selectedUid = localizationService.getSelectedUid();
@@ -207,10 +217,19 @@ public class SettingsWindow {
             Button exportButton = new Button(localizationService.text(TextKey.SETTINGS_EXPORT));
             exportButton.setDisable(localization.builtIn());
             exportButton.setOnAction(event -> exportLocalization(localization));
+            Button updateInstalledButton = new Button(localizationService.text(TextKey.SETTINGS_UPDATE_INSTALLED));
+            updateInstalledButton.setDisable(!localizationPackageInstaller.canUpdate(localization));
+            updateInstalledButton.setOnAction(event -> updateInstalledLocalization(localization));
             Button deleteButton = new Button(localizationService.text(TextKey.SETTINGS_DELETE));
-            deleteButton.setDisable(localization.builtIn() || localization.manifest().getUid().equals(selectedUid));
+            boolean discoveredLocalization = localizationPackageInstaller.isDiscovered(localization);
+            if (discoveredLocalization) {
+                deleteButton.setText(localizationService.text(TextKey.SETTINGS_AVAILABLE));
+            }
+            deleteButton.setDisable(localization.builtIn()
+                    || localization.manifest().getUid().equals(selectedUid)
+                    || discoveredLocalization);
             deleteButton.setOnAction(event -> deleteLocalization(localization));
-            HBox row = new HBox(8d, localizationButton, spacer, exportButton, deleteButton);
+            HBox row = new HBox(8d, localizationButton, spacer, updateInstalledButton, exportButton, deleteButton);
             row.setAlignment(Pos.CENTER_LEFT);
             row.setPadding(new Insets(0d, 6d, 0d, 6d));
             localizationList.getChildren().add(row);
@@ -227,7 +246,7 @@ public class SettingsWindow {
         Button updateButton = new Button(localizationService.text(TextKey.LOCALIZATION_UPDATE));
         updateButton.setOnAction(event -> updateLocalization());
         HBox actions = new HBox(8d, installButton, createButton, updateButton, exportStringsButton);
-        VBox body = new VBox(12d, title, scrollPane, actions);
+        VBox body = new VBox(12d, header, scrollPane, actions);
         body.setPadding(new Insets(16d));
         content.setCenter(body);
     }
@@ -237,12 +256,37 @@ public class SettingsWindow {
         refreshLocalization();
     }
 
+    private HBox createPackageSectionHeader(TextKey titleKey, Runnable refreshAction, Runnable sourcesAction) {
+        Label title = new Label(localizationService.text(titleKey));
+        title.getStyleClass().add("settings-title");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        String refreshText = localizationService.text(TextKey.SETTINGS_REFRESH_UPDATE_AVAILABILITY);
+        Button sourcesButton = new Button(localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS));
+        sourcesButton.setOnAction(event -> sourcesAction.run());
+        Button refreshButton = new Button(null, UiIcons.refresh());
+        refreshButton.setAccessibleText(refreshText);
+        refreshButton.setTooltip(new Tooltip(refreshText));
+        refreshButton.setMinSize(28d, 28d);
+        refreshButton.setPrefSize(28d, 28d);
+        refreshButton.setMaxSize(28d, 28d);
+        refreshButton.setOnAction(event -> refreshAction.run());
+        HBox header = new HBox(8d, title, spacer, sourcesButton, refreshButton);
+        header.setAlignment(Pos.CENTER_LEFT);
+        return header;
+    }
+
     private void installLocalization() {
         FileChooser chooser = new FileChooser();
         chooser.setTitle(localizationService.text(TextKey.LOCALIZATION_INSTALL_TITLE));
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("The Soundboard localizations (*.tsbl)", "*.tsbl"));
-        File selected = chooser.showOpenDialog(stage);
-        if (selected == null) return;
+        setInitialPackageDirectory(chooser, localizationService.getPackageSourceDirectories());
+        List<File> selectedFiles = chooser.showOpenMultipleDialog(stage);
+        if (selectedFiles == null) return;
+        selectedFiles.forEach(this::installLocalization);
+    }
+
+    private void installLocalization(File selected) {
         try {
             localizationPackageInstaller.install(selected.toPath());
             showLocalization();
@@ -267,6 +311,24 @@ public class SettingsWindow {
             }
         } catch (IOException | IllegalArgumentException exception) {
             showOperationError("Localization Installation Failed", "The localization could not be installed", exception);
+        }
+    }
+
+    private void updateInstalledLocalization(LocalizationDescriptor localization) {
+        try {
+            LocalizationDescriptor replacement = localizationPackageInstaller.update(localization);
+            if (replacement.manifest().getUid().equals(localizationService.getSelectedUid())) {
+                localizationService.reloadSelected();
+                refreshLocalization();
+            } else {
+                showLocalization();
+            }
+        } catch (IOException | IllegalArgumentException exception) {
+            showOperationError(
+                    "Localization Replacement Failed",
+                    "The localization could not be updated from its original package",
+                    exception
+            );
         }
     }
 
@@ -416,10 +478,15 @@ public class SettingsWindow {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle(localizationService.text(TextKey.DIALOG_INSTALL_SKIN_TITLE));
         fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("The Soundboard skins (*.tsbs)", "*.tsbs"));
-        File selectedFile = fileChooser.showOpenDialog(stage);
-        if (selectedFile == null) {
+        setInitialPackageDirectory(fileChooser, skinService.getPackageSourceDirectories());
+        List<File> selectedFiles = fileChooser.showOpenMultipleDialog(stage);
+        if (selectedFiles == null) {
             return;
         }
+        selectedFiles.forEach(this::installSkin);
+    }
+
+    private void installSkin(File selectedFile) {
         try {
             SkinDescriptor installedSkin = skinPackageInstaller.install(selectedFile.toPath());
             showInstallationCompleted(installedSkin, false);
@@ -447,6 +514,152 @@ public class SettingsWindow {
             }
         } catch (IOException | IllegalArgumentException exception) {
             showOperationError("Skin Installation Failed", "The selected .tsbs package could not be installed", exception);
+        }
+    }
+
+    private void showPackageSourceDirectories(boolean skins) {
+        Stage dialog = new Stage();
+        dialog.initOwner(stage);
+        dialog.initModality(Modality.WINDOW_MODAL);
+        dialog.setTitle(localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS_TITLE));
+        dialog.getIcons().setAll(stage.getIcons());
+        BorderPane dialogContent = new BorderPane();
+        dialogContent.getStyleClass().add("package-source-dialog");
+        dialogContent.setPadding(new Insets(16d));
+        refreshPackageSourceDirectoryDialog(dialog, dialogContent, skins);
+        Scene scene = new Scene(dialogContent, 540d, 300d);
+        skinService.apply(scene, dialogContent);
+        dialog.setMinWidth(440d);
+        dialog.setMinHeight(240d);
+        dialog.setScene(scene);
+        dialog.showAndWait();
+    }
+
+    private void refreshPackageSourceDirectoryDialog(Stage dialog, BorderPane dialogContent, boolean skins) {
+        List<Path> directories = skins
+                ? skinService.getPackageSourceDirectories()
+                : localizationService.getPackageSourceDirectories();
+        List<Path> bundledDirectories = skins
+                ? skinService.getBundledPackageSourceDirectories()
+                : localizationService.getBundledPackageSourceDirectories();
+        VBox pathRows = new VBox();
+        VBox actionRows = new VBox();
+        for (int index = 0; index < directories.size(); index++) {
+            Path directory = directories.get(index);
+            boolean bundled = bundledDirectories.contains(directory);
+            String pathText = bundled
+                    ? directory + " (" + localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS_BUNDLED) + ")"
+                    : directory.toString();
+            Label path = new Label(pathText);
+            path.setWrapText(false);
+            path.setMinWidth(Region.USE_PREF_SIZE);
+            HBox pathRow = new HBox(path);
+            configurePackageSourceRow(pathRow, index);
+            Button removeButton = new Button("×");
+            removeButton.setDisable(bundled);
+            removeButton.setMinWidth(36d);
+            removeButton.setAccessibleText(localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS_REMOVE));
+            removeButton.setTooltip(new Tooltip(localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS_REMOVE)));
+            removeButton.setOnAction(event -> {
+                try {
+                    if (skins) {
+                        skinService.removePackageSourceDirectory(directory);
+                        skinService.refreshPackageSources();
+                    } else {
+                        localizationService.removePackageSourceDirectory(directory);
+                        localizationService.refreshPackageSources();
+                    }
+                    refreshPackageSourceDirectoryDialog(dialog, dialogContent, skins);
+                } catch (IOException exception) {
+                    showOperationError("Folder Unlink Failed", "The source folder could not be unlinked", exception);
+                }
+            });
+            HBox actionRow = new HBox(removeButton);
+            configurePackageSourceRow(actionRow, index);
+            actionRow.setAlignment(Pos.CENTER);
+            pathRows.getChildren().add(pathRow);
+            actionRows.getChildren().add(actionRow);
+        }
+        ScrollPane pathScrollPane = new ScrollPane(pathRows);
+        pathScrollPane.getStyleClass().add("package-source-path-scroll");
+        pathScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        pathScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        pathScrollPane.setMinWidth(0d);
+        HBox.setHgrow(pathScrollPane, Priority.ALWAYS);
+        ScrollPane actionScrollPane = new ScrollPane(actionRows);
+        actionScrollPane.getStyleClass().add("package-source-action-scroll");
+        actionScrollPane.setFitToWidth(true);
+        actionScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        actionScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        actionScrollPane.setMinWidth(56d);
+        actionScrollPane.setPrefWidth(56d);
+        actionScrollPane.setMaxWidth(56d);
+        actionScrollPane.vvalueProperty().bind(pathScrollPane.vvalueProperty());
+        HBox sourceList = new HBox(pathScrollPane, actionScrollPane);
+        sourceList.getStyleClass().add("package-source-list");
+        Button addButton = new Button(localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS_ADD));
+        addButton.setOnAction(event -> {
+            DirectoryChooser chooser = new DirectoryChooser();
+            chooser.setTitle(localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS_SELECT));
+            setInitialPackageDirectory(chooser, directories);
+            File selected = chooser.showDialog(dialog);
+            if (selected == null) return;
+            try {
+                if (skins) {
+                    skinService.addPackageSourceDirectory(selected.toPath());
+                    skinService.refreshPackageSources();
+                } else {
+                    localizationService.addPackageSourceDirectory(selected.toPath());
+                    localizationService.refreshPackageSources();
+                }
+                refreshPackageSourceDirectoryDialog(dialog, dialogContent, skins);
+            } catch (IOException exception) {
+                showOperationError("Folder Addition Failed", "The source folder could not be saved", exception);
+            }
+        });
+        HBox actions = new HBox(addButton);
+        actions.setPadding(new Insets(12d, 0d, 0d, 0d));
+        dialogContent.setCenter(sourceList);
+        dialogContent.setBottom(actions);
+    }
+
+    private void configurePackageSourceRow(HBox row, int index) {
+        row.getStyleClass().add("package-source-row");
+        row.getStyleClass().add(index % 2 == 0 ? "package-source-row-even" : "package-source-row-odd");
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setMinHeight(44d);
+        row.setPrefHeight(44d);
+        row.setMaxHeight(44d);
+    }
+
+    private void setInitialPackageDirectory(FileChooser chooser, List<Path> directories) {
+        directories.stream().filter(Files::isDirectory).findFirst()
+                .map(Path::toFile)
+                .ifPresent(chooser::setInitialDirectory);
+    }
+
+    private void setInitialPackageDirectory(DirectoryChooser chooser, List<Path> directories) {
+        directories.stream().filter(Files::isDirectory).findFirst()
+                .map(Path::toFile)
+                .ifPresent(chooser::setInitialDirectory);
+    }
+
+    private void updateInstalledSkin(SkinDescriptor skin) {
+        try {
+            if (skinService.wasLoadedThisSession(skin.manifest().getUid())) {
+                SkinManifest replacement = skinPackageInstaller.scheduleUpdate(skin);
+                showSkins();
+                showPendingOperationRestartPrompt("Skin '" + replacement.getName()
+                        + "' will be replaced before UI resources are loaded again.");
+                return;
+            }
+            showInstallationCompleted(skinPackageInstaller.update(skin), true);
+        } catch (IOException | IllegalArgumentException exception) {
+            showOperationError(
+                    "Skin Replacement Failed",
+                    "The skin could not be updated from its original package",
+                    exception
+            );
         }
     }
 

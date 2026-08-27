@@ -19,7 +19,7 @@ The current release is **1.0.0**.
 
 ## Running a release
 
-Release archives are self-contained and include a Java runtime.
+Release archives are self-contained and include a Java runtime plus ready-to-use skin and localization packages under `TheSoundboard/assets`.
 
 ### Windows
 
@@ -39,7 +39,7 @@ The application is not signed or notarized. On first launch, Gatekeeper may requ
 
 ### Updating
 
-To update within the same major version, extract the new release and copy its contents over the old application directory, replacing conflicting files. Imported skins and future localization packages are stored under `~/.thesoundboard` (`%USERPROFILE%\.thesoundboard` on Windows), interface preferences use the operating-system preference store, and project state remains in the selected audio-library directory. Replacing the application files therefore does not erase user data.
+To update within the same major version, extract the new release and copy its contents over the old application directory, replacing conflicting files. Installed skins and localization packages are stored under `~/.thesoundboard` (`%USERPROFILE%\.thesoundboard` on Windows), interface preferences use the operating-system preference store, and project state remains in the selected audio-library directory. Replacing the application files therefore does not erase installed user data. Files placed manually under `TheSoundboard/assets` are discovery sources rather than installed data and may be replaced by a future release, so keep the original package elsewhere when it must survive application-folder replacement.
 
 The Linux build requires a graphical desktop and the system libraries normally required by JavaFX, including GTK 3 and the audio/media stack. MP3 is the only library format enabled by default.
 
@@ -59,7 +59,7 @@ See [Creating skins](SKIN_AUTHORING.md) for the manifest, CSS surface, packaging
 
 ## Localization
 
-Open **Settings → Localization** to install, select, export, replace, delete, create, or update `.tsbl` packages. The complete English catalog can be exported for translation. Stable synthetic string IDs preserve compatibility when controls move or English wording changes; missing values fall back to English and unknown legacy values are ignored. Switching or replacing a localization refreshes the running interface immediately.
+Open **Settings → Localization** to install, select, export, replace, delete, create, or update `.tsbl` packages. Skin and localization installers accept multiple packages from one folder, and each section can synchronize additional user-selected source folders. Unlinking a source folder keeps already installed packages while stopping discovery and updates from that folder. The complete English catalog can be exported for translation. Stable synthetic string IDs preserve compatibility when controls move or English wording changes; missing values fall back to English and unknown legacy values are ignored. Switching or replacing a localization refreshes the running interface immediately.
 
 See [Creating localizations](LOCALIZATION_AUTHORING.md) for manifests, placeholders, string updates, packaging, and the Russian examples.
 

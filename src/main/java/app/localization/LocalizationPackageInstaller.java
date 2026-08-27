@@ -1,5 +1,6 @@
 package app.localization;
 
+import app.persistence.PackageSourceRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -11,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,23 +25,96 @@ import java.util.zip.ZipOutputStream;
 public class LocalizationPackageInstaller {
     private static final int MAX_ENTRIES = 64;
     private static final long MAX_SIZE = 4L * 1024L * 1024L;
+    private static final int MAX_MANIFEST_SIZE = 256 * 1024;
+    private static final String MANIFEST_FILE = "localization.yml";
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory()).findAndRegisterModules();
     private final LocalizationRepository repository;
+    private final PackageSourceRegistry packageSources;
 
-    public LocalizationPackageInstaller(LocalizationRepository repository) { this.repository = repository; }
+    public LocalizationPackageInstaller(LocalizationRepository repository) {
+        this.repository = repository;
+        this.packageSources = new PackageSourceRegistry(repository.getDirectory());
+    }
 
     public LocalizationDescriptor install(Path packageFile, boolean replace) throws IOException {
+        return install(packageFile, replace, null, true);
+    }
+
+    public boolean canUpdate(LocalizationDescriptor localization) {
+        return localization != null
+                && !localization.builtIn()
+                && packageSources.isAvailable(localization.manifest().getUid());
+    }
+
+    public boolean isDiscovered(LocalizationDescriptor localization) {
+        return localization != null
+                && !localization.builtIn()
+                && packageSources.isDiscovered(localization.manifest().getUid());
+    }
+
+    public LocalizationDescriptor update(LocalizationDescriptor localization) throws IOException {
+        if (localization == null || localization.builtIn()) {
+            throw new IllegalArgumentException("A user-installed localization is required");
+        }
+        UUID uid = localization.manifest().getUid();
+        Path packageFile = packageSources.findAvailable(uid)
+                .orElseThrow(() -> new IllegalArgumentException("The original localization package is not available"));
+        return install(packageFile, true, uid, true);
+    }
+
+    public void installAvailablePackages(List<Path> sourceDirectories) {
+        Map<UUID, List<Path>> discoveredSources = new LinkedHashMap<>();
+        for (Path sourceDirectory : sourceDirectories) {
+            if (!Files.isDirectory(sourceDirectory)) {
+                continue;
+            }
+            try (var packages = Files.list(sourceDirectory)) {
+                for (Path packageFile : packages
+                        .filter(Files::isRegularFile)
+                        .filter(this::hasPackageExtension)
+                        .sorted()
+                        .toList()) {
+                    try {
+                        LocalizationManifest manifest = readPackageManifest(packageFile);
+                        UUID localizationUid = manifest.getUid();
+                        if (Files.exists(repository.getDirectory().resolve(localizationUid.toString()))) {
+                            addDiscoveredSource(discoveredSources, localizationUid, packageFile);
+                        } else {
+                            LocalizationDescriptor installed = install(packageFile, false, null, false);
+                            addDiscoveredSource(discoveredSources, installed.manifest().getUid(), packageFile);
+                        }
+                    } catch (LocalizationAlreadyInstalledException exception) {
+                        addDiscoveredSource(discoveredSources, exception.getLocalization().getUid(), packageFile);
+                    } catch (IOException | IllegalArgumentException exception) {
+                        // Invalid or unreadable packages remain absent from the localization list.
+                    }
+                }
+            } catch (IOException | SecurityException exception) {
+                // Other package source directories remain available when one cannot be read.
+            }
+        }
+        packageSources.synchronizeDiscovered(discoveredSources);
+    }
+
+    private LocalizationDescriptor install(Path packageFile, boolean replace, UUID expectedUid,
+                                           boolean rememberSource) throws IOException {
         requireExtension(packageFile);
         Path temporary = repository.getDirectory().resolve(".install-" + UUID.randomUUID());
         Files.createDirectories(temporary);
         try {
             extract(packageFile, temporary);
             LocalizationDescriptor localization = repository.loadDirectory(temporary);
+            if (expectedUid != null && !expectedUid.equals(localization.manifest().getUid())) {
+                throw new IllegalArgumentException("The remembered package belongs to a different localization");
+            }
             Path target = repository.getDirectory().resolve(localization.manifest().getUid().toString());
             if (Files.exists(target) && !replace) throw new LocalizationAlreadyInstalledException(localization.manifest());
             deleteRecursively(target);
             Files.move(temporary, target);
             storePackage(packageFile, localization.manifest().getUid());
+            if (rememberSource) {
+                packageSources.remember(localization.manifest().getUid(), packageFile);
+            }
             return repository.findSelected(localization.manifest().getUid());
         } finally {
             deleteRecursively(temporary);
@@ -52,6 +127,7 @@ public class LocalizationPackageInstaller {
         if (localization.builtIn()) throw new IllegalArgumentException("Built-in English cannot be deleted");
         deleteRecursively(localization.directory());
         Files.deleteIfExists(repository.getDirectory().resolve("_packages").resolve(localization.manifest().getUid() + ".tsbl"));
+        packageSources.forget(localization.manifest().getUid());
     }
 
     public void export(LocalizationDescriptor localization, Path target) throws IOException {
@@ -135,6 +211,32 @@ public class LocalizationPackageInstaller {
         }
     }
 
+    private LocalizationManifest readPackageManifest(Path packageFile) throws IOException {
+        requireExtension(packageFile);
+        try (InputStream inputStream = Files.newInputStream(packageFile);
+             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
+            int entryCount = 0;
+            ZipEntry entry;
+            while ((entry = zipInputStream.getNextEntry()) != null) {
+                if (++entryCount > MAX_ENTRIES) {
+                    throw new IllegalArgumentException("The localization package contains too many files");
+                }
+                if (!entry.isDirectory() && MANIFEST_FILE.equals(entry.getName())) {
+                    byte[] manifestBytes = zipInputStream.readNBytes(MAX_MANIFEST_SIZE + 1);
+                    if (manifestBytes.length > MAX_MANIFEST_SIZE) {
+                        throw new IllegalArgumentException("The localization manifest is too large");
+                    }
+                    LocalizationManifest manifest = mapper.readValue(manifestBytes, LocalizationManifest.class);
+                    if (manifest.getUid() == null || LocalizationRepository.ENGLISH_UID.equals(manifest.getUid())) {
+                        throw new IllegalArgumentException("The localization package does not contain a valid uid");
+                    }
+                    return manifest;
+                }
+            }
+        }
+        throw new IllegalArgumentException("The localization package must contain localization.yml at its root");
+    }
+
     private void extract(Path packageFile, Path target) throws IOException {
         int entries = 0;
         long size = 0;
@@ -162,13 +264,24 @@ public class LocalizationPackageInstaller {
     private void storePackage(Path source, UUID uid) throws IOException {
         Path packages = repository.getDirectory().resolve("_packages");
         Files.createDirectories(packages);
-        Files.copy(source, packages.resolve(uid + ".tsbl"), StandardCopyOption.REPLACE_EXISTING);
+        Path storedPackage = packages.resolve(uid + ".tsbl");
+        if (!source.toAbsolutePath().normalize().equals(storedPackage.toAbsolutePath().normalize())) {
+            Files.copy(source, storedPackage, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private void requireExtension(Path file) {
-        if (file == null || !file.getFileName().toString().toLowerCase().endsWith(".tsbl")) {
+        if (!hasPackageExtension(file)) {
             throw new IllegalArgumentException("A .tsbl localization package is required");
         }
+    }
+
+    private boolean hasPackageExtension(Path file) {
+        return file != null && file.getFileName().toString().toLowerCase().endsWith(".tsbl");
+    }
+
+    private void addDiscoveredSource(Map<UUID, List<Path>> discoveredSources, UUID uid, Path source) {
+        discoveredSources.computeIfAbsent(uid, ignored -> new ArrayList<>()).add(source);
     }
 
     private void deleteRecursively(Path directory) throws IOException {

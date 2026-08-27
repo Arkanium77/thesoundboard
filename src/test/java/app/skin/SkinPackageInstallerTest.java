@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
@@ -114,6 +115,72 @@ class SkinPackageInstallerTest {
                 .singleElement()
                 .satisfies(skin -> Assertions.assertThat(skin.isBuiltIn()).isTrue());
         Assertions.assertThat(skinsDirectory.resolve("_pending")).doesNotExist();
+    }
+
+    @Test
+    void updatesFromRememberedPackageWhenSourceReappears() throws IOException {
+        Path skinsDirectory = temporaryDirectory.resolve("skins");
+        Path packageFile = temporaryDirectory.resolve("source").resolve("moon.tsbs");
+        Files.createDirectories(packageFile.getParent());
+        createPackage(packageFile, validSkinEntries("First"));
+        SkinPackageInstaller installer = new SkinPackageInstaller(new SkinRepository(skinsDirectory));
+        SkinDescriptor installed = installer.install(packageFile);
+
+        Files.delete(packageFile);
+
+        Assertions.assertThat(installer.canUpdate(installed)).isFalse();
+
+        createPackage(packageFile, validSkinEntries("Updated"));
+        SkinDescriptor updated = installer.update(installed);
+
+        Assertions.assertThat(installer.canUpdate(updated)).isTrue();
+        Assertions.assertThat(updated.manifest().getName()).isEqualTo("Updated");
+
+        installer.delete(updated);
+
+        Assertions.assertThat(skinsDirectory.resolve("_sources").resolve(MOON_UID + ".path")).doesNotExist();
+    }
+
+    @Test
+    void schedulesUpdateFromRememberedPackage() throws IOException {
+        Path skinsDirectory = temporaryDirectory.resolve("skins");
+        Path packageFile = temporaryDirectory.resolve("moon.tsbs");
+        createPackage(packageFile, validSkinEntries("First"));
+        SkinRepository repository = new SkinRepository(skinsDirectory);
+        SkinPackageInstaller installer = new SkinPackageInstaller(repository);
+        SkinDescriptor installed = installer.install(packageFile);
+        createPackage(packageFile, validSkinEntries("Scheduled"));
+
+        SkinManifest scheduled = installer.scheduleUpdate(installed);
+        SkinPackageInstaller.applyPendingOperations(repository);
+
+        Assertions.assertThat(scheduled.getName()).isEqualTo("Scheduled");
+        Assertions.assertThat(repository.findSelected(MOON_UID).manifest().getName()).isEqualTo("Scheduled");
+    }
+
+    @Test
+    void discoversPackagesFromMultipleOrderedSourceDirectories() throws IOException {
+        Path firstSource = temporaryDirectory.resolve("first-source");
+        Path secondSource = temporaryDirectory.resolve("second-source");
+        Files.createDirectories(firstSource);
+        Files.createDirectories(secondSource);
+        Path firstPackage = firstSource.resolve("moon.tsbs");
+        Path secondPackage = secondSource.resolve("moon.tsbs");
+        createPackage(firstPackage, validSkinEntries("First Source"));
+        createPackage(secondPackage, validSkinEntries("Second Source"));
+        SkinRepository repository = new SkinRepository(temporaryDirectory.resolve("skins"));
+        SkinPackageInstaller installer = new SkinPackageInstaller(repository);
+
+        installer.installAvailablePackages(List.of(firstSource, secondSource));
+
+        SkinDescriptor discovered = repository.findSelected(MOON_UID);
+        Assertions.assertThat(discovered.manifest().getName()).isEqualTo("First Source");
+        Assertions.assertThat(installer.isDiscovered(discovered)).isTrue();
+
+        Files.delete(firstPackage);
+        SkinDescriptor updatedFromFallback = installer.update(discovered);
+
+        Assertions.assertThat(updatedFromFallback.manifest().getName()).isEqualTo("Second Source");
     }
 
     @Test

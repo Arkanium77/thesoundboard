@@ -5,3 +5,5 @@ Before building, testing, packaging, or changing the local development environme
 At minimum, read [`.local/rules/linux-build.md`](.local/rules/linux-build.md) before producing a Linux artifact on this computer.
 
 Read [`.local/rules/update-compatibility.md`](.local/rules/update-compatibility.md) before adding persistence, configuration, plugins, skins, localization, caches, or other mutable application data.
+
+Read [`.local/rules/release-notes.md`](.local/rules/release-notes.md) before creating or publishing a release.

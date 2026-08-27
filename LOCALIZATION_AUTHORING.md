@@ -56,3 +56,7 @@ Search the updated `strings.yml` for newly appended English text, translate it, 
 ## Installation and updates
 
 Installed localizations live under `~/.thesoundboard/localizations` (`%USERPROFILE%\.thesoundboard\localizations` on Windows), outside the application installation. They survive ordinary updates where a new release is copied over an old one. Installing the same UID offers a complete replacement, while export creates a transferable `.tsbl` copy.
+
+Release builds include ready-to-use packages under `TheSoundboard/assets/localization`. The application scans an ordered list of package-source directories on startup and whenever **Settings → Localization** is refreshed. A valid package that is not installed yet is imported automatically, while a package with an installed UID becomes an update source without silently replacing the installed localization. Dropping another `.tsbl` into this directory makes it visible after reopening the section or pressing its loop button. Files in the application directory are replaceable release assets; retain a separate copy if a custom package must survive application-folder replacement.
+
+The application also remembers the original `.tsbl` path selected through the installation dialog. If that file exists it takes priority over automatically discovered sources; otherwise updates fall back through the configured source directories in order. Localizations installed by an earlier application version need either one manual replacement or a matching discovered package before their source becomes known.

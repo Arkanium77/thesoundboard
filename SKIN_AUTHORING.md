@@ -53,11 +53,22 @@ Skin CSS may use JavaFX selectors and properties. Application classes include:
 - application: `.soundboard-root`, `.main-header`, `.status-bar`;
 - project tree: `.project-pane`, `.project-tree-container`, `.project-tree-background`, `.project-tree`;
 - workspace: `.workspace-pane`, `.workspace-header`, `.workspace-view`, `.workspace-background`, `.workspace-scroll`, `.workspace-content`;
-- items: `.track-tile`, `.queue-tile`, `.queue-chip`, `.insertion-marker`, `.soundboard-icon`;
+- items: `.track-tile`, `.queue-tile`, `.queue-chip`, `.insertion-marker`, `.soundboard-icon`, `.waveform-seek-view`;
 - settings: `.settings-window`, `.settings-navigation`, `.settings-content`, `.settings-title`;
 - dialogs: `.settings-dialog` plus `.settings-confirmation-dialog`, `.settings-information-dialog`, `.settings-error-dialog`, or `.restart-confirmation-dialog`.
 
 Queue chips expose `selected`, `playing`, `paused`, `finished`, and `ready` pseudo-classes. Standard JavaFX selectors such as `.button`, `.label`, `.slider`, and `.scroll-pane` remain available.
+
+Waveform colors are customizable through the `.waveform-seek-view` selector:
+
+```css
+.waveform-seek-view {
+    -tsb-waveform-active-color: #8f334d;
+    -tsb-waveform-idle-color: #ddbfc5;
+    -tsb-waveform-playhead-color: #6f263c;
+    -tsb-waveform-disabled-color: #cbbfc0;
+}
+```
 
 Relative URLs resolve from `skin.css`:
 
@@ -78,5 +89,9 @@ Use `.workspace-background` and `.project-tree-background` for translucent artwo
 ## Installation and updates
 
 Installed skins live under `~/.thesoundboard/skins` (`%USERPROFILE%\.thesoundboard\skins` on Windows), outside the application directory. They survive replacement-style application updates. The default skin is built in and cannot be replaced or removed.
+
+Release builds include ready-to-use packages under `TheSoundboard/assets/skins`. The application scans an ordered list of package-source directories on startup and whenever **Settings → Skins** is refreshed. A valid package that is not installed yet is imported automatically, while a package with an installed UID becomes an update source without silently replacing the installed skin. Dropping another `.tsbs` into this directory makes it visible after reopening the section or pressing its loop button. Files in the application directory are replaceable release assets; retain a separate copy if a custom package must survive application-folder replacement.
+
+The application also remembers the original `.tsbs` path selected through the installation dialog. If that file exists it takes priority over automatically discovered sources; otherwise updates fall back through the configured source directories in order. Skins installed by an earlier application version need either one manual replacement or a matching discovered package before their source becomes known.
 
 An installed skin can be exported back to `.tsbs`. On Windows, a previously loaded font may remain locked until exit; affected replacement or deletion is safely staged and the application offers to restart.
