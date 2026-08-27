@@ -2,7 +2,7 @@
 
 The Soundboard is a desktop application for organizing and playing MP3 collections during games, streams, performances, and other live sessions. It keeps the library on disk, turns selected tracks into reusable tiles, and lets several independent queues live in one workspace.
 
-The current release is **0.9.0**: the application is usable, but its workflows and saved-project schema may still evolve before 1.0.0.
+The current release is **1.0.0**.
 
 ## Features
 
@@ -23,17 +23,17 @@ Release archives are self-contained and include a Java runtime.
 
 ### Windows
 
-1. Extract `thesoundboard-0.9.0-windows-x64.zip`.
+1. Extract `thesoundboard-1.0.0-windows-x64.zip`.
 2. Run `TheSoundboard/TheSoundboard.exe`.
 
 ### Linux
 
-1. Extract `thesoundboard-0.9.0-linux-x64.tar.gz`.
+1. Extract `thesoundboard-1.0.0-linux-x64.tar.gz`.
 2. Run `TheSoundboard/bin/TheSoundboard`.
 
 ### macOS
 
-macOS packages are planned as separate unsigned DMGs for Apple Silicon (`arm64`) and Intel (`x64`). They are self-contained and require macOS 11 or later; Java does not need to be installed. Until CI artifacts have passed a manual smoke test, no macOS download is advertised as released.
+Download the unsigned DMG for Apple Silicon (`arm64`) or Intel (`x64`), open it, and run `TheSoundboard.app`. The packages are self-contained and require macOS 11 or later; Java does not need to be installed.
 
 The application is not signed or notarized. On first launch, Gatekeeper may require opening it from Finder with **Control-click → Open**, then confirming **Open**. Do not disable Gatekeeper globally.
 
@@ -96,7 +96,7 @@ The macOS bundle is named `TheSoundboard.app`, uses bundle identifier `team.isaz
 
 ## Versioning
 
-The project follows [Semantic Versioning 2.0.0](https://semver.org/). While the major version is zero, minor releases may contain breaking changes. The authoritative version is declared in `build.gradle.kts` and is embedded in the application JAR and native package metadata.
+The project follows [Semantic Versioning 2.0.0](https://semver.org/). The authoritative version is declared in `build.gradle.kts` and is embedded in the application JAR and native package metadata.
 
 ## Contributing
 
