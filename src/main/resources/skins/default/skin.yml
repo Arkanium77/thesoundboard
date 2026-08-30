@@ -1,6 +1,7 @@
 uid: 00000000-0000-0000-0000-000000000001
 name: The Soundboard
 skinVersion: 1
+version: 2
 stylesheet: skin.css
 fonts:
   regular: system

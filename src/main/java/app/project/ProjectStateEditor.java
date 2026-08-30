@@ -5,11 +5,15 @@ import app.model.ProjectState;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
+import app.model.VirtualTileTrack;
+import app.model.VirtualTileLayout;
+import app.model.WorkspaceVirtualTile;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 
 public class ProjectStateEditor {
@@ -38,6 +42,9 @@ public class ProjectStateEditor {
             if (existingQueue.getOrder() >= insertOrder) {
                 existingQueue.setOrder(existingQueue.getOrder() + audioFileIds.size());
             }
+        }
+        for (WorkspaceVirtualTile existingTile : projectState.getWorkspaceVirtualTiles()) {
+            if (existingTile.getOrder() >= insertOrder) existingTile.setOrder(existingTile.getOrder() + audioFileIds.size());
         }
         for (UUID audioFileId : audioFileIds) {
             if (audioFileId == null) {
@@ -71,6 +78,141 @@ public class ProjectStateEditor {
         projectState.getWorkspaceQueues().add(workspaceQueue);
         normalizeWorkspaceOrder(projectState);
         return workspaceQueue;
+    }
+
+    public WorkspaceVirtualTile createWorkspaceVirtualTile(ProjectState projectState, VirtualTileLayout layout) {
+        normalizeWorkspaceOrder(projectState);
+        WorkspaceVirtualTile tile = new WorkspaceVirtualTile(UUID.randomUUID(), totalWorkspaceItemCount(projectState), layout);
+        projectState.getWorkspaceVirtualTiles().add(tile);
+        normalizeWorkspaceOrder(projectState);
+        return tile;
+    }
+
+    public List<VirtualTileTrack> addVirtualTileTracks(ProjectState projectState, UUID tileId,
+                                                       List<UUID> audioFileIds, double volume) {
+        return addVirtualTileTracks(projectState, tileId, audioFileIds, volume, null, false);
+    }
+
+    public List<VirtualTileTrack> addVirtualTileTracks(ProjectState projectState, UUID tileId,
+                                                       List<UUID> audioFileIds, double volume,
+                                                       UUID targetTrackId, boolean placeAfter) {
+        WorkspaceVirtualTile tile = findWorkspaceVirtualTile(projectState, tileId).orElse(null);
+        if (tile == null || audioFileIds == null) return List.of();
+        normalizeVirtualTileTracks(tile);
+        int availableSlots = Math.max(0, tile.getLayout().getCapacity() - tile.getTracks().size());
+        List<UUID> acceptedIds = audioFileIds.stream().filter(Objects::nonNull).limit(availableSlots).toList();
+        List<VirtualTileTrack> created = new ArrayList<>();
+        int insertOrder = resolveVirtualTileInsertOrder(tile, targetTrackId, placeAfter);
+        for (VirtualTileTrack track : tile.getTracks()) {
+            if (track.getOrder() >= insertOrder) track.setOrder(track.getOrder() + acceptedIds.size());
+        }
+        for (UUID audioFileId : acceptedIds) {
+            created.add(new VirtualTileTrack(UUID.randomUUID(), audioFileId, insertOrder + created.size(), volume));
+        }
+        tile.getTracks().addAll(created);
+        normalizeVirtualTileTracks(tile);
+        return created;
+    }
+
+    public boolean moveWorkspaceTrackToVirtualTile(ProjectState projectState, UUID workspaceTrackId, UUID tileId,
+                                                   UUID targetTrackId, boolean placeAfter) {
+        WorkspaceTrack track = projectState.getWorkspaceTracks().stream()
+                .filter(candidate -> candidate.getId().equals(workspaceTrackId)).findFirst().orElse(null);
+        if (track == null) return false;
+        List<VirtualTileTrack> created = addVirtualTileTracks(projectState, tileId,
+                List.of(track.getAudioFileId()), track.getVolume(), targetTrackId, placeAfter);
+        if (created.isEmpty()) return false;
+        created.getFirst().setLoop(track.isLoop());
+        created.getFirst().setVolume(track.getVolume());
+        removeWorkspaceTrack(projectState, workspaceTrackId);
+        return true;
+    }
+
+    public boolean moveVirtualTileTrack(ProjectState projectState, UUID sourceTileId, UUID targetTileId,
+                                        UUID trackId, UUID targetTrackId, boolean placeAfter) {
+        WorkspaceVirtualTile source = findWorkspaceVirtualTile(projectState, sourceTileId).orElse(null);
+        WorkspaceVirtualTile target = findWorkspaceVirtualTile(projectState, targetTileId).orElse(null);
+        if (source == null || target == null) return false;
+        VirtualTileTrack track = source.getTracks().stream()
+                .filter(candidate -> candidate.getId().equals(trackId)).findFirst().orElse(null);
+        if (track == null) return false;
+        if (sourceTileId.equals(targetTileId)) {
+            List<VirtualTileTrack> tracks = new ArrayList<>(source.getTracks());
+            tracks.sort(Comparator.comparingInt(VirtualTileTrack::getOrder));
+            tracks.remove(track);
+            int index = tracks.size();
+            for (int candidateIndex = 0; candidateIndex < tracks.size(); candidateIndex++) {
+                if (tracks.get(candidateIndex).getId().equals(targetTrackId)) {
+                    index = placeAfter ? candidateIndex + 1 : candidateIndex;
+                    break;
+                }
+            }
+            tracks.add(index, track);
+            for (int trackIndex = 0; trackIndex < tracks.size(); trackIndex++) {
+                tracks.get(trackIndex).setOrder(trackIndex);
+            }
+            source.setTracks(tracks);
+            return true;
+        }
+        List<VirtualTileTrack> created = addVirtualTileTracks(projectState, targetTileId,
+                List.of(track.getAudioFileId()), track.getVolume(), targetTrackId, placeAfter);
+        if (created.isEmpty()) return false;
+        created.getFirst().setLoop(track.isLoop());
+        removeVirtualTileTrack(projectState, sourceTileId, trackId);
+        return true;
+    }
+
+    public WorkspaceTrack moveVirtualTileTrackToWorkspace(ProjectState projectState, UUID tileId, UUID trackId,
+                                                          UUID targetWorkspaceItemId, boolean placeAfter) {
+        WorkspaceVirtualTile tile = findWorkspaceVirtualTile(projectState, tileId).orElse(null);
+        if (tile == null) return null;
+        VirtualTileTrack track = tile.getTracks().stream()
+                .filter(candidate -> candidate.getId().equals(trackId)).findFirst().orElse(null);
+        if (track == null) return null;
+        List<WorkspaceTrack> created = addWorkspaceTracks(projectState, List.of(track.getAudioFileId()),
+                track.getVolume(), track.isLoop(), targetWorkspaceItemId, placeAfter);
+        if (created.isEmpty()) return null;
+        removeVirtualTileTrack(projectState, tileId, trackId);
+        return created.getFirst();
+    }
+
+    public boolean moveVirtualTileTrackToQueue(ProjectState projectState, UUID tileId, UUID trackId,
+                                               UUID queueId, UUID targetQueueTrackId, boolean placeAfter) {
+        WorkspaceVirtualTile tile = findWorkspaceVirtualTile(projectState, tileId).orElse(null);
+        if (tile == null) return false;
+        VirtualTileTrack track = tile.getTracks().stream()
+                .filter(candidate -> candidate.getId().equals(trackId)).findFirst().orElse(null);
+        if (track == null) return false;
+        List<QueueTrack> created = addQueueTracks(projectState, queueId, List.of(track.getAudioFileId()),
+                targetQueueTrackId, placeAfter);
+        if (created.isEmpty()) return false;
+        created.getFirst().setLoop(track.isLoop());
+        removeVirtualTileTrack(projectState, tileId, trackId);
+        return true;
+    }
+
+    public boolean moveQueueTrackToVirtualTile(ProjectState projectState, UUID queueId, UUID queueTrackId,
+                                               UUID tileId, UUID targetTrackId, boolean placeAfter) {
+        QueueTrack track = findQueueTrack(projectState, queueId, queueTrackId);
+        if (track == null) return false;
+        List<VirtualTileTrack> created = addVirtualTileTracks(projectState, tileId,
+                List.of(track.getAudioFileId()), track.getVolume(), targetTrackId, placeAfter);
+        if (created.isEmpty()) return false;
+        created.getFirst().setLoop(track.isLoop());
+        removeQueueTrack(projectState, queueId, queueTrackId);
+        return true;
+    }
+
+    public void removeVirtualTileTrack(ProjectState projectState, UUID tileId, UUID trackId) {
+        findWorkspaceVirtualTile(projectState, tileId).ifPresent(tile -> {
+            tile.getTracks().removeIf(track -> track.getId().equals(trackId));
+            normalizeVirtualTileTracks(tile);
+        });
+    }
+
+    public void removeWorkspaceVirtualTile(ProjectState projectState, UUID tileId) {
+        projectState.getWorkspaceVirtualTiles().removeIf(tile -> tile.getId().equals(tileId));
+        normalizeWorkspaceOrder(projectState);
     }
 
     public void renameWorkspaceQueue(ProjectState projectState, UUID queueId, String name) {
@@ -117,6 +259,8 @@ public class ProjectStateEditor {
             return false;
         }
 
+        createdTracks.getFirst().setVolume(workspaceTrack.getVolume());
+
         removeWorkspaceTrack(projectState, workspaceTrackId);
         return true;
     }
@@ -141,7 +285,7 @@ public class ProjectStateEditor {
         List<WorkspaceTrack> createdTracks = addWorkspaceTracks(
                 projectState,
                 List.of(queueTrack.getAudioFileId()),
-                volume,
+                queueTrack.getVolume(),
                 queueTrack.isLoop(),
                 targetWorkspaceItemId,
                 placeAfter
@@ -187,6 +331,7 @@ public class ProjectStateEditor {
         }
 
         createdTracks.getFirst().setLoop(queueTrack.isLoop());
+        createdTracks.getFirst().setVolume(queueTrack.getVolume());
         removeQueueTrack(projectState, sourceQueueId, queueTrackId);
         return true;
     }
@@ -332,6 +477,7 @@ public class ProjectStateEditor {
     public void clearWorkspace(ProjectState projectState) {
         projectState.setWorkspaceTracks(List.of());
         projectState.setWorkspaceQueues(List.of());
+        projectState.setWorkspaceVirtualTiles(List.of());
     }
 
     public void normalizeWorkspaceOrder(ProjectState projectState) {
@@ -353,6 +499,10 @@ public class ProjectStateEditor {
         return projectState.getWorkspaceQueues().stream()
                 .filter(queue -> queue.getId().equals(queueId))
                 .findFirst();
+    }
+
+    public Optional<WorkspaceVirtualTile> findWorkspaceVirtualTile(ProjectState projectState, UUID tileId) {
+        return projectState.getWorkspaceVirtualTiles().stream().filter(tile -> tile.getId().equals(tileId)).findFirst();
     }
 
     public Optional<AudioFile> findAudioFile(ProjectState projectState, UUID audioFileId) {
@@ -391,7 +541,8 @@ public class ProjectStateEditor {
     }
 
     private int totalWorkspaceItemCount(ProjectState projectState) {
-        return projectState.getWorkspaceTracks().size() + projectState.getWorkspaceQueues().size();
+        return projectState.getWorkspaceTracks().size() + projectState.getWorkspaceQueues().size()
+                + projectState.getWorkspaceVirtualTiles().size();
     }
 
     private int resolveQueueInsertOrder(WorkspaceQueue workspaceQueue, UUID targetQueueTrackId, boolean placeAfter) {
@@ -411,6 +562,16 @@ public class ProjectStateEditor {
         return queueTracks.size();
     }
 
+    private int resolveVirtualTileInsertOrder(WorkspaceVirtualTile tile, UUID targetTrackId, boolean placeAfter) {
+        List<VirtualTileTrack> tracks = new ArrayList<>(tile.getTracks());
+        tracks.sort(Comparator.comparingInt(VirtualTileTrack::getOrder));
+        if (targetTrackId == null) return tracks.size();
+        for (int index = 0; index < tracks.size(); index++) {
+            if (tracks.get(index).getId().equals(targetTrackId)) return placeAfter ? index + 1 : index;
+        }
+        return tracks.size();
+    }
+
     private Optional<WorkspaceOrderEntry> findWorkspaceOrderEntry(ProjectState projectState, UUID workspaceItemId) {
         return collectWorkspaceOrderEntries(projectState).stream()
                 .filter(entry -> entry.id().equals(workspaceItemId))
@@ -424,6 +585,9 @@ public class ProjectStateEditor {
         }
         for (WorkspaceQueue workspaceQueue : projectState.getWorkspaceQueues()) {
             entries.add(new WorkspaceOrderEntry(workspaceQueue.getId(), workspaceQueue.getOrder(), workspaceQueue::setOrder));
+        }
+        for (WorkspaceVirtualTile tile : projectState.getWorkspaceVirtualTiles()) {
+            entries.add(new WorkspaceOrderEntry(tile.getId(), tile.getOrder(), tile::setOrder));
         }
         return entries;
     }
@@ -440,6 +604,17 @@ public class ProjectStateEditor {
         List<WorkspaceQueue> workspaceQueues = new ArrayList<>(projectState.getWorkspaceQueues());
         workspaceQueues.sort(Comparator.comparingInt(WorkspaceQueue::getOrder));
         projectState.setWorkspaceQueues(workspaceQueues);
+
+        List<WorkspaceVirtualTile> virtualTiles = new ArrayList<>(projectState.getWorkspaceVirtualTiles());
+        virtualTiles.sort(Comparator.comparingInt(WorkspaceVirtualTile::getOrder));
+        projectState.setWorkspaceVirtualTiles(virtualTiles);
+    }
+
+    private void normalizeVirtualTileTracks(WorkspaceVirtualTile tile) {
+        List<VirtualTileTrack> tracks = new ArrayList<>(tile.getTracks());
+        tracks.sort(Comparator.comparingInt(VirtualTileTrack::getOrder));
+        for (int index = 0; index < tracks.size(); index++) tracks.get(index).setOrder(index);
+        tile.setTracks(tracks);
     }
 
     private record WorkspaceOrderEntry(UUID id, int order, java.util.function.IntConsumer orderSetter) {

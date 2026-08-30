@@ -63,6 +63,23 @@ public class JavaFxPlayingTrack implements PlayingTrack {
     }
 
     @Override
+    public void restorePlayback(Duration position, boolean paused) {
+        Runnable restore = () -> {
+            play();
+            seek(position);
+            if (paused) pause();
+        };
+        if (mediaPlayer.getStatus() == MediaPlayer.Status.UNKNOWN) {
+            mediaPlayer.setOnReady(() -> {
+                playbackStatus = PlaybackStatus.READY;
+                restore.run();
+            });
+        } else {
+            restore.run();
+        }
+    }
+
+    @Override
     public void setVolume(double volume) {
         mediaPlayer.setVolume(Math.max(0d, Math.min(1d, volume)));
     }

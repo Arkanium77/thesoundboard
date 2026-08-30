@@ -30,7 +30,9 @@ class ProjectStateRepositoryTest {
         projectState.setWorkspaceTracks(List.of(new WorkspaceTrack(workspaceTrackId, audioFileId, 0, 0.8d, true)));
 
         WorkspaceQueue workspaceQueue = new WorkspaceQueue(UUID.randomUUID(), "Ambience", 1, 0.6d, true);
-        workspaceQueue.setTracks(List.of(new QueueTrack(queueTrackId, audioFileId, 0, false)));
+        QueueTrack queueTrack = new QueueTrack(queueTrackId, audioFileId, 0, false);
+        queueTrack.setVolume(0.35d);
+        workspaceQueue.setTracks(List.of(queueTrack));
         workspaceQueue.setSelectedTrackId(queueTrackId);
         projectState.setWorkspaceQueues(List.of(workspaceQueue));
 
@@ -47,6 +49,8 @@ class ProjectStateRepositoryTest {
         Assertions.assertThat(loadedProjectState.getWorkspaceQueues().getFirst().getName()).isEqualTo("Ambience");
         Assertions.assertThat(loadedProjectState.getWorkspaceQueues().getFirst().getTracks()).hasSize(1);
         Assertions.assertThat(loadedProjectState.getWorkspaceQueues().getFirst().getSelectedTrackId()).isEqualTo(queueTrackId);
+        Assertions.assertThat(loadedProjectState.getWorkspaceQueues().getFirst().getTracks().getFirst().getVolume())
+                .isEqualTo(0.35d);
     }
 
     @Test

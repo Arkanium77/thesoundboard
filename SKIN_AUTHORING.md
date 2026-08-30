@@ -18,6 +18,7 @@ The examples keep their editable `source` folder beside a ready-to-install packa
 uid: 783ee231-ab2b-4ad4-9ccf-0caaf5f624de
 name: "My Skin 🎨"
 skinVersion: 1
+version: 1
 stylesheet: skin.css
 fonts:
   regular: fonts/Regular.ttf
@@ -34,9 +35,10 @@ rendering:
   macos: AUTOMATIC
 ```
 
-- `uid` is package identity, not a display name. Reinstalling the same UID completely replaces the installed skin.
+- `uid` identifies the skin family, not a display name. Keep it unchanged between releases.
 - `name` is UTF-8 and may contain emoji. Emoji are rendered from bundled Twemoji images.
-- `skinVersion` is currently `1`.
+- `skinVersion` is the package-format version and is currently `1`.
+- `version` is a positive, monotonically increasing skin revision starting at `1`. Different versions of the same UID are installed side by side. Older packages without this field are treated as version 1.
 - `stylesheet` is required.
 - `regular`, `bold`, and `italic` are required. `boldItalic` is optional.
 - Use `system` for every font role to use the platform UI font. Do not mix `system` roles and font files.
@@ -69,6 +71,24 @@ Waveform colors are customizable through the `.waveform-seek-view` selector:
     -tsb-waveform-disabled-color: #cbbfc0;
 }
 ```
+
+Waveforms are centered and use the active/idle colors by default. A skin can instead anchor bars to the bottom and color them dynamically by amplitude:
+
+```css
+.waveform-seek-view {
+    -tsb-waveform-bottom-aligned: true;
+    -tsb-waveform-amplitude-coloring: true;
+    -tsb-waveform-smooth-coloring: true;
+    -tsb-waveform-low-color: #39ff53;
+    -tsb-waveform-mid-color: #e0cd30;
+    -tsb-waveform-high-color: #ff5533;
+    -tsb-waveform-idle-low-color: #45784d;
+    -tsb-waveform-idle-mid-color: #82782c;
+    -tsb-waveform-idle-high-color: #86463a;
+}
+```
+
+When amplitude coloring is enabled, played and unplayed bars use their respective low, mid, and high palettes instead of the playback-progress active/idle colors. Smooth coloring interpolates between palette colors; when disabled, the same colors form three discrete bands. All colors are freely selectable. The playhead color remains independent. Waveform calculation is an application-wide user preference rather than a skin property, so the same skin can be compared using peak-linear, RMS-linear, and RMS-dB envelopes.
 
 Relative URLs resolve from `skin.css`:
 

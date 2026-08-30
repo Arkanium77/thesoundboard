@@ -6,6 +6,7 @@ import java.util.prefs.Preferences;
 
 public class LocalizationPreferences {
     private static final String SELECTED_UID = "selectedLocalizationUid";
+    private static final String SELECTED_VERSION = "selectedLocalizationVersion";
     private Preferences preferences;
 
     public UUID load() {
@@ -17,8 +18,21 @@ public class LocalizationPreferences {
     }
 
     public void save(UUID uid) {
+        save(uid, 1);
+    }
+
+    public int loadVersion() {
+        try {
+            return Math.max(1, preferences().getInt(SELECTED_VERSION, 1));
+        } catch (SecurityException | IllegalStateException exception) {
+            return 1;
+        }
+    }
+
+    public void save(UUID uid, int version) {
         try {
             preferences().put(SELECTED_UID, uid.toString());
+            preferences().putInt(SELECTED_VERSION, version);
             preferences().flush();
         } catch (SecurityException | IllegalStateException | BackingStoreException exception) {
             // Built-in English remains available when preferences cannot be written.

@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -23,12 +24,16 @@ public class PackageSourceRegistry {
     }
 
     public void remember(UUID uid, Path source) {
+        remember(uid, 1, source);
+    }
+
+    public void remember(UUID uid, int version, Path source) {
         if (uid == null || source == null) {
             return;
         }
         try {
             Files.createDirectories(directory);
-            Files.writeString(sourceFile(uid), source.toAbsolutePath().normalize().toString());
+            Files.writeString(sourceFile(key(uid, version)), source.toAbsolutePath().normalize().toString());
         } catch (IOException | SecurityException exception) {
             // Manual package installation remains available when the source path cannot be remembered.
         }
@@ -49,17 +54,48 @@ public class PackageSourceRegistry {
         return findAll(uid).stream().filter(Files::isRegularFile).findFirst();
     }
 
+    public Optional<Path> findAvailable(UUID uid, int version) {
+        if (uid == null) {
+            return Optional.empty();
+        }
+        return findAll(key(uid, version)).stream().filter(Files::isRegularFile).findFirst();
+    }
+
+    public List<Path> findAvailableSources(UUID uid, int version) {
+        if (uid == null) {
+            return List.of();
+        }
+        return findAll(key(uid, version)).stream().filter(Files::isRegularFile).toList();
+    }
+
     public boolean isAvailable(UUID uid) {
         return findAvailable(uid).isPresent();
     }
 
+    public boolean isAvailable(UUID uid, int version) {
+        return findAvailable(uid, version).isPresent();
+    }
+
     public boolean isDiscovered(UUID uid) {
+        return isDiscovered(uid, 1);
+    }
+
+    public boolean isDiscovered(UUID uid, int version) {
+        if (uid == null) {
+            return false;
+        }
         List<Path> discoveredSources = new ArrayList<>();
-        readPaths(discoveredSourcesFile(uid), discoveredSources);
+        readPaths(discoveredSourcesFile(key(uid, version)), discoveredSources);
         return discoveredSources.stream().anyMatch(Files::isRegularFile);
     }
 
     public void synchronizeDiscovered(Map<UUID, List<Path>> discoveredSources) {
+        Map<String, List<Path>> versioned = new LinkedHashMap<>();
+        discoveredSources.forEach((uid, paths) -> versioned.put(key(uid, 1), paths));
+        synchronizeVersionedDiscovered(versioned);
+    }
+
+    public void synchronizeVersionedDiscovered(Map<String, List<Path>> discoveredSources) {
         try {
             Files.createDirectories(directory);
             try (var existingSources = Files.list(directory)) {
@@ -70,7 +106,7 @@ public class PackageSourceRegistry {
                     Files.deleteIfExists(sourceFile);
                 }
             }
-            for (Map.Entry<UUID, List<Path>> entry : discoveredSources.entrySet()) {
+            for (Map.Entry<String, List<Path>> entry : discoveredSources.entrySet()) {
                 Set<Path> normalizedSources = new LinkedHashSet<>();
                 for (Path source : entry.getValue()) {
                     normalizedSources.add(source.toAbsolutePath().normalize());
@@ -89,34 +125,49 @@ public class PackageSourceRegistry {
     }
 
     public void forget(UUID uid) {
+        forget(uid, 1);
+    }
+
+    public void forget(UUID uid, int version) {
         if (uid == null) {
             return;
         }
         try {
-            Files.deleteIfExists(sourceFile(uid));
-            Files.deleteIfExists(discoveredSourcesFile(uid));
+            Files.deleteIfExists(sourceFile(key(uid, version)));
+            Files.deleteIfExists(discoveredSourcesFile(key(uid, version)));
             deleteDirectoryIfEmpty();
         } catch (IOException | SecurityException exception) {
             // A stale source path is ignored when its package is no longer installed.
         }
     }
 
-    private Path sourceFile(UUID uid) {
-        return directory.resolve(uid + SOURCE_FILE_EXTENSION);
+    private Path sourceFile(String key) {
+        return directory.resolve(key + SOURCE_FILE_EXTENSION);
     }
 
-    private Path discoveredSourcesFile(UUID uid) {
-        return directory.resolve(uid + DISCOVERED_SOURCES_FILE_EXTENSION);
+    private Path discoveredSourcesFile(String key) {
+        return directory.resolve(key + DISCOVERED_SOURCES_FILE_EXTENSION);
     }
 
     private List<Path> findAll(UUID uid) {
-        if (uid == null) {
+        return findAll(key(uid, 1));
+    }
+
+    private List<Path> findAll(String key) {
+        if (key == null) {
             return List.of();
         }
         List<Path> sources = new ArrayList<>();
-        readPaths(sourceFile(uid), sources);
-        readPaths(discoveredSourcesFile(uid), sources);
+        readPaths(sourceFile(key), sources);
+        readPaths(discoveredSourcesFile(key), sources);
         return List.copyOf(sources);
+    }
+
+    public static String key(UUID uid, int version) {
+        if (uid == null) {
+            return null;
+        }
+        return version == 1 ? uid.toString() : uid + "-v" + version;
     }
 
     private void readPaths(Path sourceFile, List<Path> sources) {

@@ -20,6 +20,8 @@ import app.ui.UiScalePreferences;
 import app.ui.main.MainView;
 import app.waveform.AudioInputStreamWaveformExtractor;
 import app.waveform.WaveformService;
+import app.waveform.WaveformDisplaySettings;
+import app.waveform.WaveformPreferences;
 import javafx.application.Application;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.SimpleDoubleProperty;
@@ -64,8 +66,11 @@ public class SoundboardApplication extends Application {
         uiScale.addListener((observable, oldValue, newValue) ->
                 uiScalePreferences.save(newValue.doubleValue(), appConfig.getUi())
         );
+        WaveformPreferences waveformPreferences = new WaveformPreferences();
+        WaveformDisplaySettings.setMode(waveformPreferences.loadMode());
 
-        mainView = new MainView(stage, appConfig, projectService, projectStateEditor, audioEngine, waveformService, uiScale, skinService, localizationService, lastProjectPreferences);
+        mainView = new MainView(stage, appConfig, projectService, projectStateEditor, audioEngine, waveformService,
+                uiScale, skinService, localizationService, lastProjectPreferences, waveformPreferences);
         UiScalePane uiScalePane = new UiScalePane(mainView, uiScale);
 
         Scene scene = new Scene(

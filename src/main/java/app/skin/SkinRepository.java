@@ -33,11 +33,13 @@ public class SkinRepository {
 
     public List<SkinDescriptor> findAll() {
         List<SkinDescriptor> skins = new ArrayList<>();
-        skins.add(loadBuiltInDefault());
-        LinkedHashSet<UUID> skinUids = new LinkedHashSet<>();
-        skinUids.add(DEFAULT_SKIN_UID);
+        SkinDescriptor builtInDefault = loadBuiltInDefault();
+        skins.add(builtInDefault);
+        LinkedHashSet<String> skinUids = new LinkedHashSet<>();
+        skinUids.add(DEFAULT_SKIN_UID + ":" + builtInDefault.manifest().getVersion());
         loadExternalSkins().stream()
-                .filter(descriptor -> skinUids.add(descriptor.manifest().getUid()))
+                .filter(descriptor -> !DEFAULT_SKIN_UID.equals(descriptor.manifest().getUid()))
+                .filter(descriptor -> skinUids.add(descriptor.manifest().getUid() + ":" + descriptor.manifest().getVersion()))
                 .forEach(skins::add);
         skins.sort(Comparator.comparing(descriptor -> descriptor.manifest().getName(), String.CASE_INSENSITIVE_ORDER));
         return List.copyOf(skins);
@@ -46,6 +48,14 @@ public class SkinRepository {
     public SkinDescriptor findSelected(UUID selectedSkinUid) {
         return findAll().stream()
                 .filter(descriptor -> descriptor.manifest().getUid().equals(selectedSkinUid))
+                .findFirst()
+                .orElseGet(this::loadBuiltInDefault);
+    }
+
+    public SkinDescriptor findSelected(UUID selectedSkinUid, int version) {
+        return findAll().stream()
+                .filter(descriptor -> descriptor.manifest().getUid().equals(selectedSkinUid))
+                .filter(descriptor -> descriptor.manifest().getVersion() == version)
                 .findFirst()
                 .orElseGet(this::loadBuiltInDefault);
     }
@@ -108,6 +118,9 @@ public class SkinRepository {
     private void validateManifest(SkinManifest manifest, String source) {
         if (manifest.getSkinVersion() != 1) {
             throw new IllegalArgumentException("Unsupported skin version in " + source);
+        }
+        if (manifest.getVersion() < 1) {
+            throw new IllegalArgumentException("Invalid skin package version in " + source);
         }
         if (manifest.getUid() == null) {
             throw new IllegalArgumentException("Missing skin uid in " + source);

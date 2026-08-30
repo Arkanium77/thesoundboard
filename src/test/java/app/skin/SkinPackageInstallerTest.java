@@ -82,6 +82,7 @@ class SkinPackageInstallerTest {
                 .contains("skin.yml", "skin.css", "new.txt")
                 .doesNotContain("obsolete.txt");
 
+        Files.delete(secondPackage);
         installer.delete(replaced);
         Assertions.assertThat(replaced.directory()).doesNotExist();
         Assertions.assertThat(skinsDirectory.resolve("_packages").resolve(MOON_UID + ".tsbs")).doesNotExist();
@@ -108,6 +109,7 @@ class SkinPackageInstallerTest {
         SkinDescriptor replaced = repository.findSelected(MOON_UID);
         Assertions.assertThat(replaced.manifest().getName()).isEqualTo("Replacement");
 
+        Files.delete(replacementPackage);
         installer.scheduleDeletion(replaced);
         SkinPackageInstaller.applyPendingOperations(repository);
 
@@ -136,9 +138,64 @@ class SkinPackageInstallerTest {
         Assertions.assertThat(installer.canUpdate(updated)).isTrue();
         Assertions.assertThat(updated.manifest().getName()).isEqualTo("Updated");
 
+        Files.delete(packageFile);
         installer.delete(updated);
 
         Assertions.assertThat(skinsDirectory.resolve("_sources").resolve(MOON_UID + ".path")).doesNotExist();
+    }
+
+    @Test
+    void keepsVersionsOfSameSkinInstalledSeparately() throws IOException {
+        Path firstPackage = temporaryDirectory.resolve("skin-one.tsbs");
+        Path secondPackage = temporaryDirectory.resolve("skin-two.tsbs");
+        Map<String, String> firstEntries = validSkinEntries("Version One");
+        Map<String, String> secondEntries = validSkinEntries("Version Two");
+        secondEntries.put("skin.yml", secondEntries.get("skin.yml").replace("skinVersion: 1",
+                "skinVersion: 1\nversion: 2"));
+        createPackage(firstPackage, firstEntries);
+        createPackage(secondPackage, secondEntries);
+        SkinRepository repository = new SkinRepository(temporaryDirectory.resolve("skins"));
+        SkinPackageInstaller installer = new SkinPackageInstaller(repository);
+
+        installer.install(firstPackage);
+        installer.install(secondPackage);
+
+        Assertions.assertThat(repository.findAll().stream().filter(skin -> MOON_UID.equals(skin.manifest().getUid())))
+                .extracting(skin -> skin.manifest().getVersion())
+                .containsExactlyInAnyOrder(1, 2);
+        Assertions.assertThat(repository.getExternalSkinsDirectory().resolve(MOON_UID + "-v2")).isDirectory();
+        SkinDescriptor first = repository.findSelected(MOON_UID, 1);
+        installer.delete(first);
+        installer.installAvailablePackages(List.of(temporaryDirectory));
+
+        Assertions.assertThat(firstPackage).isRegularFile();
+        Assertions.assertThat(repository.findAll().stream().filter(skin -> MOON_UID.equals(skin.manifest().getUid())))
+                .extracting(skin -> skin.manifest().getVersion())
+                .containsExactly(2);
+        Files.writeString(repository.getExternalSkinsDirectory().resolve("_disabled").resolve(MOON_UID.toString()),
+                "disabled");
+        installer.installAvailablePackages(List.of(temporaryDirectory));
+
+        Assertions.assertThat(repository.findAll().stream().filter(skin -> MOON_UID.equals(skin.manifest().getUid())))
+                .extracting(skin -> skin.manifest().getVersion())
+                .containsExactlyInAnyOrder(1, 2);
+    }
+
+    @Test
+    void protectsBundledSkinSourceFromDeletion() throws IOException {
+        Path protectedDirectory = temporaryDirectory.resolve("assets").resolve("skins");
+        Files.createDirectories(protectedDirectory);
+        Path packageFile = protectedDirectory.resolve("moon.tsbs");
+        createPackage(packageFile, validSkinEntries("Protected"));
+        SkinRepository repository = new SkinRepository(temporaryDirectory.resolve("skins"));
+        SkinPackageInstaller installer = new SkinPackageInstaller(repository, List.of(protectedDirectory));
+        SkinDescriptor installed = installer.install(packageFile);
+
+        Assertions.assertThatThrownBy(() -> installer.deleteSourceFile(installed, packageFile))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("protected");
+        Assertions.assertThat(packageFile).isRegularFile();
+        Assertions.assertThat(installed.directory()).isDirectory();
     }
 
     @Test
@@ -177,10 +234,24 @@ class SkinPackageInstallerTest {
         Assertions.assertThat(discovered.manifest().getName()).isEqualTo("First Source");
         Assertions.assertThat(installer.isDiscovered(discovered)).isTrue();
 
-        Files.delete(firstPackage);
-        SkinDescriptor updatedFromFallback = installer.update(discovered);
+        createPackage(firstPackage, validSkinEntries("Updated First Source"));
+        installer.installAvailablePackages(List.of(firstSource, secondSource));
+
+        SkinDescriptor automaticallyUpdated = repository.findSelected(MOON_UID);
+        Assertions.assertThat(automaticallyUpdated.manifest().getName()).isEqualTo("Updated First Source");
+
+        installer.deleteSourceFile(automaticallyUpdated, firstPackage);
+        Assertions.assertThat(automaticallyUpdated.directory()).isDirectory();
+        Assertions.assertThat(installer.canUpdate(automaticallyUpdated)).isTrue();
+        SkinDescriptor updatedFromFallback = installer.update(automaticallyUpdated);
 
         Assertions.assertThat(updatedFromFallback.manifest().getName()).isEqualTo("Second Source");
+
+        installer.deleteSourceFile(updatedFromFallback, secondPackage);
+
+        Assertions.assertThat(secondPackage).doesNotExist();
+        Assertions.assertThat(updatedFromFallback.directory()).isDirectory();
+        Assertions.assertThat(installer.canUpdate(updatedFromFallback)).isFalse();
     }
 
     @Test
@@ -244,12 +315,15 @@ class SkinPackageInstallerTest {
         );
         Path nightPackage = temporaryDirectory.resolve("Night Mode.tsbs");
         Path sakuraPackage = temporaryDirectory.resolve("Sakura.tsbs");
+        Path retroAmpPackage = temporaryDirectory.resolve("Retro Amp.tsbs");
 
         installer.createPackage(Path.of("examples", "skins", "Night Mode", "source"), nightPackage);
         installer.createPackage(Path.of("examples", "skins", "Sakura", "source"), sakuraPackage);
+        installer.createPackage(Path.of("examples", "skins", "Retro Amp", "source"), retroAmpPackage);
 
         Assertions.assertThat(installer.install(nightPackage).manifest().getName()).isEqualTo("🌙 Night Mode");
         Assertions.assertThat(installer.install(sakuraPackage).manifest().getName()).isEqualTo("🌸 Sakura");
+        Assertions.assertThat(installer.install(retroAmpPackage).manifest().getName()).isEqualTo("⚡ Retro Amp");
         Assertions.assertThat(packageEntries(sakuraPackage))
                 .contains("images/header.png", "images/workspace.png", "fonts/NotoSansJP-Regular.ttf");
     }
@@ -266,9 +340,21 @@ class SkinPackageInstallerTest {
         SkinDescriptor sakura = installer.install(Path.of(
                 "examples", "skins", "Sakura", "Sakura.tsbs"
         ));
+        SkinDescriptor retroAmp = installer.install(Path.of(
+                "examples", "skins", "Retro Amp", "Retro Amp.tsbs"
+        ));
+        SkinDescriptor tacticalCodec = installer.install(Path.of(
+                "examples", "skins", "Tactical Codec", "Tactical Codec.tsbs"
+        ));
 
         Assertions.assertThat(nightMode.manifest().getName()).isEqualTo("🌙 Night Mode");
         Assertions.assertThat(sakura.manifest().getName()).isEqualTo("🌸 Sakura");
+        Assertions.assertThat(retroAmp.manifest().getName()).isEqualTo("⚡ Retro Amp");
+        Assertions.assertThat(tacticalCodec.manifest().getName()).isEqualTo("📟 Tactical Codec");
+        Assertions.assertThat(nightMode.manifest().getVersion()).isEqualTo(2);
+        Assertions.assertThat(sakura.manifest().getVersion()).isEqualTo(2);
+        Assertions.assertThat(retroAmp.manifest().getVersion()).isEqualTo(1);
+        Assertions.assertThat(tacticalCodec.manifest().getVersion()).isEqualTo(2);
     }
 
     @Test

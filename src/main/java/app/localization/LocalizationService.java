@@ -45,7 +45,7 @@ public class LocalizationService {
         this.preferences = preferences;
         this.packageSourceDirectories = packageSourceDirectories;
         refreshPackageSources();
-        this.active = repository.findSelected(preferences.load());
+        this.active = repository.findSelected(preferences.load(), preferences.loadVersion());
     }
 
     public String text(TextKey key) {
@@ -65,18 +65,23 @@ public class LocalizationService {
     public void addPackageSourceDirectory(Path directory) throws IOException { packageSourceDirectories.add(directory); }
     public void removePackageSourceDirectory(Path directory) throws IOException { packageSourceDirectories.remove(directory); }
     public UUID getSelectedUid() { return preferences.load(); }
+    public int getSelectedVersion() { return preferences.loadVersion(); }
     public LocalizationDescriptor getActive() { return active; }
     public LocalizationRepository getRepository() { return repository; }
     public boolean select(UUID uid) {
-        LocalizationDescriptor selected = repository.findSelected(uid);
-        if (!selected.manifest().getUid().equals(uid)) return false;
-        boolean changed = !active.manifest().getUid().equals(uid);
-        preferences.save(uid);
+        return select(uid, 1);
+    }
+
+    public boolean select(UUID uid, int version) {
+        LocalizationDescriptor selected = repository.findSelected(uid, version);
+        if (!selected.manifest().getUid().equals(uid) || selected.manifest().getVersion() != version) return false;
+        boolean changed = !active.manifest().getUid().equals(uid) || active.manifest().getVersion() != version;
+        preferences.save(uid, version);
         active = selected;
         return changed;
     }
 
     public void reloadSelected() {
-        active = repository.findSelected(preferences.load());
+        active = repository.findSelected(preferences.load(), preferences.loadVersion());
     }
 }

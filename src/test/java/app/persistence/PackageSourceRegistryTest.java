@@ -82,4 +82,25 @@ class PackageSourceRegistryTest {
         Assertions.assertThat(registry.findAvailable(uid)).isEmpty();
         Assertions.assertThat(discoveredSource).exists();
     }
+
+    @Test
+    void keepsSourcesForPackageVersionsSeparate() throws IOException {
+        UUID uid = UUID.fromString("e30ed037-5703-45dd-95c7-4dbe1d196c93");
+        Path firstSource = temporaryDirectory.resolve("one.tsbs");
+        Path secondSource = temporaryDirectory.resolve("two.tsbs");
+        Files.writeString(firstSource, "one");
+        Files.writeString(secondSource, "two");
+        PackageSourceRegistry registry = new PackageSourceRegistry(temporaryDirectory.resolve("installed"));
+
+        registry.remember(uid, 1, firstSource);
+        registry.remember(uid, 2, secondSource);
+
+        Assertions.assertThat(registry.findAvailableSources(uid, 1)).containsExactly(firstSource.toAbsolutePath());
+        Assertions.assertThat(registry.findAvailableSources(uid, 2)).containsExactly(secondSource.toAbsolutePath());
+
+        registry.forget(uid, 1);
+
+        Assertions.assertThat(registry.findAvailableSources(uid, 1)).isEmpty();
+        Assertions.assertThat(registry.findAvailableSources(uid, 2)).containsExactly(secondSource.toAbsolutePath());
+    }
 }

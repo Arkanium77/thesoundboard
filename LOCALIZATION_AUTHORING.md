@@ -10,7 +10,7 @@ The Soundboard localizations are ZIP-compatible `.tsbl` packages. The package ro
 4. Choose **Create Package...**, select the source folder, and save the `.tsbl` outside that folder.
 5. Install the package and inspect the main window, settings, dialogs, empty states, tooltips, tracks, and queues.
 
-Editable examples and ready packages are available in [`examples/localizations`](examples/localizations). Rebuild them with `./gradlew packageExampleLocalizations` or `.\gradlew.bat packageExampleLocalizations`.
+Editable examples and ready packages are available in [`examples/localizations`](examples/localizations). Leetspeak is the language-neutral reference implementation; the Russian examples demonstrate non-Latin catalogs. Rebuild them with `./gradlew packageExampleLocalizations` or `.\gradlew.bat packageExampleLocalizations`.
 
 ## Manifest
 
@@ -19,13 +19,15 @@ uid: 2195946d-8797-4f48-a81b-a2a12d1c4a30
 name: "🇷🇺 Русский"
 languageTag: ru
 localizationVersion: 1
+version: 1
 strings: strings.yml
 ```
 
 - `uid` is the stable identity. Keep it unchanged when publishing an update.
 - `name` is UTF-8 and may contain emoji.
 - `languageTag` should be a BCP 47 language tag such as `ru`, `ja`, or `pt-BR`.
-- `localizationVersion` is currently `1`.
+- `localizationVersion` is the package-format version and is currently `1`.
+- `version` is the localization revision described below.
 - `strings` is a safe path inside the package.
 
 ## Strings
@@ -52,6 +54,8 @@ Use **Settings → Localization → Update...** and select either the editable s
 - replaces package files through a safe temporary result.
 
 Search the updated `strings.yml` for newly appended English text, translate it, then package and reinstall using the same UID. Keep a source folder under version control; `.tsbl` is a distribution artifact, not the most convenient editing format.
+
+Use the manifest field `version` as a positive, monotonically increasing package revision starting at `1`. Keep the UID unchanged for revisions of the same localization. Different versions are installed side by side; omitting `version` is supported for older packages and means version 1.
 
 ## Installation and updates
 

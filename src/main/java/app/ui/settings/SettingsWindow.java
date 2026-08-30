@@ -15,6 +15,10 @@ import app.skin.SkinManifest;
 import app.skin.SkinService;
 import app.ui.EmojiText;
 import app.ui.UiIcons;
+import app.waveform.WaveformDisplaySettings;
+import app.waveform.WaveformDisplayMode;
+import app.waveform.WaveformPreferences;
+import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
@@ -23,6 +27,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
@@ -48,32 +53,36 @@ import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 public class SettingsWindow {
+    private static final PseudoClass WINDOW_INACTIVE = PseudoClass.getPseudoClass("window-inactive");
     private final Stage owner;
     private final SkinService skinService;
     private final SkinPackageInstaller skinPackageInstaller;
     private final LocalizationService localizationService;
     private final LocalizationPackageInstaller localizationPackageInstaller;
     private final LastProjectPreferences lastProjectPreferences;
+    private final WaveformPreferences waveformPreferences;
     private final Runnable localizationChanged;
     private final AppRestarter appRestarter = new AppRestarter();
     private final Stage stage = new Stage();
     private final BorderPane content = new BorderPane();
     private final ListView<SettingsSection> sections = new ListView<>();
-    private final Set<UUID> pendingDeletionUids = new LinkedHashSet<>();
+    private final Set<String> pendingDeletionPackages = new LinkedHashSet<>();
 
     public SettingsWindow(Stage owner, SkinService skinService, LocalizationService localizationService,
-                          LastProjectPreferences lastProjectPreferences, Runnable localizationChanged) {
+                          LastProjectPreferences lastProjectPreferences, WaveformPreferences waveformPreferences,
+                          Runnable localizationChanged) {
         this.owner = owner;
         this.skinService = skinService;
         this.skinPackageInstaller = new SkinPackageInstaller(skinService.getRepository());
         this.localizationService = localizationService;
         this.lastProjectPreferences = lastProjectPreferences;
+        this.waveformPreferences = waveformPreferences;
         this.localizationChanged = localizationChanged;
         this.localizationPackageInstaller = new LocalizationPackageInstaller(localizationService.getRepository());
         configureStage();
@@ -102,6 +111,9 @@ public class SettingsWindow {
 
         SplitPane splitPane = new SplitPane(sections, content);
         splitPane.getStyleClass().add("settings-window");
+        splitPane.pseudoClassStateChanged(WINDOW_INACTIVE, true);
+        stage.focusedProperty().addListener((observable, oldValue, focused) ->
+                splitPane.pseudoClassStateChanged(WINDOW_INACTIVE, !focused));
         content.getStyleClass().add("settings-content");
         splitPane.setOrientation(Orientation.HORIZONTAL);
         splitPane.setDividerPositions(0.25d);
@@ -128,7 +140,27 @@ public class SettingsWindow {
         restoreSession.selectedProperty().addListener((observable, oldValue, selected) ->
                 lastProjectPreferences.setRestoreOnStart(selected)
         );
-        VBox body = new VBox(16d, title, restoreSession);
+        Label waveformModeLabel = new Label(localizationService.text(TextKey.SETTINGS_WAVEFORM_MODE));
+        ComboBox<WaveformModeOption> waveformMode = new ComboBox<>();
+        waveformMode.getItems().addAll(
+                new WaveformModeOption(WaveformDisplayMode.PEAK_LINEAR,
+                        localizationService.text(TextKey.SETTINGS_WAVEFORM_MODE_PEAK_LINEAR)),
+                new WaveformModeOption(WaveformDisplayMode.RMS_LINEAR,
+                        localizationService.text(TextKey.SETTINGS_WAVEFORM_MODE_RMS_LINEAR)),
+                new WaveformModeOption(WaveformDisplayMode.RMS_DB,
+                        localizationService.text(TextKey.SETTINGS_WAVEFORM_MODE_RMS_DB))
+        );
+        waveformMode.getSelectionModel().select(waveformMode.getItems().stream()
+                .filter(option -> option.mode() == WaveformDisplaySettings.getMode())
+                .findFirst()
+                .orElse(waveformMode.getItems().get(1)));
+        waveformMode.valueProperty().addListener((observable, oldValue, selected) -> {
+            if (selected == null) return;
+            WaveformDisplaySettings.setMode(selected.mode());
+            waveformPreferences.saveMode(selected.mode());
+        });
+        VBox waveformModeBox = new VBox(6d, waveformModeLabel, waveformMode);
+        VBox body = new VBox(16d, title, restoreSession, waveformModeBox);
         body.setPadding(new Insets(16d));
         content.setCenter(body);
     }
@@ -140,41 +172,46 @@ public class SettingsWindow {
         VBox skinList = new VBox(8d);
         ToggleGroup toggleGroup = new ToggleGroup();
         UUID selectedSkinUid = skinService.getSelectedSkinUid();
+        int selectedSkinVersion = skinService.getSelectedSkinVersion();
         List<SkinDescriptor> skins = skinService.getAvailableSkins();
         for (SkinDescriptor skin : skins) {
             RadioButton skinButton = new RadioButton();
-            HBox skinName = new HBox(EmojiText.create(skin.manifest().getName()));
+            String skinDisplayName = skin.manifest().getName();
+            if (skins.stream().filter(candidate -> candidate.manifest().getUid()
+                    .equals(skin.manifest().getUid())).count() > 1) {
+                skinDisplayName += " (v" + skin.manifest().getVersion() + ")";
+            }
+            HBox skinName = new HBox(EmojiText.create(skinDisplayName));
             skinName.setPadding(new Insets(0d, 0d, 0d, 8d));
             skinButton.setGraphic(skinName);
             skinButton.setAccessibleText(skin.manifest().getName());
             skinButton.setToggleGroup(toggleGroup);
-            skinButton.setSelected(skin.manifest().getUid().equals(selectedSkinUid));
+            skinButton.setSelected(skin.manifest().getUid().equals(selectedSkinUid)
+                    && skin.manifest().getVersion() == selectedSkinVersion);
             skinButton.setOnAction(event -> selectSkin(skin));
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
+            skinButton.getStyleClass().add("package-choice");
+            skinButton.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(skinButton, Priority.ALWAYS);
             Button exportButton = new Button(localizationService.text(TextKey.SETTINGS_EXPORT));
             exportButton.setDisable(skin.isBuiltIn());
             exportButton.setOnAction(event -> exportSkin(skin));
             Button deleteButton = new Button(localizationService.text(TextKey.SETTINGS_DELETE));
-            boolean activeSkin = skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid());
-            boolean pendingDeletion = pendingDeletionUids.contains(skin.manifest().getUid());
-            boolean discoveredSkin = skinPackageInstaller.isDiscovered(skin);
+            boolean activeSkin = skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid())
+                    && skin.manifest().getVersion() == skinService.getActiveSkin().manifest().getVersion();
+            boolean pendingDeletion = pendingDeletionPackages.contains(packageKey(skin));
+            List<Path> skinSources = skinPackageInstaller.findSources(skin);
             Button updateButton = new Button(localizationService.text(TextKey.SETTINGS_UPDATE_INSTALLED));
             updateButton.setDisable(pendingDeletion || !skinPackageInstaller.canUpdate(skin));
             updateButton.setOnAction(event -> updateInstalledSkin(skin));
-            deleteButton.setText(activeSkin && !skin.isBuiltIn()
-                    ? localizationService.text(TextKey.SETTINGS_ACTIVE)
-                    : pendingDeletion
+            deleteButton.setText(pendingDeletion
                     ? localizationService.text(TextKey.SETTINGS_PENDING)
-                    : discoveredSkin
-                    ? localizationService.text(TextKey.SETTINGS_AVAILABLE)
                     : localizationService.text(TextKey.SETTINGS_DELETE));
-            deleteButton.setDisable(skin.isBuiltIn() || activeSkin || pendingDeletion || discoveredSkin);
+            deleteButton.setDisable(skin.isBuiltIn() || pendingDeletion || activeSkin && skinSources.size() < 2);
             if (activeSkin && !skin.isBuiltIn()) {
                 deleteButton.setTooltip(new Tooltip(localizationService.text(TextKey.SETTINGS_SELECT_OTHER_SKIN)));
             }
-            deleteButton.setOnAction(event -> deleteSkin(skin));
-            HBox skinRow = new HBox(8d, skinButton, spacer, updateButton, exportButton, deleteButton);
+            deleteButton.setOnAction(event -> requestSkinDeletion(skin, skinSources));
+            HBox skinRow = new HBox(8d, skinButton, updateButton, exportButton, deleteButton);
             skinRow.setAlignment(Pos.CENTER_LEFT);
             skinRow.setPadding(new Insets(0d, 6d, 0d, 6d));
             skinList.getChildren().add(skinRow);
@@ -200,20 +237,28 @@ public class SettingsWindow {
         VBox localizationList = new VBox(8d);
         ToggleGroup toggleGroup = new ToggleGroup();
         UUID selectedUid = localizationService.getSelectedUid();
-        for (LocalizationDescriptor localization : localizationService.getAvailable()) {
+        int selectedVersion = localizationService.getSelectedVersion();
+        List<LocalizationDescriptor> localizations = localizationService.getAvailable();
+        for (LocalizationDescriptor localization : localizations) {
             String localizationName = localization.builtIn()
                     ? localizationService.text(TextKey.LOCALIZATION_ENGLISH)
                     : localization.manifest().getName();
+            if (localizations.stream().filter(candidate -> candidate.manifest().getUid()
+                    .equals(localization.manifest().getUid())).count() > 1) {
+                localizationName += " (v" + localization.manifest().getVersion() + ")";
+            }
             RadioButton localizationButton = new RadioButton();
             HBox localizedName = new HBox(EmojiText.create(localizationName));
             localizedName.setPadding(new Insets(0d, 0d, 0d, 8d));
             localizationButton.setGraphic(localizedName);
             localizationButton.setAccessibleText(localizationName);
             localizationButton.setToggleGroup(toggleGroup);
-            localizationButton.setSelected(localization.manifest().getUid().equals(selectedUid));
+            localizationButton.setSelected(localization.manifest().getUid().equals(selectedUid)
+                    && localization.manifest().getVersion() == selectedVersion);
             localizationButton.setOnAction(event -> selectLocalization(localization));
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
+            localizationButton.getStyleClass().add("package-choice");
+            localizationButton.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(localizationButton, Priority.ALWAYS);
             Button exportButton = new Button(localizationService.text(TextKey.SETTINGS_EXPORT));
             exportButton.setDisable(localization.builtIn());
             exportButton.setOnAction(event -> exportLocalization(localization));
@@ -221,15 +266,13 @@ public class SettingsWindow {
             updateInstalledButton.setDisable(!localizationPackageInstaller.canUpdate(localization));
             updateInstalledButton.setOnAction(event -> updateInstalledLocalization(localization));
             Button deleteButton = new Button(localizationService.text(TextKey.SETTINGS_DELETE));
-            boolean discoveredLocalization = localizationPackageInstaller.isDiscovered(localization);
-            if (discoveredLocalization) {
-                deleteButton.setText(localizationService.text(TextKey.SETTINGS_AVAILABLE));
-            }
+            List<Path> localizationSources = localizationPackageInstaller.findSources(localization);
+            boolean selectedLocalization = localization.manifest().getUid().equals(selectedUid)
+                    && localization.manifest().getVersion() == selectedVersion;
             deleteButton.setDisable(localization.builtIn()
-                    || localization.manifest().getUid().equals(selectedUid)
-                    || discoveredLocalization);
-            deleteButton.setOnAction(event -> deleteLocalization(localization));
-            HBox row = new HBox(8d, localizationButton, spacer, updateInstalledButton, exportButton, deleteButton);
+                    || selectedLocalization && localizationSources.size() < 2);
+            deleteButton.setOnAction(event -> requestLocalizationDeletion(localization, localizationSources));
+            HBox row = new HBox(8d, localizationButton, updateInstalledButton, exportButton, deleteButton);
             row.setAlignment(Pos.CENTER_LEFT);
             row.setPadding(new Insets(0d, 6d, 0d, 6d));
             localizationList.getChildren().add(row);
@@ -252,7 +295,7 @@ public class SettingsWindow {
     }
 
     private void selectLocalization(LocalizationDescriptor localization) {
-        if (!localizationService.select(localization.manifest().getUid())) return;
+        if (!localizationService.select(localization.manifest().getUid(), localization.manifest().getVersion())) return;
         refreshLocalization();
     }
 
@@ -299,7 +342,7 @@ public class SettingsWindow {
             if (confirmation.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK) {
                 try {
                     LocalizationDescriptor replacement = localizationPackageInstaller.install(selected.toPath(), true);
-                    if (replacement.manifest().getUid().equals(localizationService.getSelectedUid())) {
+                    if (isSelected(replacement)) {
                         localizationService.reloadSelected();
                         refreshLocalization();
                     } else {
@@ -317,7 +360,7 @@ public class SettingsWindow {
     private void updateInstalledLocalization(LocalizationDescriptor localization) {
         try {
             LocalizationDescriptor replacement = localizationPackageInstaller.update(localization);
-            if (replacement.manifest().getUid().equals(localizationService.getSelectedUid())) {
+            if (isSelected(replacement)) {
                 localizationService.reloadSelected();
                 refreshLocalization();
             } else {
@@ -357,6 +400,16 @@ public class SettingsWindow {
         } catch (IOException | IllegalArgumentException exception) {
             showOperationError("Localization Deletion Failed", "The localization could not be deleted", exception);
         }
+    }
+
+    private void deleteLocalizationFromSource(LocalizationDescriptor localization, Path source,
+                                              boolean deleteInstalled) throws IOException {
+        localizationPackageInstaller.deleteSourceFile(localization, source);
+        if (deleteInstalled) {
+            localizationPackageInstaller.delete(localization);
+        }
+        localizationService.refreshPackageSources();
+        showLocalization();
     }
 
     private void createLocalizationPackage() {
@@ -466,7 +519,7 @@ public class SettingsWindow {
     }
 
     private void selectSkin(SkinDescriptor skin) {
-        boolean skinChanged = skinService.selectSkin(skin.manifest().getUid());
+        boolean skinChanged = skinService.selectSkin(skin.manifest().getUid(), skin.manifest().getVersion());
         showSkins();
         if (!skinChanged) {
             return;
@@ -492,7 +545,7 @@ public class SettingsWindow {
             showInstallationCompleted(installedSkin, false);
         } catch (SkinAlreadyInstalledException exception) {
             Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION,
-                    "A skin with the same UID is already installed. Its files will be completely replaced.",
+                    "This skin version is already installed. Only its installed copy will be replaced.",
                     ButtonType.CANCEL, ButtonType.OK);
             confirmation.initOwner(stage);
             styleDialog(confirmation, "settings-confirmation-dialog");
@@ -500,7 +553,8 @@ public class SettingsWindow {
             confirmation.setHeaderText("Replace '" + exception.getSkin().getName() + "'?");
             if (confirmation.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK) {
                 try {
-                    if (skinService.wasLoadedThisSession(exception.getSkin().getUid())) {
+                    if (skinService.wasLoadedThisSession(
+                            exception.getSkin().getUid(), exception.getSkin().getVersion())) {
                         SkinManifest replacement = skinPackageInstaller.scheduleReplacement(selectedFile.toPath());
                         showSkins();
                         showPendingOperationRestartPrompt("Skin '" + replacement.getName()
@@ -515,6 +569,159 @@ public class SettingsWindow {
         } catch (IOException | IllegalArgumentException exception) {
             showOperationError("Skin Installation Failed", "The selected .tsbs package could not be installed", exception);
         }
+    }
+
+    private void requestSkinDeletion(SkinDescriptor skin, List<Path> sources) {
+        if (sources.isEmpty()) {
+            deleteSkin(skin, true);
+        } else if (sources.size() == 1) {
+            showSingleSourceChoice(sources.getFirst(), () -> deleteSkin(skin, false),
+                    source -> deleteSkinFromSource(skin, source, true));
+        } else {
+            showPackageSources(skin.manifest().getName(), sources,
+                    source -> deleteSkinFromSource(skin, source, false), () -> deleteSkin(skin, true),
+                    !isActive(skin));
+        }
+    }
+
+    private void requestLocalizationDeletion(LocalizationDescriptor localization, List<Path> sources) {
+        if (sources.isEmpty()) {
+            deleteLocalization(localization);
+        } else if (sources.size() == 1) {
+            showSingleSourceChoice(sources.getFirst(), () -> deleteLocalization(localization),
+                    source -> deleteLocalizationFromSource(localization, source, true));
+        } else {
+            showPackageSources(localization.manifest().getName(), sources,
+                    source -> deleteLocalizationFromSource(localization, source, false),
+                    () -> deleteLocalization(localization), !isSelected(localization));
+        }
+    }
+
+    private void showSingleSourceChoice(Path source, Runnable installedDeletion, PackageSourceDeletion sourceDeletion) {
+        ButtonType deleteInstalled = new ButtonType(localizationService.text(TextKey.SETTINGS_DELETE),
+                ButtonBar.ButtonData.OK_DONE);
+        ButtonType deleteSource = new ButtonType(localizationService.text(TextKey.SETTINGS_DELETE_SOURCE),
+                ButtonBar.ButtonData.OTHER);
+        ButtonType cancel = new ButtonType(localizationService.text(TextKey.DIALOG_CANCEL),
+                ButtonBar.ButtonData.CANCEL_CLOSE);
+        Alert choice = new Alert(Alert.AlertType.CONFIRMATION,
+                localizationService.format(TextKey.DIALOG_DELETE_SOURCE_FIRST, source),
+                deleteInstalled, deleteSource, cancel);
+        choice.initOwner(stage);
+        styleDialog(choice, "settings-confirmation-dialog");
+        choice.setTitle(localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE));
+        choice.setHeaderText(localizationService.text(TextKey.SETTINGS_DELETE));
+        Button sourceButton = (Button) choice.getDialogPane().lookupButton(deleteSource);
+        boolean protectedSource = isProtectedSource(source);
+        sourceButton.setDisable(protectedSource);
+        if (protectedSource) {
+            sourceButton.setText(localizationService.text(TextKey.SETTINGS_PROTECTED_SOURCE));
+        }
+        Button cancelButton = (Button) choice.getDialogPane().lookupButton(cancel);
+        cancelButton.setDefaultButton(true);
+        ((Button) choice.getDialogPane().lookupButton(deleteInstalled)).setDefaultButton(false);
+        ButtonType result = choice.showAndWait().orElse(cancel);
+        if (result == deleteInstalled) {
+            installedDeletion.run();
+        } else if (result == deleteSource && confirmPermanentSourceDeletion(source)) {
+            try {
+                sourceDeletion.delete(source);
+            } catch (IOException | IllegalArgumentException exception) {
+                showOperationError("Source Deletion Failed", "The source package could not be deleted", exception);
+            }
+        }
+    }
+
+    private void showPackageSources(String packageName, List<Path> sources,
+                                    PackageSourceDeletion sourceDeletion, Runnable installedDeletion,
+                                    boolean allowInstalledDeletion) {
+        Stage dialog = new Stage();
+        dialog.initOwner(stage);
+        dialog.initModality(Modality.WINDOW_MODAL);
+        dialog.setTitle(localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE));
+        dialog.getIcons().setAll(stage.getIcons());
+        Label title = new Label(packageName);
+        title.getStyleClass().add("settings-title");
+        VBox rows = new VBox();
+        for (int index = 0; index < sources.size(); index++) {
+            Path source = sources.get(index);
+            Label path = new Label(source.toString());
+            path.setWrapText(false);
+            path.setMaxWidth(Double.MAX_VALUE);
+            path.setTooltip(new Tooltip(source.toString()));
+            HBox.setHgrow(path, Priority.ALWAYS);
+            Button deleteButton = new Button(localizationService.text(TextKey.SETTINGS_DELETE_SOURCE));
+            boolean protectedSource = isProtectedSource(source);
+            deleteButton.setDisable(protectedSource);
+            if (protectedSource) {
+                deleteButton.setText(localizationService.text(TextKey.SETTINGS_PROTECTED_SOURCE));
+            }
+            deleteButton.setOnAction(event -> {
+                if (!confirmSourceDeletionFromList(source)) {
+                    return;
+                }
+                try {
+                    sourceDeletion.delete(source);
+                    dialog.close();
+                } catch (IOException | IllegalArgumentException exception) {
+                    showOperationError("Source Deletion Failed", "The source package could not be deleted", exception);
+                }
+            });
+            HBox row = new HBox(8d, path, deleteButton);
+            configurePackageSourceRow(row, index);
+            row.setPadding(new Insets(0d, 8d, 0d, 8d));
+            rows.getChildren().add(row);
+        }
+        ScrollPane scrollPane = new ScrollPane(rows);
+        scrollPane.setFitToWidth(true);
+        Button deleteInstalled = new Button(localizationService.text(TextKey.SETTINGS_DELETE));
+        deleteInstalled.setDisable(!allowInstalledDeletion);
+        deleteInstalled.setOnAction(event -> {
+            dialog.close();
+            installedDeletion.run();
+        });
+        Button cancel = new Button(localizationService.text(TextKey.DIALOG_CANCEL));
+        cancel.setDefaultButton(true);
+        cancel.setCancelButton(true);
+        cancel.setOnAction(event -> dialog.close());
+        HBox actions = new HBox(8d, deleteInstalled, cancel);
+        VBox body = new VBox(12d, title, scrollPane, actions);
+        body.getStyleClass().add("package-source-dialog");
+        body.setPadding(new Insets(16d));
+        Scene scene = new Scene(body, 720d, 280d);
+        skinService.apply(scene, body);
+        dialog.setMinWidth(520d);
+        dialog.setMinHeight(220d);
+        dialog.setScene(scene);
+        dialog.showAndWait();
+    }
+
+    private boolean confirmPermanentSourceDeletion(Path source) {
+        Alert second = new Alert(Alert.AlertType.WARNING,
+                localizationService.format(TextKey.DIALOG_DELETE_SOURCE_SECOND, source),
+                ButtonType.CANCEL, ButtonType.OK);
+        second.initOwner(stage);
+        styleDialog(second, "settings-confirmation-dialog");
+        second.setTitle(localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE));
+        second.setHeaderText(localizationService.text(TextKey.SETTINGS_DELETE_SOURCE));
+        return second.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK;
+    }
+
+    private boolean confirmSourceDeletionFromList(Path source) {
+        Alert first = new Alert(Alert.AlertType.CONFIRMATION,
+                localizationService.format(TextKey.DIALOG_DELETE_SOURCE_CONFIRM, source),
+                ButtonType.CANCEL, ButtonType.OK);
+        first.initOwner(stage);
+        styleDialog(first, "settings-confirmation-dialog");
+        first.setTitle(localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE));
+        first.setHeaderText(localizationService.text(TextKey.SETTINGS_DELETE_SOURCE));
+        return first.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK
+                && confirmPermanentSourceDeletion(source);
+    }
+
+    private boolean isProtectedSource(Path source) {
+        return skinPackageInstaller.isProtectedSource(source)
+                || localizationPackageInstaller.isProtectedSource(source);
     }
 
     private void showPackageSourceDirectories(boolean skins) {
@@ -533,6 +740,11 @@ public class SettingsWindow {
         dialog.setMinHeight(240d);
         dialog.setScene(scene);
         dialog.showAndWait();
+        if (skins) {
+            showSkins();
+        } else {
+            showLocalization();
+        }
     }
 
     private void refreshPackageSourceDirectoryDialog(Stage dialog, BorderPane dialogContent, boolean skins) {
@@ -646,7 +858,7 @@ public class SettingsWindow {
 
     private void updateInstalledSkin(SkinDescriptor skin) {
         try {
-            if (skinService.wasLoadedThisSession(skin.manifest().getUid())) {
+            if (skinService.wasLoadedThisSession(skin.manifest().getUid(), skin.manifest().getVersion())) {
                 SkinManifest replacement = skinPackageInstaller.scheduleUpdate(skin);
                 showSkins();
                 showPendingOperationRestartPrompt("Skin '" + replacement.getName()
@@ -718,8 +930,9 @@ public class SettingsWindow {
         }
     }
 
-    private void deleteSkin(SkinDescriptor skin) {
-        if (skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid())) {
+    private void deleteSkin(SkinDescriptor skin, boolean requireConfirmation) {
+        if (skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid())
+                && skin.manifest().getVersion() == skinService.getActiveSkin().manifest().getVersion()) {
             showOperationError(
                     "Skin Deletion Blocked",
                     "Select another skin before deleting the active skin",
@@ -727,24 +940,18 @@ public class SettingsWindow {
             );
             return;
         }
-        Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION,
-                "The installed files and stored package copy will be deleted.", ButtonType.CANCEL, ButtonType.OK);
-        confirmation.initOwner(stage);
-        styleDialog(confirmation, "settings-confirmation-dialog");
-        confirmation.setTitle(localizationService.text(TextKey.DIALOG_DELETE_SKIN_TITLE));
-        confirmation.setHeaderText("Delete '" + skin.manifest().getName() + "'?");
-        if (confirmation.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
-            return;
-        }
-        try {
-            if (skinService.wasLoadedThisSession(skin.manifest().getUid())) {
-                skinPackageInstaller.scheduleDeletion(skin);
-                pendingDeletionUids.add(skin.manifest().getUid());
-                showSkins();
-                showPendingOperationRestartPrompt("Skin '" + skin.manifest().getName()
-                        + "' will be deleted before UI resources are loaded again.");
+        if (requireConfirmation) {
+            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION,
+                    "The installed files and stored package copy will be deleted.", ButtonType.CANCEL, ButtonType.OK);
+            confirmation.initOwner(stage);
+            styleDialog(confirmation, "settings-confirmation-dialog");
+            confirmation.setTitle(localizationService.text(TextKey.DIALOG_DELETE_SKIN_TITLE));
+            confirmation.setHeaderText("Delete '" + skin.manifest().getName() + "'?");
+            if (confirmation.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
                 return;
             }
+        }
+        try {
             skinPackageInstaller.delete(skin);
             showSkins();
             Alert alert = new Alert(Alert.AlertType.INFORMATION,
@@ -755,15 +962,36 @@ public class SettingsWindow {
             alert.setTitle("Skin Deleted");
             alert.setHeaderText("Deletion completed");
             alert.showAndWait();
-        } catch (IOException | IllegalArgumentException exception) {
+        } catch (IOException exception) {
+            try {
+                skinPackageInstaller.scheduleDeletion(skin);
+                pendingDeletionPackages.add(packageKey(skin));
+                showSkins();
+                showPendingOperationRestartPrompt("Skin '" + skin.manifest().getName()
+                        + "' could not be released immediately and will be deleted on restart.");
+            } catch (IOException | IllegalArgumentException schedulingException) {
+                showOperationError("Skin Deletion Failed", "The skin could not be deleted", schedulingException);
+            }
+        } catch (IllegalArgumentException exception) {
             showOperationError("Skin Deletion Failed", "The skin could not be deleted", exception);
         }
+    }
+
+    private void deleteSkinFromSource(SkinDescriptor skin, Path source, boolean deleteInstalled) throws IOException {
+        skinPackageInstaller.deleteSourceFile(skin, source);
+        if (deleteInstalled) {
+            deleteSkin(skin, false);
+            return;
+        }
+        skinService.refreshPackageSources();
+        showSkins();
     }
 
     private void showInstallationCompleted(SkinDescriptor installedSkin, boolean replaced) {
         showSkins();
         boolean selectedSkinReplaced = replaced
-                && installedSkin.manifest().getUid().equals(skinService.getSelectedSkinUid());
+                && installedSkin.manifest().getUid().equals(skinService.getSelectedSkinUid())
+                && installedSkin.manifest().getVersion() == skinService.getSelectedSkinVersion();
         if (selectedSkinReplaced) {
             skinService.refreshSelectedSkin();
             if (showRestartPromptIfRequired(installedSkin)) {
@@ -781,7 +1009,8 @@ public class SettingsWindow {
     }
 
     private boolean showRestartPromptIfRequired(SkinDescriptor skin) {
-        List<String> changedSettings = skinService.getRestartRequiredChanges(skin.manifest().getUid());
+        List<String> changedSettings = skinService.getRestartRequiredChanges(
+                skin.manifest().getUid(), skin.manifest().getVersion());
         if (changedSettings.isEmpty()) {
             return false;
         }
@@ -835,10 +1064,33 @@ public class SettingsWindow {
         alert.getDialogPane().getStyleClass().add(styleClass);
     }
 
+    private boolean isSelected(LocalizationDescriptor localization) {
+        return localization.manifest().getUid().equals(localizationService.getSelectedUid())
+                && localization.manifest().getVersion() == localizationService.getSelectedVersion();
+    }
+
+    private boolean isActive(SkinDescriptor skin) {
+        return skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid())
+                && skin.manifest().getVersion() == skinService.getActiveSkin().manifest().getVersion();
+    }
+
+    private String packageKey(SkinDescriptor skin) {
+        return skin.manifest().getUid() + ":" + skin.manifest().getVersion();
+    }
+
     private enum SettingsSection {
         GENERAL(TextKey.SETTINGS_GENERAL), SKINS(TextKey.SETTINGS_SKINS), LOCALIZATION(TextKey.SETTINGS_LOCALIZATION);
         private final TextKey key;
         SettingsSection(TextKey key) { this.key = key; }
         @Override public String toString() { return Texts.text(key); }
+    }
+
+    @FunctionalInterface
+    private interface PackageSourceDeletion {
+        void delete(Path source) throws IOException;
+    }
+
+    private record WaveformModeOption(WaveformDisplayMode mode, String label) {
+        @Override public String toString() { return label; }
     }
 }

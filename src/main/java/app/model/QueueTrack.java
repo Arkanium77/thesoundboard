@@ -3,11 +3,13 @@ package app.model;
 import java.util.UUID;
 
 public class QueueTrack {
+    public static final double DEFAULT_VOLUME = 0.8d;
     private UUID id;
     private UUID audioFileId;
     private int order;
     private Integer shuffledOrder;
     private boolean loop;
+    private double volume = DEFAULT_VOLUME;
 
     public QueueTrack() {
     }
@@ -57,5 +59,13 @@ public class QueueTrack {
 
     public void setLoop(boolean loop) {
         this.loop = loop;
+    }
+
+    public double getVolume() {
+        return volume;
+    }
+
+    public void setVolume(double volume) {
+        this.volume = volume;
     }
 }

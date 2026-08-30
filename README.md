@@ -49,17 +49,25 @@ Choose **Open Folder** and select the root of an MP3 library. Double-click a fil
 
 The last successfully opened project is remembered. **Settings → General → Restore the last open session on startup** controls whether an ordinary launch reopens it and is disabled by default. Restarts initiated by the application always restore the current project so a required settings restart does not interrupt the session.
 
+**Settings → General → Waveform calculation** switches between the original linear peak envelope, a linear RMS-energy envelope, and a perceptual RMS dB display. Real silence remains at zero in every mode. The selection is an application-wide display preference, so it can be switched while comparing different skins; both envelopes are extracted together and switching does not reread audio, alter playback volume, or change saved audio data.
+
 Use the compact **− 100% +** control in the lower-right corner to resize the entire interface from 25% to 200%. Scaling changes only the content viewport and never resizes the application window; the selection is stored for the current operating-system user. Hold **Ctrl** and scroll over the workspace to adjust track and queue tiles independently of the interface scale.
 
 ## Skins
 
 Open Settings with the gear button to select, install, export, replace, or delete skins. `.tsbs` packages can provide JavaFX CSS, regular/bold/italic fonts, background images, vector icons, and platform-specific rendering preferences. Ordinary appearance changes apply immediately; a renderer change offers a restart and restores the current project afterward.
 
+The bundled examples include Night Mode, Sakura, Tactical Codec, and the classic media-player-inspired Retro Amp.
+
 See [Creating skins](SKIN_AUTHORING.md) for the manifest, CSS surface, packaging workflow, fallback behavior, resource licensing, and editable examples.
 
 ## Localization
 
-Open **Settings → Localization** to install, select, export, replace, delete, create, or update `.tsbl` packages. Skin and localization installers accept multiple packages from one folder, and each section can synchronize additional user-selected source folders. Unlinking a source folder keeps already installed packages while stopping discovery and updates from that folder. The complete English catalog can be exported for translation. Stable synthetic string IDs preserve compatibility when controls move or English wording changes; missing values fall back to English and unknown legacy values are ignored. Switching or replacing a localization refreshes the running interface immediately.
+Open **Settings → Localization** to install, select, export, replace, delete, create, or update `.tsbl` packages. Skin and localization manifests use a positive, monotonically increasing `version` number starting at `1`; packages with the same UID and different versions are installed separately. A package version is shown in the interface only when several versions of the same package are installed. Packages without this field remain compatible and are treated as version 1. Skin and localization installers accept multiple packages from one folder, and each section can synchronize additional user-selected source folders. **Delete** can remove only the installed copy while retaining its source. With one source, **Delete from source** removes both copies after two confirmations. With several sources, the application asks which source is intended and removes only the selected source while another source keeps the package installed. A manually reinstalled package becomes available again. Files in the bundled application source are protected from physical deletion. The complete English catalog can be exported for translation. Stable synthetic string IDs preserve compatibility when controls move or English wording changes; missing values fall back to English and unknown legacy values are ignored. Switching or replacing a localization refreshes the running interface immediately.
+
+The release includes Russian, Pre-Revolutionary Russian, and language-neutral Leetspeak example packages. Leetspeak is intended as an accessible reference for localization authors who do not read Russian.
+
+Create a 2 × 2, 2 × 3, 3 × 3, or 4 × 4 virtual tile from the workspace context menu to place several independently controlled audio files in the space of one regular tile. Its tracks form an ordered, capacity-limited list: drag them before or after another mini tile to reorder them, and move tracks between the workspace, queues, and virtual tiles. The 2 × 2 layout includes waveform and mute controls; denser layouts reduce the visible controls to fit. Volume, looping, mute, and removal remain available from each mini tile's context menu.
 
 See [Creating localizations](LOCALIZATION_AUTHORING.md) for manifests, placeholders, string updates, packaging, and the Russian examples.
 

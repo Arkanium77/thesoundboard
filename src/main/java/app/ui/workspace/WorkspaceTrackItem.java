@@ -152,6 +152,33 @@ public class WorkspaceTrackItem {
         applyVolume();
     }
 
+    public PlaybackSnapshot snapshotPlayback() {
+        return new PlaybackSnapshot(getStatus(), getCurrentTime(), muted);
+    }
+
+    public PlaybackTransfer detachPlayback() {
+        if (playingTrack == null) return null;
+        PlaybackTransfer transfer = new PlaybackTransfer(playingTrack, playingTrack.getStatus(), muted);
+        playingTrack = null;
+        return transfer;
+    }
+
+    public void acceptPlayback(PlaybackTransfer transfer) {
+        if (transfer == null || !transfer.isActive()) return;
+        if (playingTrack != null) playingTrack.dispose();
+        playingTrack = transfer.playingTrack();
+        muted = transfer.muted();
+        applyVolume();
+        playingTrack.setLoop(workspaceTrack.isLoop());
+    }
+
+    public void restorePlayback(PlaybackSnapshot snapshot) {
+        if (snapshot == null || !snapshot.isActive() || !ensureTrackInitialized() || playingTrack == null) return;
+        muted = snapshot.muted();
+        applyVolume();
+        playingTrack.restorePlayback(snapshot.position(), snapshot.status() == PlaybackStatus.PAUSED);
+    }
+
     public void dispose() {
         if (playingTrack != null) {
             playingTrack.dispose();

@@ -1,12 +1,26 @@
 package app.waveform;
 
 public class WaveformData {
-    private static final WaveformData EMPTY = new WaveformData(new double[0]);
+    private static final WaveformData EMPTY = new WaveformData(new double[0], new double[0]);
 
-    private final double[] amplitudes;
+    private final double[] peakAmplitudes;
+    private final double[] rmsAmplitudes;
 
     public WaveformData(double[] amplitudes) {
-        this.amplitudes = amplitudes == null ? new double[0] : amplitudes.clone();
+        this(amplitudes, amplitudes);
+    }
+
+    /**
+     * Stores peak and RMS envelopes together so changing the display algorithm is instantaneous and never requires
+     * decoding the audio file again. Both arrays must describe the same time buckets; mismatched input is rejected
+     * rather than silently displaying two modes with different timelines.
+     */
+    public WaveformData(double[] peakAmplitudes, double[] rmsAmplitudes) {
+        this.peakAmplitudes = peakAmplitudes == null ? new double[0] : peakAmplitudes.clone();
+        this.rmsAmplitudes = rmsAmplitudes == null ? new double[0] : rmsAmplitudes.clone();
+        if (this.peakAmplitudes.length != this.rmsAmplitudes.length) {
+            throw new IllegalArgumentException("Peak and RMS waveform data must have the same size");
+        }
     }
 
     public static WaveformData empty() {
@@ -14,21 +28,33 @@ public class WaveformData {
     }
 
     public boolean isEmpty() {
-        return amplitudes.length == 0;
+        return rmsAmplitudes.length == 0;
     }
 
     public int size() {
-        return amplitudes.length;
+        return rmsAmplitudes.length;
     }
 
     public double amplitudeAt(int index) {
-        if (index < 0 || index >= amplitudes.length) {
+        return rmsAmplitudeAt(index);
+    }
+
+    public double peakAmplitudeAt(int index) {
+        if (index < 0 || index >= peakAmplitudes.length) {
             return 0d;
         }
-        return amplitudes[index];
+        return peakAmplitudes[index];
+    }
+
+    public double rmsAmplitudeAt(int index) {
+        if (index < 0 || index >= rmsAmplitudes.length) return 0d;
+        return rmsAmplitudes[index];
     }
 
     public double[] copyAmplitudes() {
-        return amplitudes.clone();
+        return rmsAmplitudes.clone();
     }
+
+    public double[] copyPeakAmplitudes() { return peakAmplitudes.clone(); }
+    public double[] copyRmsAmplitudes() { return rmsAmplitudes.clone(); }
 }

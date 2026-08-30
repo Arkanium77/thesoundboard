@@ -1,6 +1,8 @@
 package app.localization;
 
 import app.persistence.PackageSourceRegistry;
+import app.packages.PackageIdentity;
+import app.packages.PackageSourceDirectories;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -17,6 +19,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -30,10 +33,18 @@ public class LocalizationPackageInstaller {
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory()).findAndRegisterModules();
     private final LocalizationRepository repository;
     private final PackageSourceRegistry packageSources;
+    private final List<Path> protectedSourceDirectories;
 
     public LocalizationPackageInstaller(LocalizationRepository repository) {
+        this(repository, PackageSourceDirectories.discover().localizationDirectories());
+    }
+
+    LocalizationPackageInstaller(LocalizationRepository repository, List<Path> protectedSourceDirectories) {
         this.repository = repository;
         this.packageSources = new PackageSourceRegistry(repository.getDirectory());
+        this.protectedSourceDirectories = protectedSourceDirectories.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .toList();
     }
 
     public LocalizationDescriptor install(Path packageFile, boolean replace) throws IOException {
@@ -43,13 +54,35 @@ public class LocalizationPackageInstaller {
     public boolean canUpdate(LocalizationDescriptor localization) {
         return localization != null
                 && !localization.builtIn()
-                && packageSources.isAvailable(localization.manifest().getUid());
+                && findMatchingSource(localization.manifest()).isPresent();
+    }
+
+    public List<Path> findSources(LocalizationDescriptor localization) {
+        if (localization == null || localization.builtIn()) {
+            return List.of();
+        }
+        return findMatchingSources(localization.manifest());
+    }
+
+    public boolean isProtectedSource(Path source) {
+        Path normalizedSource = source.toAbsolutePath().normalize();
+        return protectedSourceDirectories.stream().anyMatch(normalizedSource::startsWith);
+    }
+
+    public void deleteSourceFile(LocalizationDescriptor localization, Path source) throws IOException {
+        if (!findSources(localization).contains(source.toAbsolutePath().normalize())) {
+            throw new IllegalArgumentException("The selected file is not a source of this localization version");
+        }
+        if (isProtectedSource(source)) {
+            throw new IllegalArgumentException("Bundled package sources are protected and cannot be deleted");
+        }
+        Files.delete(source);
     }
 
     public boolean isDiscovered(LocalizationDescriptor localization) {
         return localization != null
                 && !localization.builtIn()
-                && packageSources.isDiscovered(localization.manifest().getUid());
+                && packageSources.isDiscovered(localization.manifest().getUid(), localization.manifest().getVersion());
     }
 
     public LocalizationDescriptor update(LocalizationDescriptor localization) throws IOException {
@@ -57,13 +90,13 @@ public class LocalizationPackageInstaller {
             throw new IllegalArgumentException("A user-installed localization is required");
         }
         UUID uid = localization.manifest().getUid();
-        Path packageFile = packageSources.findAvailable(uid)
+        Path packageFile = findMatchingSource(localization.manifest())
                 .orElseThrow(() -> new IllegalArgumentException("The original localization package is not available"));
         return install(packageFile, true, uid, true);
     }
 
     public void installAvailablePackages(List<Path> sourceDirectories) {
-        Map<UUID, List<Path>> discoveredSources = new LinkedHashMap<>();
+        Map<String, List<Path>> discoveredSources = new LinkedHashMap<>();
         for (Path sourceDirectory : sourceDirectories) {
             if (!Files.isDirectory(sourceDirectory)) {
                 continue;
@@ -77,14 +110,19 @@ public class LocalizationPackageInstaller {
                     try {
                         LocalizationManifest manifest = readPackageManifest(packageFile);
                         UUID localizationUid = manifest.getUid();
-                        if (Files.exists(repository.getDirectory().resolve(localizationUid.toString()))) {
-                            addDiscoveredSource(discoveredSources, localizationUid, packageFile);
+                        PackageIdentity identity = new PackageIdentity(localizationUid, manifest.getVersion());
+                        if (Files.exists(repository.getDirectory().resolve(identity.storageName()))) {
+                            addDiscoveredSource(discoveredSources, identity, packageFile);
+                        } else if (isDisabled(identity)) {
+                            addDiscoveredSource(discoveredSources, identity, packageFile);
                         } else {
                             LocalizationDescriptor installed = install(packageFile, false, null, false);
-                            addDiscoveredSource(discoveredSources, installed.manifest().getUid(), packageFile);
+                            addDiscoveredSource(discoveredSources, identity(installed), packageFile);
                         }
                     } catch (LocalizationAlreadyInstalledException exception) {
-                        addDiscoveredSource(discoveredSources, exception.getLocalization().getUid(), packageFile);
+                        LocalizationManifest manifest = exception.getLocalization();
+                        addDiscoveredSource(discoveredSources,
+                                new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
                     } catch (IOException | IllegalArgumentException exception) {
                         // Invalid or unreadable packages remain absent from the localization list.
                     }
@@ -93,7 +131,7 @@ public class LocalizationPackageInstaller {
                 // Other package source directories remain available when one cannot be read.
             }
         }
-        packageSources.synchronizeDiscovered(discoveredSources);
+        packageSources.synchronizeVersionedDiscovered(discoveredSources);
     }
 
     private LocalizationDescriptor install(Path packageFile, boolean replace, UUID expectedUid,
@@ -107,15 +145,17 @@ public class LocalizationPackageInstaller {
             if (expectedUid != null && !expectedUid.equals(localization.manifest().getUid())) {
                 throw new IllegalArgumentException("The remembered package belongs to a different localization");
             }
-            Path target = repository.getDirectory().resolve(localization.manifest().getUid().toString());
+            PackageIdentity identity = identity(localization);
+            Path target = repository.getDirectory().resolve(identity.storageName());
             if (Files.exists(target) && !replace) throw new LocalizationAlreadyInstalledException(localization.manifest());
             deleteRecursively(target);
             Files.move(temporary, target);
-            storePackage(packageFile, localization.manifest().getUid());
+            storePackage(packageFile, identity);
             if (rememberSource) {
-                packageSources.remember(localization.manifest().getUid(), packageFile);
+                Files.deleteIfExists(disabledMarker(identity));
+                packageSources.remember(identity.uid(), identity.version(), packageFile);
             }
-            return repository.findSelected(localization.manifest().getUid());
+            return repository.findSelected(identity.uid(), identity.version());
         } finally {
             deleteRecursively(temporary);
         }
@@ -125,9 +165,14 @@ public class LocalizationPackageInstaller {
 
     public void delete(LocalizationDescriptor localization) throws IOException {
         if (localization.builtIn()) throw new IllegalArgumentException("Built-in English cannot be deleted");
+        PackageIdentity identity = identity(localization);
+        if (!findSources(localization).isEmpty()) {
+            Files.createDirectories(repository.getDirectory().resolve("_disabled"));
+            Files.writeString(disabledMarker(identity), "installed-only");
+        }
         deleteRecursively(localization.directory());
-        Files.deleteIfExists(repository.getDirectory().resolve("_packages").resolve(localization.manifest().getUid() + ".tsbl"));
-        packageSources.forget(localization.manifest().getUid());
+        Files.deleteIfExists(repository.getDirectory().resolve("_packages").resolve(identity.storageName() + ".tsbl"));
+        packageSources.forget(identity.uid(), identity.version());
     }
 
     public void export(LocalizationDescriptor localization, Path target) throws IOException {
@@ -261,10 +306,10 @@ public class LocalizationPackageInstaller {
         }
     }
 
-    private void storePackage(Path source, UUID uid) throws IOException {
+    private void storePackage(Path source, PackageIdentity identity) throws IOException {
         Path packages = repository.getDirectory().resolve("_packages");
         Files.createDirectories(packages);
-        Path storedPackage = packages.resolve(uid + ".tsbl");
+        Path storedPackage = packages.resolve(identity.storageName() + ".tsbl");
         if (!source.toAbsolutePath().normalize().equals(storedPackage.toAbsolutePath().normalize())) {
             Files.copy(source, storedPackage, StandardCopyOption.REPLACE_EXISTING);
         }
@@ -280,10 +325,55 @@ public class LocalizationPackageInstaller {
         return file != null && file.getFileName().toString().toLowerCase().endsWith(".tsbl");
     }
 
-    private void addDiscoveredSource(Map<UUID, List<Path>> discoveredSources, UUID uid, Path source) {
-        discoveredSources.computeIfAbsent(uid, ignored -> new ArrayList<>()).add(source);
+    private void addDiscoveredSource(Map<String, List<Path>> discoveredSources, PackageIdentity identity, Path source) {
+        discoveredSources.computeIfAbsent(identity.storageName(), ignored -> new ArrayList<>()).add(source);
     }
 
+    private PackageIdentity identity(LocalizationDescriptor localization) {
+        return new PackageIdentity(localization.manifest().getUid(), localization.manifest().getVersion());
+    }
+
+    private Path disabledMarker(PackageIdentity identity) {
+        return repository.getDirectory().resolve("_disabled").resolve(identity.storageName());
+    }
+
+    private boolean isDisabled(PackageIdentity identity) {
+        Path marker = disabledMarker(identity);
+        if (!Files.isRegularFile(marker)) {
+            return false;
+        }
+        try {
+            if ("installed-only".equals(Files.readString(marker).trim())) {
+                return true;
+            }
+            Files.deleteIfExists(marker);
+            return false;
+        } catch (IOException | SecurityException exception) {
+            return true;
+        }
+    }
+
+    private Optional<Path> findMatchingSource(LocalizationManifest installedManifest) {
+        return findMatchingSources(installedManifest).stream().findFirst();
+    }
+
+    private List<Path> findMatchingSources(LocalizationManifest installedManifest) {
+        return packageSources.findAvailableSources(installedManifest.getUid(), installedManifest.getVersion()).stream()
+                .filter(source -> matches(source, installedManifest))
+                .map(source -> source.toAbsolutePath().normalize())
+                .distinct()
+                .toList();
+    }
+
+    private boolean matches(Path source, LocalizationManifest installedManifest) {
+        try {
+            LocalizationManifest sourceManifest = readPackageManifest(source);
+            return sourceManifest.getUid().equals(installedManifest.getUid())
+                    && sourceManifest.getVersion() == installedManifest.getVersion();
+        } catch (IOException | IllegalArgumentException exception) {
+            return false;
+        }
+    }
     private void deleteRecursively(Path directory) throws IOException {
         if (directory == null || !Files.exists(directory)) return;
         try (var paths = Files.walk(directory)) {

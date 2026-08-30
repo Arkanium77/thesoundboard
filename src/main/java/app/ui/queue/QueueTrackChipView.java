@@ -13,15 +13,19 @@ import javafx.animation.TranslateTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.ContextMenu;
+import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.Slider;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.css.PseudoClass;
+import javafx.scene.input.MouseButton;
 import javafx.scene.shape.Rectangle;
 import javafx.util.Duration;
 
@@ -51,7 +55,9 @@ public class QueueTrackChipView extends StackPane {
             AudioFile audioFile,
             Runnable selectAction,
             Runnable playAction,
-            Consumer<QueueTrack> removeAction
+            Consumer<QueueTrack> removeAction,
+            Consumer<Double> volumeAction,
+            Runnable persistenceChangeAction
     ) {
         getStyleClass().add("queue-chip");
         this.queueTrack = queueTrack;
@@ -70,6 +76,7 @@ public class QueueTrackChipView extends StackPane {
         getChildren().setAll(titleViewport, insertionMarkers);
 
         setOnMouseClicked(event -> {
+            if (event.getButton() != MouseButton.PRIMARY) return;
             if (event.getClickCount() == 2) {
                 playAction.run();
             } else {
@@ -79,7 +86,14 @@ public class QueueTrackChipView extends StackPane {
 
         MenuItem removeItem = new MenuItem(Texts.text(TextKey.QUEUE_REMOVE_TRACK));
         removeItem.setOnAction(event -> removeAction.accept(queueTrack));
-        ContextMenu contextMenu = new ContextMenu(removeItem);
+        Slider volume = new Slider(0d, 100d, queueTrack.getVolume() * 100d);
+        volume.valueProperty().addListener((observable, oldValue, newValue) ->
+                volumeAction.accept(newValue.doubleValue() / 100d));
+        volume.setOnMouseReleased(event -> persistenceChangeAction.run());
+        VBox volumeBox = new VBox(4d, new Label(Texts.text(TextKey.QUEUE_TRACK_VOLUME)), volume);
+        volumeBox.setPadding(new Insets(6d));
+        CustomMenuItem volumeItem = new CustomMenuItem(volumeBox, false);
+        ContextMenu contextMenu = new ContextMenu(volumeItem, removeItem);
         setOnContextMenuRequested(event -> {
             contextMenu.show(this, event.getScreenX(), event.getScreenY());
             event.consume();

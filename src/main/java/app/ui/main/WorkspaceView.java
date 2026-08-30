@@ -3,11 +3,14 @@ package app.ui.main;
 import app.config.UiConfig;
 import app.localization.TextKey;
 import app.localization.Texts;
+import app.model.VirtualTileLayout;
 import app.ui.drag.DragPayload;
 import app.ui.queue.QueueView;
 import app.ui.tile.TrackTileView;
+import app.ui.tile.VirtualTileView;
 import app.ui.workspace.WorkspaceInsertionMarker;
 import app.ui.workspace.WorkspaceItemView;
+import javafx.animation.AnimationTimer;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -15,9 +18,11 @@ import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.Menu;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.ContextMenuEvent;
+import javafx.scene.input.DragEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
@@ -31,6 +36,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 public class WorkspaceView extends BorderPane {
+    private static final double AUTO_SCROLL_EDGE = 64d;
+    private static final double AUTO_SCROLL_MAX_SPEED = 640d;
     private final FlowPane contentPane = new FlowPane();
     private final Label emptyStateLabel = new Label(Texts.text(TextKey.WORKSPACE_EMPTY));
     private final ScrollPane scrollPane = new ScrollPane(contentPane);
@@ -43,6 +50,14 @@ public class WorkspaceView extends BorderPane {
     private ContextMenu workspaceContextMenu;
     private WorkspaceItemView insertionTargetView;
     private boolean insertionAfter;
+    private double dragPointerSceneY = Double.NaN;
+    private long lastAutoScrollFrame;
+    private final AnimationTimer dragAutoScroll = new AnimationTimer() {
+        @Override
+        public void handle(long now) {
+            autoScrollDuringDrag(now);
+        }
+    };
 
     public WorkspaceView(UiConfig uiConfig, WorkspaceDropHandler workspaceDropHandler) {
         this.uiConfig = uiConfig;
@@ -66,11 +81,15 @@ public class WorkspaceView extends BorderPane {
         scrollPane.setContent(contentPane);
         scrollPane.viewportBoundsProperty().addListener((observable, oldValue, newValue) -> updateContainerSize(newValue));
         addEventFilter(ScrollEvent.SCROLL, event -> {
-            if (!event.isControlDown()) {
+            if (event.isControlDown()) {
+                workspaceDropHandler.adjustWorkspaceZoom(event.getDeltaY());
+                event.consume();
                 return;
             }
-            workspaceDropHandler.adjustWorkspaceZoom(event.getDeltaY());
-            event.consume();
+            if (!Double.isNaN(dragPointerSceneY)) {
+                scrollByPixels(-event.getDeltaY());
+                event.consume();
+            }
         });
 
         setCenter(new StackPane(background, scrollPane));
@@ -103,6 +122,8 @@ public class WorkspaceView extends BorderPane {
                 trackTileView.updateTileSize(tileWidth, tileHeight, tileScale);
             } else if (node instanceof QueueView queueView) {
                 queueView.updateTileMetrics(tileWidth, tileHeight, tileScale);
+            } else if (node instanceof VirtualTileView virtualTileView) {
+                virtualTileView.updateTileSize(tileWidth, tileHeight, tileScale);
             }
         }
         updateQueueWidths();
@@ -125,7 +146,17 @@ public class WorkspaceView extends BorderPane {
     private void configureContextMenu() {
         MenuItem createQueueItem = new MenuItem(Texts.text(TextKey.WORKSPACE_CREATE_QUEUE));
         createQueueItem.setOnAction(event -> workspaceDropHandler.createQueue());
-        workspaceContextMenu = new ContextMenu(createQueueItem);
+        Menu createVirtualTileMenu = new Menu(Texts.text(TextKey.WORKSPACE_CREATE_VIRTUAL_TILE));
+        MenuItem createTwoByTwo = new MenuItem(Texts.text(TextKey.VIRTUAL_TILE_LAYOUT_TWO_BY_TWO));
+        createTwoByTwo.setOnAction(event -> workspaceDropHandler.createVirtualTile(VirtualTileLayout.TWO_BY_TWO));
+        MenuItem createTwoByThree = new MenuItem(Texts.text(TextKey.VIRTUAL_TILE_LAYOUT_TWO_BY_THREE));
+        createTwoByThree.setOnAction(event -> workspaceDropHandler.createVirtualTile(VirtualTileLayout.TWO_BY_THREE));
+        MenuItem createThreeByThree = new MenuItem(Texts.text(TextKey.VIRTUAL_TILE_LAYOUT_THREE_BY_THREE));
+        createThreeByThree.setOnAction(event -> workspaceDropHandler.createVirtualTile(VirtualTileLayout.THREE_BY_THREE));
+        MenuItem createFourByFour = new MenuItem(Texts.text(TextKey.VIRTUAL_TILE_LAYOUT_FOUR_BY_FOUR));
+        createFourByFour.setOnAction(event -> workspaceDropHandler.createVirtualTile(VirtualTileLayout.FOUR_BY_FOUR));
+        createVirtualTileMenu.getItems().addAll(createTwoByTwo, createTwoByThree, createThreeByThree, createFourByFour);
+        workspaceContextMenu = new ContextMenu(createQueueItem, createVirtualTileMenu);
 
         setOnContextMenuRequested(event -> showWorkspaceContextMenu(event, this));
         scrollPane.setOnContextMenuRequested(event -> showWorkspaceContextMenu(event, scrollPane));
@@ -139,6 +170,22 @@ public class WorkspaceView extends BorderPane {
     }
 
     private void configureContainerDragAndDrop() {
+        addEventFilter(DragEvent.DRAG_OVER, event -> {
+            if (!isSupportedPayload(event.getDragboard().getString())) return;
+            dragPointerSceneY = event.getSceneY();
+            dragAutoScroll.start();
+        });
+        addEventFilter(DragEvent.DRAG_DROPPED, event -> stopDragAutoScroll());
+        addEventFilter(DragEvent.DRAG_DONE, event -> stopDragAutoScroll());
+        addEventFilter(DragEvent.DRAG_EXITED, event -> {
+            Bounds bounds = localToScene(getBoundsInLocal());
+            if (bounds == null || !bounds.contains(event.getSceneX(), event.getSceneY())) {
+                stopDragAutoScroll();
+            } else {
+                dragPointerSceneY = event.getSceneY();
+            }
+        });
+
         contentPane.setOnDragOver(event -> {
             String payload = event.getDragboard().getString();
             if (!isSupportedPayload(payload)) {
@@ -195,6 +242,48 @@ public class WorkspaceView extends BorderPane {
         });
     }
 
+    private void autoScrollDuringDrag(long now) {
+        Node viewport = scrollPane.lookup(".viewport");
+        if (viewport == null || Double.isNaN(dragPointerSceneY)) return;
+        Bounds bounds = viewport.localToScene(viewport.getBoundsInLocal());
+        if (bounds == null) return;
+        double speed = calculateAutoScrollVelocity(dragPointerSceneY, bounds.getMinY(), bounds.getMaxY(),
+                AUTO_SCROLL_EDGE * interfaceScale, AUTO_SCROLL_MAX_SPEED * interfaceScale);
+        if (lastAutoScrollFrame != 0L && speed != 0d) {
+            double elapsedSeconds = Math.min((now - lastAutoScrollFrame) / 1_000_000_000d, 0.05d);
+            scrollByPixels(speed * elapsedSeconds);
+        }
+        lastAutoScrollFrame = now;
+    }
+
+    private void scrollByPixels(double pixels) {
+        double viewportHeight = scrollPane.getViewportBounds().getHeight();
+        double contentHeight = contentPane.getLayoutBounds().getHeight();
+        double scrollableHeight = contentHeight - viewportHeight;
+        if (scrollableHeight <= 0d) return;
+        double nextValue = scrollPane.getVvalue() + pixels / scrollableHeight;
+        scrollPane.setVvalue(Math.max(scrollPane.getVmin(), Math.min(scrollPane.getVmax(), nextValue)));
+    }
+
+    private void stopDragAutoScroll() {
+        dragAutoScroll.stop();
+        dragPointerSceneY = Double.NaN;
+        lastAutoScrollFrame = 0L;
+    }
+
+    static double calculateAutoScrollVelocity(double pointerY, double top, double bottom,
+                                              double edgeSize, double maxSpeed) {
+        if (edgeSize <= 0d || bottom <= top) return 0d;
+        if (pointerY < top || pointerY > bottom) return 0d;
+        if (pointerY < top + edgeSize) {
+            return -maxSpeed * (top + edgeSize - pointerY) / edgeSize;
+        }
+        if (pointerY > bottom - edgeSize) {
+            return maxSpeed * (pointerY - (bottom - edgeSize)) / edgeSize;
+        }
+        return 0d;
+    }
+
     private void configureNodeDragAndDrop(Node node) {
         if (!(node instanceof WorkspaceItemView workspaceItemView)) {
             return;
@@ -205,6 +294,8 @@ public class WorkspaceView extends BorderPane {
             ClipboardContent content = new ClipboardContent();
             if (node instanceof QueueView) {
                 content.putString(DragPayload.workspaceQueue(workspaceItemView.getWorkspaceItemId()));
+            } else if (node instanceof VirtualTileView) {
+                content.putString(DragPayload.workspaceVirtualTile(workspaceItemView.getWorkspaceItemId()));
             } else if (node instanceof TrackTileView) {
                 content.putString(DragPayload.workspaceTrack(workspaceItemView.getWorkspaceItemId()));
             } else {
@@ -214,7 +305,7 @@ public class WorkspaceView extends BorderPane {
             event.consume();
         });
 
-        if (node instanceof QueueView) {
+        if (node instanceof QueueView || node instanceof VirtualTileView) {
             return;
         }
 
@@ -228,6 +319,7 @@ public class WorkspaceView extends BorderPane {
             if (workspaceItemId == null) {
                 workspaceItemId = parseWorkspaceQueueId(payload);
             }
+            if (workspaceItemId == null) workspaceItemId = parseWorkspaceVirtualTileId(payload);
             if (workspaceItemId != null && workspaceItemId.equals(workspaceItemView.getWorkspaceItemId())) {
                 return;
             }
@@ -351,6 +443,7 @@ public class WorkspaceView extends BorderPane {
         if (workspaceItemId == null) {
             workspaceItemId = parseWorkspaceQueueId(payload);
         }
+        if (workspaceItemId == null) workspaceItemId = parseWorkspaceVirtualTileId(payload);
         if (workspaceItemId != null) {
             if (targetWorkspaceItemId == null) {
                 workspaceDropHandler.moveWorkspaceItemToEnd(workspaceItemId);
@@ -372,6 +465,13 @@ public class WorkspaceView extends BorderPane {
             completed = true;
         }
 
+        DragPayload.VirtualTileTrackRef virtualTrack = DragPayload.parseVirtualTileTrack(payload);
+        if (virtualTrack != null) {
+            workspaceDropHandler.moveVirtualTileTrackToWorkspace(virtualTrack.tileId(), virtualTrack.trackId(),
+                    targetWorkspaceItemId, placeAfter);
+            completed = true;
+        }
+
         return completed;
     }
 
@@ -382,6 +482,8 @@ public class WorkspaceView extends BorderPane {
     private UUID parseWorkspaceQueueId(String payload) {
         return DragPayload.parseWorkspaceQueueId(payload);
     }
+
+    private UUID parseWorkspaceVirtualTileId(String payload) { return DragPayload.parseWorkspaceVirtualTileId(payload); }
 
     private QueueTrackPayload parseQueueTrackPayload(String payload) {
         DragPayload.QueueTrackRef queueTrackRef = DragPayload.parseQueueTrack(payload);
@@ -395,7 +497,9 @@ public class WorkspaceView extends BorderPane {
     private boolean isSupportedPayload(String payload) {
         return parseWorkspaceTrackId(payload) != null
                 || parseWorkspaceQueueId(payload) != null
+                || parseWorkspaceVirtualTileId(payload) != null
                 || parseQueueTrackPayload(payload) != null
+                || DragPayload.parseVirtualTileTrack(payload) != null
                 || !parseAudioFileIds(payload).isEmpty();
     }
 
@@ -455,9 +559,13 @@ public class WorkspaceView extends BorderPane {
 
         void moveQueueTrackToWorkspace(UUID sourceQueueId, UUID queueTrackId, UUID targetWorkspaceItemId, boolean placeAfter);
 
+        void moveVirtualTileTrackToWorkspace(UUID tileId, UUID trackId, UUID targetWorkspaceItemId, boolean placeAfter);
+
         void adjustWorkspaceZoom(double deltaY);
 
         void createQueue();
+
+        void createVirtualTile(VirtualTileLayout layout);
     }
 
     private record QueueTrackPayload(UUID queueId, UUID queueTrackId) {

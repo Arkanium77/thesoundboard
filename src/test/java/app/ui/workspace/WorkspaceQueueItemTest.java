@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class WorkspaceQueueItemTest {
     @Test
@@ -175,9 +176,77 @@ class WorkspaceQueueItemTest {
         Assertions.assertThat(workspaceQueue.getSelectedTrackId()).isEqualTo(thirdQueueTrackId);
     }
 
+    @Test
+    void acceptsTransferredPlayerAsSelectedTrackAndPausesTheSamePlayer() throws IOException {
+        Path rootPath = TestDirectorySupport.createTempDirectory("workspace-queue-transfer-");
+        UUID firstAudioId = UUID.randomUUID();
+        UUID transferredAudioId = UUID.randomUUID();
+        UUID firstTrackId = UUID.randomUUID();
+        UUID transferredTrackId = UUID.randomUUID();
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue A", 0, 0.8d, false);
+        queue.setTracks(List.of(
+                new QueueTrack(firstTrackId, firstAudioId, 0, false),
+                new QueueTrack(transferredTrackId, transferredAudioId, 1, false)
+        ));
+        queue.setSelectedTrackId(firstTrackId);
+        AtomicInteger createdPlayers = new AtomicInteger();
+        WorkspaceQueueItem item = new WorkspaceQueueItem(rootPath, queue, List.of(
+                new AudioFile(firstAudioId, "one.mp3", "one.mp3", false),
+                new AudioFile(transferredAudioId, "two.mp3", "two.mp3", false)
+        ), path -> {
+            createdPlayers.incrementAndGet();
+            return new FakePlayingTrack();
+        }, 1d, exception -> { });
+        FakePlayingTrack transferredPlayer = new FakePlayingTrack();
+        transferredPlayer.play();
+
+        item.acceptPlayback(transferredTrackId,
+                new PlaybackTransfer(transferredPlayer, PlaybackStatus.PLAYING, false));
+        item.selectTrack(firstTrackId);
+
+        Assertions.assertThat(queue.getSelectedTrackId()).isEqualTo(transferredTrackId);
+        Assertions.assertThat(item.getFocusedTrack().orElseThrow().getId()).isEqualTo(firstTrackId);
+        Assertions.assertThat(transferredPlayer.playbackStatus).isEqualTo(PlaybackStatus.PLAYING);
+        Assertions.assertThat(createdPlayers.get()).isZero();
+
+        item.selectTrack(transferredTrackId);
+        item.togglePlayPause();
+
+        Assertions.assertThat(transferredPlayer.playbackStatus).isEqualTo(PlaybackStatus.PAUSED);
+        Assertions.assertThat(createdPlayers.get()).isZero();
+    }
+
+    @Test
+    void combinesMasterQueueAndTrackVolumesAndCanResetTrackVolumes() throws IOException {
+        Path rootPath = TestDirectorySupport.createTempDirectory("workspace-queue-volume-");
+        Files.writeString(rootPath.resolve("one.mp3"), "audio");
+        UUID audioId = UUID.randomUUID();
+        UUID trackId = UUID.randomUUID();
+        QueueTrack queueTrack = new QueueTrack(trackId, audioId, 0, false);
+        queueTrack.setVolume(0.4d);
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue A", 0, 0.5d, false);
+        queue.setTracks(List.of(queueTrack));
+        queue.setSelectedTrackId(trackId);
+        FakePlayingTrack player = new FakePlayingTrack();
+        WorkspaceQueueItem item = new WorkspaceQueueItem(rootPath, queue,
+                List.of(new AudioFile(audioId, "one.mp3", "one.mp3", false)), path -> player,
+                0.5d, exception -> { });
+
+        item.togglePlayPause();
+        Assertions.assertThat(player.volume).isEqualTo(0.1d);
+
+        item.setSelectedTrackVolume(0.8d);
+        Assertions.assertThat(player.volume).isEqualTo(0.2d);
+
+        item.resetTrackVolumes();
+        Assertions.assertThat(queueTrack.getVolume()).isEqualTo(QueueTrack.DEFAULT_VOLUME);
+        Assertions.assertThat(player.volume).isEqualTo(0.2d);
+    }
+
     private static final class FakePlayingTrack implements PlayingTrack {
         private int playCalls;
         private PlaybackStatus playbackStatus = PlaybackStatus.READY;
+        private double volume;
 
         @Override
         public void play() {
@@ -201,6 +270,7 @@ class WorkspaceQueueItemTest {
 
         @Override
         public void setVolume(double volume) {
+            this.volume = volume;
         }
 
         @Override

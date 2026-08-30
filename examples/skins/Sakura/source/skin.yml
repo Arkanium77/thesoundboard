@@ -1,6 +1,7 @@
 uid: 9dc8ea39-fd8f-4674-9a3b-0158f3d07608
 name: "🌸 Sakura"
 skinVersion: 1
+version: 2
 stylesheet: skin.css
 fonts:
   regular: fonts/NotoSansJP-Regular.ttf

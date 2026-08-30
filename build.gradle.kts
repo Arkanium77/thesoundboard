@@ -139,8 +139,25 @@ val sakuraExamplePackage by tasks.registering(Zip::class) {
     destinationDirectory = file("examples/skins/Sakura")
 }
 
+val tacticalCodecExamplePackage by tasks.registering(Zip::class) {
+    group = "distribution"
+    description = "Packages the editable Tactical Codec example skin."
+    from("examples/skins/Tactical Codec/source")
+    archiveFileName = "Tactical Codec.tsbs"
+    destinationDirectory = file("examples/skins/Tactical Codec")
+}
+
+val retroAmpExamplePackage by tasks.registering(Zip::class) {
+    group = "distribution"
+    description = "Packages the editable Retro Amp example skin."
+    from("examples/skins/Retro Amp/source")
+    archiveFileName = "Retro Amp.tsbs"
+    destinationDirectory = file("examples/skins/Retro Amp")
+}
+
 val packageExampleSkins by tasks.registering {
-    dependsOn(nightModeExamplePackage, sakuraExamplePackage)
+    dependsOn(nightModeExamplePackage, sakuraExamplePackage, tacticalCodecExamplePackage,
+            retroAmpExamplePackage)
     group = "distribution"
     description = "Rebuilds all ready-to-install example skin packages."
 }
@@ -161,8 +178,17 @@ val preRevolutionaryLocalizationExamplePackage by tasks.registering(Zip::class) 
     destinationDirectory = file("examples/localizations/Pre-Revolutionary Russian")
 }
 
+val leetspeakLocalizationExamplePackage by tasks.registering(Zip::class) {
+    group = "distribution"
+    description = "Packages the editable Leetspeak localization example."
+    from("examples/localizations/Leetspeak/source")
+    archiveFileName = "Leetspeak.tsbl"
+    destinationDirectory = file("examples/localizations/Leetspeak")
+}
+
 val packageExampleLocalizations by tasks.registering {
-    dependsOn(russianLocalizationExamplePackage, preRevolutionaryLocalizationExamplePackage)
+    dependsOn(russianLocalizationExamplePackage, preRevolutionaryLocalizationExamplePackage,
+            leetspeakLocalizationExamplePackage)
     group = "distribution"
     description = "Rebuilds all ready-to-install example localization packages."
 }

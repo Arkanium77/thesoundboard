@@ -7,6 +7,7 @@ public class LocalizationManifest {
     private String name;
     private String languageTag;
     private int localizationVersion = 1;
+    private int version = 1;
     private String strings = "strings.yml";
 
     public UUID getUid() { return uid; }
@@ -17,6 +18,8 @@ public class LocalizationManifest {
     public void setLanguageTag(String languageTag) { this.languageTag = languageTag; }
     public int getLocalizationVersion() { return localizationVersion; }
     public void setLocalizationVersion(int localizationVersion) { this.localizationVersion = localizationVersion; }
+    public int getVersion() { return version; }
+    public void setVersion(int version) { this.version = version; }
     public String getStrings() { return strings; }
     public void setStrings(String strings) { this.strings = strings; }
 }

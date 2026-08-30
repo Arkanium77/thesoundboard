@@ -196,9 +196,9 @@ class ProjectStateEditorTest {
         ));
 
         WorkspaceQueue workspaceQueue = new WorkspaceQueue(UUID.randomUUID(), "Ambience", 1, 0.8d, false);
-        workspaceQueue.setTracks(List.of(
-                new QueueTrack(queueTrackId, queueAudioFileId, 0, true)
-        ));
+        QueueTrack queueTrack = new QueueTrack(queueTrackId, queueAudioFileId, 0, true);
+        queueTrack.setVolume(0.65d);
+        workspaceQueue.setTracks(List.of(queueTrack));
         projectState.setWorkspaceQueues(List.of(workspaceQueue));
 
         ProjectStateEditor editor = new ProjectStateEditor();
