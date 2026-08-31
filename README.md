@@ -1,8 +1,6 @@
 # The Soundboard
 
-The Soundboard is a desktop application for organizing and playing MP3 collections during games, streams, performances, and other live sessions. It keeps the library on disk, turns selected tracks into reusable tiles, and lets several independent queues live in one workspace.
-
-The current release is **1.0.0**.
+The Soundboard is a desktop application for organizing and playing MP3 collections during games, streams, performances, and other live sessions. It keeps the library on disk, turns selected tracks into reusable tiles, and lets several independent queues live in one workspace..
 
 ## Features
 
