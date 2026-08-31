@@ -22,6 +22,7 @@ public class SkinRepository {
     private static final String SKIN_MANIFEST_FILE = "skin.yml";
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory()).findAndRegisterModules();
     private final Path externalSkinsDirectory;
+    private List<SkinDescriptor> cachedSkins;
 
     public SkinRepository() {
         this(Path.of(System.getProperty("user.home"), ".thesoundboard", "skins"));
@@ -31,21 +32,43 @@ public class SkinRepository {
         this.externalSkinsDirectory = externalSkinsDirectory;
     }
 
-    public List<SkinDescriptor> findAll() {
+    /**
+     * Returns cached, already validated descriptors until an installer mutation invalidates them. Parsing every YAML
+     * manifest and validating its resources on each settings navigation blocked the JavaFX thread and also allocated a
+     * fresh parser graph for every skin. Installed package directories are mutated only through the installer, which
+     * preserves the invariant that every successful replacement or deletion invalidates this snapshot.
+     */
+    public synchronized List<SkinDescriptor> findAll() {
+        if (cachedSkins != null) return cachedSkins;
         List<SkinDescriptor> skins = new ArrayList<>();
-        skins.add(loadBuiltInDefault());
-        LinkedHashSet<UUID> skinUids = new LinkedHashSet<>();
-        skinUids.add(DEFAULT_SKIN_UID);
+        SkinDescriptor builtInDefault = loadBuiltInDefault();
+        skins.add(builtInDefault);
+        LinkedHashSet<String> skinUids = new LinkedHashSet<>();
+        skinUids.add(DEFAULT_SKIN_UID + ":" + builtInDefault.manifest().getVersion());
         loadExternalSkins().stream()
-                .filter(descriptor -> skinUids.add(descriptor.manifest().getUid()))
+                .filter(descriptor -> !DEFAULT_SKIN_UID.equals(descriptor.manifest().getUid()))
+                .filter(descriptor -> skinUids.add(descriptor.manifest().getUid() + ":" + descriptor.manifest().getVersion()))
                 .forEach(skins::add);
         skins.sort(Comparator.comparing(descriptor -> descriptor.manifest().getName(), String.CASE_INSENSITIVE_ORDER));
-        return List.copyOf(skins);
+        cachedSkins = List.copyOf(skins);
+        return cachedSkins;
+    }
+
+    synchronized void invalidate() {
+        cachedSkins = null;
     }
 
     public SkinDescriptor findSelected(UUID selectedSkinUid) {
         return findAll().stream()
                 .filter(descriptor -> descriptor.manifest().getUid().equals(selectedSkinUid))
+                .findFirst()
+                .orElseGet(this::loadBuiltInDefault);
+    }
+
+    public SkinDescriptor findSelected(UUID selectedSkinUid, int version) {
+        return findAll().stream()
+                .filter(descriptor -> descriptor.manifest().getUid().equals(selectedSkinUid))
+                .filter(descriptor -> descriptor.manifest().getVersion() == version)
                 .findFirst()
                 .orElseGet(this::loadBuiltInDefault);
     }
@@ -108,6 +131,9 @@ public class SkinRepository {
     private void validateManifest(SkinManifest manifest, String source) {
         if (manifest.getSkinVersion() != 1) {
             throw new IllegalArgumentException("Unsupported skin version in " + source);
+        }
+        if (manifest.getVersion() < 1) {
+            throw new IllegalArgumentException("Invalid skin package version in " + source);
         }
         if (manifest.getUid() == null) {
             throw new IllegalArgumentException("Missing skin uid in " + source);

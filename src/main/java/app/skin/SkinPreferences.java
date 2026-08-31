@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public class SkinPreferences {
     private static final String SELECTED_SKIN_KEY = "selectedSkinUid";
+    private static final String SELECTED_SKIN_VERSION_KEY = "selectedSkinVersion";
     private Preferences preferences;
 
     public UUID loadSelectedSkinUid() {
@@ -18,8 +19,21 @@ public class SkinPreferences {
     }
 
     public void saveSelectedSkinUid(UUID skinUid) {
+        saveSelectedSkin(skinUid, 1);
+    }
+
+    public int loadSelectedSkinVersion() {
+        try {
+            return Math.max(1, preferences().getInt(SELECTED_SKIN_VERSION_KEY, 1));
+        } catch (SecurityException | IllegalStateException exception) {
+            return 1;
+        }
+    }
+
+    public void saveSelectedSkin(UUID skinUid, int version) {
         try {
             preferences().put(SELECTED_SKIN_KEY, skinUid.toString());
+            preferences().putInt(SELECTED_SKIN_VERSION_KEY, version);
             preferences().flush();
         } catch (SecurityException | IllegalStateException | BackingStoreException exception) {
             // The default skin remains usable when preferences are unavailable.

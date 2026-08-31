@@ -2,4 +2,5 @@ uid: 2195946d-8797-4f48-a81b-a2a12d1c4a30
 name: "🇷🇺 Русский"
 languageTag: ru
 localizationVersion: 1
+version: 1
 strings: strings.yml

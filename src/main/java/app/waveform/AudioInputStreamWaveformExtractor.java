@@ -1,5 +1,7 @@
 package app.waveform;
 
+import javafx.util.Duration;
+
 import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -37,8 +39,16 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
         }
     }
 
+    /**
+     * Reduces a known-length stream directly into paired peak and RMS envelopes. Keeping both is intentional:
+     * peak mode preserves the original transient-oriented display, while RMS avoids making mastered music look
+     * uniformly loud; a simple signed average would cancel positive and negative PCM samples. Exact zero remains
+     * zero in both envelopes. Keep this rationale synchronized with the unknown-length path and mode definitions.
+     */
     private WaveformData extractFixedResolution(AudioInputStream pcmStream, AudioFormat pcmFormat, long totalFrames) throws IOException {
+        double[] squaredAmplitudeSums = new double[resolution];
         double[] peaks = new double[resolution];
+        long[] frameCounts = new long[resolution];
         int frameSize = pcmFormat.getFrameSize();
         byte[] buffer = new byte[Math.max(frameSize * 1024, 4096)];
         long frameIndex = 0L;
@@ -49,55 +59,81 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
             for (int offset = 0; offset < usableBytes; offset += frameSize) {
                 double amplitude = decodeFrameAmplitude(buffer, offset, pcmFormat.getChannels());
                 int bucketIndex = (int) Math.min(resolution - 1L, frameIndex * resolution / Math.max(totalFrames, 1L));
+                squaredAmplitudeSums[bucketIndex] += amplitude * amplitude;
                 peaks[bucketIndex] = Math.max(peaks[bucketIndex], amplitude);
+                frameCounts[bucketIndex]++;
                 frameIndex++;
             }
         }
 
-        return new WaveformData(normalize(peaks));
+        return new WaveformData(
+                normalize(peaks),
+                normalize(toRootMeanSquare(squaredAmplitudeSums, frameCounts)),
+                durationOf(totalFrames, pcmFormat)
+        );
     }
 
+    /**
+     * Builds the same paired peak/RMS envelopes when the decoder cannot report a duration. Small fixed chunks bound
+     * memory; the second reduction takes the maximum of chunk peaks and RMS of chunk RMS levels. This preserves the
+     * semantics of both modes instead of letting the fallback decoder path produce a different-looking waveform.
+     */
     private WaveformData extractChunkedResolution(AudioInputStream pcmStream, AudioFormat pcmFormat) throws IOException {
+        List<Double> chunkLevels = new ArrayList<>();
         List<Double> chunkPeaks = new ArrayList<>();
         int frameSize = pcmFormat.getFrameSize();
         byte[] buffer = new byte[Math.max(frameSize * 1024, 4096)];
         int chunkFrameIndex = 0;
+        long totalFrameCount = 0L;
+        double chunkSquaredAmplitudeSum = 0d;
         double chunkPeak = 0d;
 
         int bytesRead;
         while ((bytesRead = pcmStream.read(buffer)) >= 0) {
             int usableBytes = bytesRead - bytesRead % frameSize;
+            totalFrameCount += usableBytes / frameSize;
             for (int offset = 0; offset < usableBytes; offset += frameSize) {
-                chunkPeak = Math.max(chunkPeak, decodeFrameAmplitude(buffer, offset, pcmFormat.getChannels()));
+                double amplitude = decodeFrameAmplitude(buffer, offset, pcmFormat.getChannels());
+                chunkSquaredAmplitudeSum += amplitude * amplitude;
+                chunkPeak = Math.max(chunkPeak, amplitude);
                 chunkFrameIndex++;
                 if (chunkFrameIndex >= CHUNK_FRAME_COUNT) {
+                    chunkLevels.add(Math.sqrt(chunkSquaredAmplitudeSum / chunkFrameIndex));
                     chunkPeaks.add(chunkPeak);
+                    chunkSquaredAmplitudeSum = 0d;
                     chunkPeak = 0d;
                     chunkFrameIndex = 0;
                 }
             }
         }
 
-        if (chunkFrameIndex > 0 || chunkPeaks.isEmpty()) {
+        if (chunkFrameIndex > 0 || chunkLevels.isEmpty()) {
+            chunkLevels.add(chunkFrameIndex == 0 ? 0d : Math.sqrt(chunkSquaredAmplitudeSum / chunkFrameIndex));
             chunkPeaks.add(chunkPeak);
         }
 
         double[] peaks = new double[resolution];
+        double[] levels = new double[resolution];
         for (int index = 0; index < resolution; index++) {
-            int startIndex = (int) Math.floor((double) index * chunkPeaks.size() / resolution);
-            int endIndex = (int) Math.floor((double) (index + 1) * chunkPeaks.size() / resolution);
+            int startIndex = (int) Math.floor((double) index * chunkLevels.size() / resolution);
+            int endIndex = (int) Math.floor((double) (index + 1) * chunkLevels.size() / resolution);
             if (endIndex <= startIndex) {
-                endIndex = Math.min(startIndex + 1, chunkPeaks.size());
+                endIndex = Math.min(startIndex + 1, chunkLevels.size());
             }
 
+            double squaredLevelSum = 0d;
             double peak = 0d;
             for (int chunkIndex = startIndex; chunkIndex < endIndex; chunkIndex++) {
+                double level = chunkLevels.get(chunkIndex);
+                squaredLevelSum += level * level;
                 peak = Math.max(peak, chunkPeaks.get(chunkIndex));
             }
+            int chunkCount = Math.max(endIndex - startIndex, 1);
             peaks[index] = peak;
+            levels[index] = Math.sqrt(squaredLevelSum / chunkCount);
         }
 
-        return new WaveformData(normalize(peaks));
+        return new WaveformData(normalize(peaks), normalize(levels), durationOf(totalFrameCount, pcmFormat));
     }
 
     private AudioFormat toPcmFormat(AudioFormat sourceFormat) {
@@ -162,5 +198,20 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
             normalized[index] = Math.max(0d, Math.min(1d, peaks[index] / maxAmplitude));
         }
         return normalized;
+    }
+
+    private double[] toRootMeanSquare(double[] squaredAmplitudeSums, long[] frameCounts) {
+        double[] levels = new double[squaredAmplitudeSums.length];
+        for (int index = 0; index < squaredAmplitudeSums.length; index++) {
+            if (frameCounts[index] > 0L) {
+                levels[index] = Math.sqrt(squaredAmplitudeSums[index] / frameCounts[index]);
+            }
+        }
+        return levels;
+    }
+
+    private Duration durationOf(long frameCount, AudioFormat audioFormat) {
+        if (frameCount <= 0L || audioFormat.getFrameRate() <= 0f) return Duration.ZERO;
+        return Duration.seconds(frameCount / audioFormat.getFrameRate());
     }
 }

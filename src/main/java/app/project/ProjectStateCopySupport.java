@@ -5,6 +5,8 @@ import app.model.ProjectState;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
+import app.model.VirtualTileTrack;
+import app.model.WorkspaceVirtualTile;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +21,7 @@ public final class ProjectStateCopySupport {
         copy.setAudioFiles(copyAudioFiles(source.getAudioFiles()));
         copy.setWorkspaceTracks(copyWorkspaceTracks(source.getWorkspaceTracks()));
         copy.setWorkspaceQueues(copyWorkspaceQueues(source.getWorkspaceQueues()));
+        copy.setWorkspaceVirtualTiles(copyWorkspaceVirtualTiles(source.getWorkspaceVirtualTiles()));
         return copy;
     }
 
@@ -76,9 +79,28 @@ public final class ProjectStateCopySupport {
                     queueTrack.getOrder(),
                     queueTrack.isLoop()
             );
+            copiedTrack.setVolume(queueTrack.getVolume());
             copiedTrack.setShuffledOrder(queueTrack.getShuffledOrder());
             queueTracks.add(copiedTrack);
         }
         return queueTracks;
+    }
+
+    private static List<WorkspaceVirtualTile> copyWorkspaceVirtualTiles(List<WorkspaceVirtualTile> source) {
+        List<WorkspaceVirtualTile> tiles = new ArrayList<>();
+        for (WorkspaceVirtualTile tile : source) {
+            WorkspaceVirtualTile copiedTile = new WorkspaceVirtualTile(tile.getId(), tile.getOrder(), tile.getLayout());
+            List<VirtualTileTrack> tracks = new ArrayList<>();
+            for (VirtualTileTrack track : tile.getTracks()) {
+                VirtualTileTrack copiedTrack = new VirtualTileTrack(
+                        track.getId(), track.getAudioFileId(), track.getOrder(), track.getVolume()
+                );
+                copiedTrack.setLoop(track.isLoop());
+                tracks.add(copiedTrack);
+            }
+            copiedTile.setTracks(tracks);
+            tiles.add(copiedTile);
+        }
+        return tiles;
     }
 }

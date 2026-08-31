@@ -1,0 +1,18 @@
+.soundboard-root {
+    -fx-background-color: -fx-background;
+}
+
+.status-bar {
+    -fx-background-color: -fx-background;
+}
+
+.status-bar .scale-adjust-button {
+    -fx-min-height: 26px;
+    -fx-pref-height: 26px;
+    -fx-max-height: 26px;
+    -fx-padding: 2px 7px;
+}
+
+.status-bar .scale-target-button {
+    -fx-padding: 0 2px;
+}

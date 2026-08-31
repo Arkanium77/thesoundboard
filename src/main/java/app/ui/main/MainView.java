@@ -3,10 +3,13 @@ package app.ui.main;
 import app.audio.AudioEngine;
 import app.config.AppConfig;
 import app.model.AudioFile;
+import app.model.PlaybackStatus;
 import app.model.ProjectState;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
+import app.model.WorkspaceVirtualTile;
+import app.model.VirtualTileLayout;
 import app.localization.LocalizationService;
 import app.localization.TextKey;
 import app.localization.Texts;
@@ -21,11 +24,15 @@ import app.ui.drag.DragPayload;
 import app.ui.queue.QueueView;
 import app.ui.settings.SettingsWindow;
 import app.ui.tile.TrackTileView;
+import app.ui.tile.VirtualTileView;
 import app.ui.tree.TreeNodeType;
 import app.ui.tree.TreeNodeValue;
 import app.ui.workspace.WorkspaceQueueItem;
+import app.ui.workspace.PlaybackTransfer;
 import app.ui.workspace.WorkspaceTrackItem;
+import app.ui.workspace.WorkspaceVirtualTileItem;
 import app.waveform.WaveformService;
+import app.waveform.WaveformPreferences;
 import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
 import javafx.concurrent.Task;
@@ -61,9 +68,6 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
-import javafx.util.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,9 +84,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 public class MainView extends BorderPane {
@@ -96,6 +103,11 @@ public class MainView extends BorderPane {
     private final DoubleProperty uiScale;
     private final SkinService skinService;
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService uiRefreshScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "soundboard-ui-refresh");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final LastProjectPreferences lastProjectPreferences;
 
     private final Node settingsGraphic = UiIcons.settings();
@@ -137,15 +149,18 @@ public class MainView extends BorderPane {
     private final Map<UUID, TrackTileView> trackTileViews = new LinkedHashMap<>();
     private final Map<UUID, WorkspaceQueueItem> workspaceQueueItems = new LinkedHashMap<>();
     private final Map<UUID, QueueView> queueViews = new LinkedHashMap<>();
+    private final Map<UUID, WorkspaceVirtualTileItem> workspaceVirtualTileItems = new LinkedHashMap<>();
+    private final Map<UUID, VirtualTileView> virtualTileViews = new LinkedHashMap<>();
     private final AtomicInteger saveGeneration = new AtomicInteger();
+    private final AtomicBoolean uiRefreshQueued = new AtomicBoolean();
     private final double baseTrackTileWidth;
     private final double baseTrackTileHeight;
-    private final Timeline waveformLoadingIndicatorTimeline = new Timeline(new KeyFrame(Duration.millis(150), event -> refreshWaveformLoadingIndicator()));
 
     private Path currentRootPath;
     private ProjectState projectState;
     private boolean loading;
     private boolean workspacePauseLatched;
+    private boolean workspacePlaybackWasActive;
     private boolean rebuildingWorkspace;
     private double masterVolume;
     private ScaleTarget scaleTarget = ScaleTarget.INTERFACE;
@@ -160,7 +175,8 @@ public class MainView extends BorderPane {
             DoubleProperty uiScale,
             SkinService skinService,
             LocalizationService localizationService,
-            LastProjectPreferences lastProjectPreferences
+            LastProjectPreferences lastProjectPreferences,
+            WaveformPreferences waveformPreferences
     ) {
         this.stage = stage;
         this.appConfig = appConfig;
@@ -171,7 +187,8 @@ public class MainView extends BorderPane {
         this.uiScale = uiScale;
         this.skinService = skinService;
         this.lastProjectPreferences = lastProjectPreferences;
-        this.settingsWindow = new SettingsWindow(stage, skinService, localizationService, lastProjectPreferences, this::refreshLocalization);
+        this.settingsWindow = new SettingsWindow(stage, skinService, localizationService, lastProjectPreferences,
+                waveformPreferences, this::refreshLocalization);
         this.projectState = ProjectState.empty(appConfig.getSchemaVersion());
         this.masterVolume = appConfig.getWorkspace().getDefaultMasterVolume();
         this.baseTrackTileWidth = appConfig.getUi().getTrackTileWidth();
@@ -198,6 +215,12 @@ public class MainView extends BorderPane {
             }
 
             @Override
+            public void moveVirtualTileTrackToWorkspace(UUID tileId, UUID trackId,
+                                                        UUID targetWorkspaceItemId, boolean placeAfter) {
+                MainView.this.moveVirtualTileTrackToWorkspace(tileId, trackId, targetWorkspaceItemId, placeAfter);
+            }
+
+            @Override
             public void adjustWorkspaceZoom(double deltaY) {
                 MainView.this.adjustWorkspaceZoom(deltaY);
             }
@@ -206,6 +229,9 @@ public class MainView extends BorderPane {
             public void createQueue() {
                 MainView.this.createQueue();
             }
+
+            @Override
+            public void createVirtualTile(VirtualTileLayout layout) { MainView.this.createVirtualTile(layout); }
         });
 
         configureLayout();
@@ -213,6 +239,7 @@ public class MainView extends BorderPane {
         configureActions();
         rebuildTree();
         rebuildWorkspace();
+        startUiRefreshScheduler();
         refreshInterfaceScale();
     }
 
@@ -220,7 +247,7 @@ public class MainView extends BorderPane {
         LOGGER.info("Shutting down application resources");
         saveCurrentProjectSynchronously();
         clearWorkspace();
-        waveformLoadingIndicatorTimeline.stop();
+        uiRefreshScheduler.shutdownNow();
         waveformService.shutdown();
         executorService.shutdownNow();
     }
@@ -247,13 +274,14 @@ public class MainView extends BorderPane {
         workspaceView.refreshLocalization();
         trackTileViews.values().forEach(TrackTileView::refreshLocalization);
         queueViews.values().forEach(QueueView::refreshLocalization);
+        virtualTileViews.values().forEach(VirtualTileView::refreshLocalization);
         statusLabel.setText(currentRootPath == null
                 ? Texts.text(TextKey.MAIN_READY)
                 : Texts.format(TextKey.STATUS_LOADED, currentRootPath));
     }
 
     private void configureLayout() {
-        setPadding(new Insets(8));
+        setPadding(Insets.EMPTY);
         setTop(createToolBar());
 
         Region projectTreeBackground = new Region();
@@ -306,9 +334,15 @@ public class MainView extends BorderPane {
     private HBox createStatusBar() {
         decreaseScaleButton.setFocusTraversable(false);
         increaseScaleButton.setFocusTraversable(false);
-        decreaseScaleButton.setMinWidth(28d);
-        increaseScaleButton.setMinWidth(28d);
-        scaleValueLabel.setMinWidth(44d);
+        decreaseScaleButton.getStyleClass().add("scale-adjust-button");
+        increaseScaleButton.getStyleClass().add("scale-adjust-button");
+        decreaseScaleButton.setMinWidth(26d);
+        increaseScaleButton.setMinWidth(26d);
+        decreaseScaleButton.setPrefHeight(26d);
+        decreaseScaleButton.setMaxHeight(26d);
+        increaseScaleButton.setPrefHeight(26d);
+        increaseScaleButton.setMaxHeight(26d);
+        scaleValueLabel.setMinWidth(40d);
         scaleValueLabel.setAlignment(Pos.CENTER);
 
         decreaseScaleButton.setOnAction(event -> adjustSelectedScale(-1d));
@@ -340,12 +374,13 @@ public class MainView extends BorderPane {
         statusBar = new HBox(8, statusLabel, createSpacer(), scaleControls);
         statusBar.getStyleClass().add("status-bar");
         statusBar.setAlignment(Pos.CENTER_LEFT);
-        statusBar.setPadding(new Insets(4, 12, 4, 12));
+        statusBar.setPadding(new Insets(2, 10, 2, 10));
         return statusBar;
     }
 
     private void configureScaleTargetButton(ToggleButton button, String tooltip, ScaleTarget target) {
         button.setFocusTraversable(false);
+        button.getStyleClass().add("scale-target-button");
         button.setTooltip(new Tooltip(tooltip));
         button.setMinSize(24d, 0d);
         button.setMaxSize(24d, Double.MAX_VALUE);
@@ -383,7 +418,7 @@ public class MainView extends BorderPane {
     private void refreshInterfaceScale() {
         double scale = uiScale.get();
         refreshScaleControls();
-        setPadding(new Insets(8d * scale));
+        setPadding(Insets.EMPTY);
         leftPane.setSpacing(8d * scale);
         leftPane.setPadding(new Insets(8d * scale));
         leftPane.setPrefWidth(appConfig.getUi().getTreeWidth() * scale);
@@ -399,9 +434,13 @@ public class MainView extends BorderPane {
         UiIcons.resize(workspacePauseGraphic, scale);
         UiIcons.resize(workspaceStopGraphic, scale);
         UiIcons.resize(settingsGraphic, scale);
-        decreaseScaleButton.setMinWidth(28d * scale);
-        increaseScaleButton.setMinWidth(28d * scale);
-        scaleValueLabel.setMinWidth(44d * scale);
+        decreaseScaleButton.setMinWidth(26d * scale);
+        increaseScaleButton.setMinWidth(26d * scale);
+        decreaseScaleButton.setPrefHeight(26d * scale);
+        decreaseScaleButton.setMaxHeight(26d * scale);
+        increaseScaleButton.setPrefHeight(26d * scale);
+        increaseScaleButton.setMaxHeight(26d * scale);
+        scaleValueLabel.setMinWidth(40d * scale);
         interfaceScaleTargetButton.setMinWidth(24d * scale);
         interfaceScaleTargetButton.setMaxWidth(24d * scale);
         workspaceScaleTargetButton.setMinWidth(24d * scale);
@@ -410,7 +449,7 @@ public class MainView extends BorderPane {
         workspaceScaleTargetButton.setStyle("-fx-font-size: " + (8d * scale) + "px; -fx-padding: 0 " + (2d * scale) + "px;");
         scaleControls.setSpacing(4d * scale);
         statusBar.setSpacing(8d * scale);
-        statusBar.setPadding(new Insets(4d * scale, 12d * scale, 4d * scale, 12d * scale));
+        statusBar.setPadding(new Insets(2d * scale, 10d * scale, 2d * scale, 10d * scale));
         workspaceView.updateInterfaceScale(scale);
         refreshWorkspaceTileMetrics();
     }
@@ -423,7 +462,7 @@ public class MainView extends BorderPane {
         workspaceStopButton.setFocusTraversable(false);
         waveformLoadingIndicator.setVisible(false);
         waveformLoadingIndicator.setManaged(false);
-        waveformLoadingIndicator.setProgress(ProgressIndicator.INDETERMINATE_PROGRESS);
+        waveformLoadingIndicator.setProgress(0d);
         waveformLoadingIndicator.setPrefSize(18d, 18d);
         waveformLoadingIndicator.setMinSize(18d, 18d);
         waveformLoadingIndicator.setMaxSize(18d, 18d);
@@ -460,8 +499,6 @@ public class MainView extends BorderPane {
         masterVolumeSlider.valueProperty().addListener((observable, oldValue, newValue) -> updateMasterVolume(newValue.doubleValue() / 100d));
         updateMasterVolume(masterVolume);
         refreshWorkspaceTransportButtons();
-        waveformLoadingIndicatorTimeline.setCycleCount(Timeline.INDEFINITE);
-        waveformLoadingIndicatorTimeline.play();
         refreshWaveformLoadingIndicator();
     }
 
@@ -710,6 +747,7 @@ public class MainView extends BorderPane {
         for (WorkspaceQueue workspaceQueue : sortedWorkspaceQueues()) {
             createQueueView(workspaceQueue);
         }
+        for (WorkspaceVirtualTile tile : sortedWorkspaceVirtualTiles()) createVirtualTileView(tile);
 
         refreshWorkspaceOrder();
         workspaceView.refreshTileMetrics(
@@ -736,6 +774,166 @@ public class MainView extends BorderPane {
         requestProjectSave();
     }
 
+    private void createVirtualTile(VirtualTileLayout layout) {
+        if (currentRootPath == null) return;
+        WorkspaceVirtualTile tile = projectStateEditor.createWorkspaceVirtualTile(projectState, layout);
+        createVirtualTileView(tile);
+        refreshWorkspaceOrder();
+        requestProjectSave();
+    }
+
+    private void createVirtualTileView(WorkspaceVirtualTile tile) {
+        WorkspaceVirtualTileItem item = new WorkspaceVirtualTileItem(
+                currentRootPath, tile, projectState.getAudioFiles(), audioEngine, masterVolume,
+                exception -> showError("Playback error", "Virtual tile track could not be initialized.", exception)
+        );
+        workspaceVirtualTileItems.put(tile.getId(), item);
+        VirtualTileView view = new VirtualTileView(
+                item, waveformService,
+                (audioFileIds, targetTrackId, placeAfter) -> addAudioFilesToVirtualTile(
+                        tile.getId(), audioFileIds, targetTrackId, placeAfter),
+                (workspaceTrackId, targetTrackId, placeAfter) -> moveWorkspaceTrackToVirtualTile(
+                        workspaceTrackId, tile.getId(), targetTrackId, placeAfter),
+                (sourceTileId, trackId, targetTrackId, placeAfter) -> moveVirtualTileTrack(
+                        sourceTileId, tile.getId(), trackId, targetTrackId, placeAfter),
+                trackId -> removeVirtualTileTrack(tile.getId(), trackId),
+                (queueId, queueTrackId, targetTrackId, placeAfter) -> moveQueueTrackToVirtualTile(
+                        queueId, queueTrackId, tile.getId(), targetTrackId, placeAfter),
+                () -> removeVirtualTile(tile.getId()), this::requestProjectSave
+        );
+        virtualTileViews.put(tile.getId(), view);
+    }
+
+    private void addAudioFilesToVirtualTile(UUID tileId, List<UUID> audioFileIds) {
+        addAudioFilesToVirtualTile(tileId, audioFileIds, null, false);
+    }
+
+    private void addAudioFilesToVirtualTile(UUID tileId, List<UUID> audioFileIds,
+                                            UUID targetTrackId, boolean placeAfter) {
+        if (projectStateEditor.addVirtualTileTracks(projectState, tileId, audioFileIds,
+                appConfig.getWorkspace().getDefaultVolume(), targetTrackId, placeAfter).isEmpty()) return;
+        refreshVirtualTile(tileId);
+        requestProjectSave();
+    }
+
+    private void moveWorkspaceTrackToVirtualTile(UUID workspaceTrackId, UUID tileId,
+                                                 UUID targetTrackId, boolean placeAfter) {
+        WorkspaceTrackItem sourceItem = workspaceTrackItems.get(workspaceTrackId);
+        List<UUID> previousTracks = virtualTrackIds(tileId);
+        if (!projectStateEditor.moveWorkspaceTrackToVirtualTile(projectState, workspaceTrackId,
+                tileId, targetTrackId, placeAfter)) return;
+        PlaybackTransfer transfer = sourceItem == null ? null : sourceItem.detachPlayback();
+        WorkspaceTrackItem item = workspaceTrackItems.remove(workspaceTrackId);
+        if (item != null) item.dispose();
+        TrackTileView view = trackTileViews.remove(workspaceTrackId);
+        if (view != null) view.dispose();
+        refreshVirtualTile(tileId);
+        acceptVirtualPlayback(tileId, findAddedVirtualTrack(tileId, previousTracks), transfer);
+        refreshWorkspaceOrder();
+        requestProjectSave();
+    }
+
+    private void moveVirtualTileTrack(UUID sourceTileId, UUID targetTileId, UUID trackId,
+                                      UUID targetTrackId, boolean placeAfter) {
+        WorkspaceVirtualTileItem sourceItem = workspaceVirtualTileItems.get(sourceTileId);
+        WorkspaceTrackItem sourceTrack = sourceItem == null ? null : sourceItem.getTrackItem(trackId);
+        List<UUID> previousTracks = virtualTrackIds(targetTileId);
+        if (!projectStateEditor.moveVirtualTileTrack(projectState, sourceTileId, targetTileId,
+                trackId, targetTrackId, placeAfter)) return;
+        PlaybackTransfer transfer = sourceTrack == null ? null : sourceTrack.detachPlayback();
+        refreshVirtualTile(sourceTileId);
+        if (!sourceTileId.equals(targetTileId)) refreshVirtualTile(targetTileId);
+        UUID restoredTrackId = sourceTileId.equals(targetTileId) ? trackId
+                : findAddedVirtualTrack(targetTileId, previousTracks);
+        acceptVirtualPlayback(targetTileId, restoredTrackId, transfer);
+        requestProjectSave();
+    }
+
+    private void moveVirtualTileTrackToWorkspace(UUID tileId, UUID trackId,
+                                                 UUID targetWorkspaceItemId, boolean placeAfter) {
+        WorkspaceVirtualTileItem sourceItem = workspaceVirtualTileItems.get(tileId);
+        WorkspaceTrackItem sourceTrack = sourceItem == null ? null : sourceItem.getTrackItem(trackId);
+        WorkspaceTrack track = projectStateEditor.moveVirtualTileTrackToWorkspace(projectState, tileId,
+                trackId, targetWorkspaceItemId, placeAfter);
+        if (track == null) return;
+        PlaybackTransfer transfer = sourceTrack == null ? null : sourceTrack.detachPlayback();
+        createWorkspaceTrackTile(track);
+        WorkspaceTrackItem createdItem = workspaceTrackItems.get(track.getId());
+        if (createdItem != null) createdItem.acceptPlayback(transfer);
+        refreshVirtualTile(tileId);
+        refreshWorkspaceOrder();
+        requestProjectSave();
+    }
+
+    private void moveQueueTrackToVirtualTile(UUID queueId, UUID queueTrackId, UUID tileId,
+                                             UUID targetTrackId, boolean placeAfter) {
+        WorkspaceQueueItem queueItem = workspaceQueueItems.get(queueId);
+        List<UUID> previousTracks = virtualTrackIds(tileId);
+        if (!projectStateEditor.moveQueueTrackToVirtualTile(projectState, queueId, queueTrackId,
+                tileId, targetTrackId, placeAfter)) return;
+        PlaybackTransfer transfer = queueItem == null ? null : queueItem.detachPlayback(queueTrackId);
+        refreshQueueView(queueId);
+        refreshVirtualTile(tileId);
+        acceptVirtualPlayback(tileId, findAddedVirtualTrack(tileId, previousTracks), transfer);
+        requestProjectSave();
+    }
+
+    private void removeVirtualTileTrack(UUID tileId, UUID trackId) {
+        projectStateEditor.removeVirtualTileTrack(projectState, tileId, trackId);
+        refreshVirtualTile(tileId);
+        requestProjectSave();
+    }
+
+    private void refreshVirtualTile(UUID tileId) {
+        WorkspaceVirtualTileItem item = workspaceVirtualTileItems.get(tileId);
+        if (item != null) item.refreshAfterMutation();
+        VirtualTileView view = virtualTileViews.get(tileId);
+        if (view != null) view.rebuild();
+    }
+
+    private List<UUID> virtualTrackIds(UUID tileId) {
+        return projectStateEditor.findWorkspaceVirtualTile(projectState, tileId)
+                .map(tile -> tile.getTracks().stream().map(track -> track.getId()).toList())
+                .orElseGet(List::of);
+    }
+
+    private UUID findAddedVirtualTrack(UUID tileId, List<UUID> previousTracks) {
+        return virtualTrackIds(tileId).stream().filter(id -> !previousTracks.contains(id)).findFirst().orElse(null);
+    }
+
+    private void acceptVirtualPlayback(UUID tileId, UUID trackId, PlaybackTransfer playback) {
+        if (trackId == null) return;
+        WorkspaceVirtualTileItem item = workspaceVirtualTileItems.get(tileId);
+        WorkspaceTrackItem track = item == null ? null : item.getTrackItem(trackId);
+        if (track != null) track.acceptPlayback(playback);
+    }
+
+    private List<UUID> queueTrackIds(UUID queueId) {
+        return projectStateEditor.findWorkspaceQueue(projectState, queueId)
+                .map(queue -> queue.getTracks().stream().map(track -> track.getId()).toList())
+                .orElseGet(List::of);
+    }
+
+    private UUID findAddedQueueTrack(UUID queueId, List<UUID> previousTracks) {
+        return queueTrackIds(queueId).stream().filter(id -> !previousTracks.contains(id)).findFirst().orElse(null);
+    }
+
+    private void acceptQueuePlayback(UUID queueId, UUID trackId, PlaybackTransfer playback) {
+        if (trackId == null) return;
+        WorkspaceQueueItem item = workspaceQueueItems.get(queueId);
+        if (item != null) item.acceptPlayback(trackId, playback);
+    }
+
+    private void removeVirtualTile(UUID tileId) {
+        WorkspaceVirtualTileItem item = workspaceVirtualTileItems.remove(tileId);
+        if (item != null) item.dispose();
+        VirtualTileView view = virtualTileViews.remove(tileId);
+        if (view != null) view.dispose();
+        projectStateEditor.removeWorkspaceVirtualTile(projectState, tileId);
+        refreshWorkspaceOrder();
+        requestProjectSave();
+    }
+
     private void createQueueView(WorkspaceQueue workspaceQueue) {
         WorkspaceQueueItem workspaceQueueItem = new WorkspaceQueueItem(
                 currentRootPath,
@@ -751,13 +949,14 @@ public class MainView extends BorderPane {
                 appConfig.getUi(),
                 workspaceQueueItem,
                 waveformService,
-                appConfig.getWorkspace().getProgressRefreshMillis(),
                 () -> removeQueue(workspaceQueue.getId()),
                 this::requestProjectSave,
                 (audioFileIds, targetQueueTrackId, placeAfter) -> addAudioFilesToQueue(workspaceQueue.getId(), audioFileIds, targetQueueTrackId, placeAfter),
                 (workspaceTrackId, targetQueueTrackId, placeAfter) -> addWorkspaceTrackToQueue(workspaceQueue.getId(), workspaceTrackId, targetQueueTrackId, placeAfter),
                 queueTrack -> removeQueueTrack(workspaceQueue.getId(), queueTrack.getId()),
                 (sourceQueueId, queueTrackId, targetQueueTrackId, placeAfter) -> moveQueueTrack(sourceQueueId, workspaceQueue.getId(), queueTrackId, targetQueueTrackId, placeAfter),
+                (tileId, trackId, targetQueueTrackId, placeAfter) -> moveVirtualTileTrackToQueue(
+                        tileId, trackId, workspaceQueue.getId(), targetQueueTrackId, placeAfter),
                 this::moveWorkspaceItem
         );
         queueViews.put(workspaceQueue.getId(), queueView);
@@ -800,6 +999,10 @@ public class MainView extends BorderPane {
             return;
         }
 
+        WorkspaceTrackItem sourceItem = workspaceTrackItems.get(workspaceTrackId);
+        WorkspaceQueueItem targetItem = workspaceQueueItems.get(queueId);
+        boolean targetHasPriority = targetItem != null && targetItem.hasActivePlayback();
+        List<UUID> previousTracks = queueTrackIds(queueId);
         boolean moved = projectStateEditor.moveWorkspaceTrackToQueue(
                 projectState,
                 workspaceTrackId,
@@ -810,6 +1013,7 @@ public class MainView extends BorderPane {
         if (!moved) {
             return;
         }
+        PlaybackTransfer transfer = targetHasPriority || sourceItem == null ? null : sourceItem.detachPlayback();
 
         WorkspaceTrackItem workspaceTrackItem = workspaceTrackItems.remove(workspaceTrackId);
         if (workspaceTrackItem != null) {
@@ -829,6 +1033,7 @@ public class MainView extends BorderPane {
         if (queueView != null) {
             queueView.rebuildChips();
         }
+        acceptQueuePlayback(queueId, findAddedQueueTrack(queueId, previousTracks), transfer);
         refreshWorkspaceOrder();
         requestProjectSave();
     }
@@ -848,18 +1053,45 @@ public class MainView extends BorderPane {
     }
 
     private void moveQueueTrack(UUID sourceQueueId, UUID targetQueueId, UUID queueTrackId, UUID targetQueueTrackId, boolean placeAfter) {
+        WorkspaceQueueItem sourceItem = workspaceQueueItems.get(sourceQueueId);
+        WorkspaceQueueItem targetItem = workspaceQueueItems.get(targetQueueId);
+        boolean sameQueue = Objects.equals(sourceQueueId, targetQueueId);
+        boolean targetHasPriority = !sameQueue && targetItem != null && targetItem.hasActivePlayback();
+        List<UUID> previousTracks = queueTrackIds(targetQueueId);
         if (!projectStateEditor.moveQueueTrackToQueue(projectState, sourceQueueId, targetQueueId, queueTrackId, targetQueueTrackId, placeAfter)) {
             return;
         }
+        PlaybackTransfer transfer = sameQueue || targetHasPriority || sourceItem == null
+                ? null : sourceItem.detachPlayback(queueTrackId);
 
         refreshQueueView(sourceQueueId);
         if (!Objects.equals(sourceQueueId, targetQueueId)) {
             refreshQueueView(targetQueueId);
         }
+        UUID restoredTrackId = sameQueue ? queueTrackId
+                : findAddedQueueTrack(targetQueueId, previousTracks);
+        acceptQueuePlayback(targetQueueId, restoredTrackId, transfer);
+        requestProjectSave();
+    }
+
+    private void moveVirtualTileTrackToQueue(UUID tileId, UUID trackId, UUID queueId,
+                                             UUID targetQueueTrackId, boolean placeAfter) {
+        WorkspaceVirtualTileItem sourceItem = workspaceVirtualTileItems.get(tileId);
+        WorkspaceTrackItem sourceTrack = sourceItem == null ? null : sourceItem.getTrackItem(trackId);
+        WorkspaceQueueItem targetItem = workspaceQueueItems.get(queueId);
+        boolean targetHasPriority = targetItem != null && targetItem.hasActivePlayback();
+        List<UUID> previousTracks = queueTrackIds(queueId);
+        if (!projectStateEditor.moveVirtualTileTrackToQueue(projectState, tileId, trackId, queueId,
+                targetQueueTrackId, placeAfter)) return;
+        PlaybackTransfer transfer = targetHasPriority || sourceTrack == null ? null : sourceTrack.detachPlayback();
+        refreshVirtualTile(tileId);
+        refreshQueueView(queueId);
+        acceptQueuePlayback(queueId, findAddedQueueTrack(queueId, previousTracks), transfer);
         requestProjectSave();
     }
 
     private void moveQueueTrackToWorkspace(UUID sourceQueueId, UUID queueTrackId, UUID targetWorkspaceItemId, boolean placeAfter) {
+        WorkspaceQueueItem sourceItem = workspaceQueueItems.get(sourceQueueId);
         WorkspaceTrack workspaceTrack = projectStateEditor.moveQueueTrackToWorkspace(
                 projectState,
                 sourceQueueId,
@@ -871,8 +1103,11 @@ public class MainView extends BorderPane {
         if (workspaceTrack == null) {
             return;
         }
+        PlaybackTransfer transfer = sourceItem == null ? null : sourceItem.detachPlayback(queueTrackId);
 
         createWorkspaceTrackTile(workspaceTrack);
+        WorkspaceTrackItem createdItem = workspaceTrackItems.get(workspaceTrack.getId());
+        if (createdItem != null) createdItem.acceptPlayback(transfer);
         refreshQueueView(sourceQueueId);
         refreshWorkspaceOrder();
         requestProjectSave();
@@ -1048,7 +1283,6 @@ public class MainView extends BorderPane {
 
         TrackTileView trackTileView = new TrackTileView(
                 appConfig.getUi(),
-                appConfig.getWorkspace().getProgressRefreshMillis(),
                 workspaceTrackItem,
                 waveformService,
                 () -> removeWorkspaceTrack(workspaceTrack.getId()),
@@ -1191,6 +1425,9 @@ public class MainView extends BorderPane {
                     queueViews.get(workspaceQueue.getId())
             ));
         }
+        for (WorkspaceVirtualTile tile : projectState.getWorkspaceVirtualTiles()) {
+            items.add(new WorkspaceTopLevelItem(tile.getId(), tile.getOrder(), virtualTileViews.get(tile.getId())));
+        }
         items.sort(Comparator.comparingInt(WorkspaceTopLevelItem::order));
         return items;
     }
@@ -1207,8 +1444,15 @@ public class MainView extends BorderPane {
         return workspaceQueues;
     }
 
+    private List<WorkspaceVirtualTile> sortedWorkspaceVirtualTiles() {
+        List<WorkspaceVirtualTile> tiles = new ArrayList<>(projectState.getWorkspaceVirtualTiles());
+        tiles.sort(Comparator.comparingInt(WorkspaceVirtualTile::getOrder));
+        return tiles;
+    }
+
     private int workspaceItemCount() {
-        return projectState.getWorkspaceTracks().size() + projectState.getWorkspaceQueues().size();
+        return projectState.getWorkspaceTracks().size() + projectState.getWorkspaceQueues().size()
+                + projectState.getWorkspaceVirtualTiles().size();
     }
 
     private String nextQueueName() {
@@ -1229,12 +1473,16 @@ public class MainView extends BorderPane {
                 trackTileView.dispose();
             } else if (node instanceof QueueView queueView) {
                 queueView.dispose();
+            } else if (node instanceof VirtualTileView virtualTileView) {
+                virtualTileView.dispose();
             }
         });
         disposeWorkspaceTrackItems();
         disposeWorkspaceQueueItems();
+        disposeWorkspaceVirtualTileItems();
         trackTileViews.clear();
         queueViews.clear();
+        virtualTileViews.clear();
         workspacePauseLatched = false;
         refreshWorkspaceTransportButtons();
     }
@@ -1255,12 +1503,19 @@ public class MainView extends BorderPane {
         }
     }
 
+    private void disposeWorkspaceVirtualTileItems() {
+        Collection<WorkspaceVirtualTileItem> items = new ArrayList<>(workspaceVirtualTileItems.values());
+        workspaceVirtualTileItems.clear();
+        items.forEach(WorkspaceVirtualTileItem::dispose);
+    }
+
     private void updateMasterVolume(double masterVolume) {
         this.masterVolume = Math.max(0d, Math.min(1d, masterVolume));
         projectState.setMasterVolume(this.masterVolume);
         masterVolumeValueLabel.setText(Math.round(this.masterVolume * 100d) + "%");
         workspaceTrackItems.values().forEach(item -> item.setMasterVolume(this.masterVolume));
         workspaceQueueItems.values().forEach(item -> item.setMasterVolume(this.masterVolume));
+        workspaceVirtualTileItems.values().forEach(item -> item.setMasterVolume(this.masterVolume));
     }
 
     private void toggleWorkspacePlayPause() {
@@ -1282,6 +1537,7 @@ public class MainView extends BorderPane {
         for (WorkspaceQueueItem workspaceQueueItem : workspaceQueueItems.values()) {
             workspaceQueueItem.pauseIfPlaying();
         }
+        workspaceVirtualTileItems.values().forEach(WorkspaceVirtualTileItem::pauseIfPlaying);
     }
 
     private void resumePausedWorkspaceItems() {
@@ -1292,11 +1548,13 @@ public class MainView extends BorderPane {
         for (WorkspaceQueueItem workspaceQueueItem : workspaceQueueItems.values()) {
             workspaceQueueItem.resumeIfPaused();
         }
+        workspaceVirtualTileItems.values().forEach(WorkspaceVirtualTileItem::resumeIfPaused);
     }
 
     private void stopWorkspacePlayback() {
         workspaceTrackItems.values().forEach(WorkspaceTrackItem::stop);
         workspaceQueueItems.values().forEach(WorkspaceQueueItem::stop);
+        workspaceVirtualTileItems.values().forEach(WorkspaceVirtualTileItem::stop);
         workspacePauseLatched = false;
         refreshWorkspaceTransportButtons();
     }
@@ -1308,10 +1566,54 @@ public class MainView extends BorderPane {
         }
     }
 
+    /**
+     * Uses a daemon scheduler instead of a JavaFX Timeline. An indefinite Timeline keeps the JavaFX master animation
+     * timer and native renderer pulsing near display frequency even when its key frames run only a few times per second;
+     * on effect-heavy skins that made an otherwise idle window continuously rasterize and present large surfaces. The
+     * scheduler wakes the FX thread only at the configured polling interval and coalesces delayed requests so a busy UI
+     * cannot accumulate stale refresh work. Actual playback and hover animations remain free to request their own pulses.
+     */
+    private void startUiRefreshScheduler() {
+        long refreshMillis = appConfig.getWorkspace().getProgressRefreshMillis();
+        uiRefreshScheduler.scheduleAtFixedRate(this::requestUiRefresh, refreshMillis, refreshMillis, TimeUnit.MILLISECONDS);
+    }
+
+    private void requestUiRefresh() {
+        if (!uiRefreshQueued.compareAndSet(false, true)) return;
+        Platform.runLater(() -> {
+            try {
+                refreshWaveformLoadingIndicator();
+                refreshWorkspacePlaybackViews();
+            } finally {
+                uiRefreshQueued.set(false);
+            }
+        });
+    }
+
+    private void refreshWorkspacePlaybackViews() {
+        boolean activePlayback = workspaceTrackItems.values().stream()
+                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING)
+                || workspaceQueueItems.values().stream()
+                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING)
+                || workspaceVirtualTileItems.values().stream()
+                .flatMap(item -> item.getTrackItems().stream())
+                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING);
+        if (!activePlayback && !workspacePlaybackWasActive) return;
+        workspacePlaybackWasActive = activePlayback;
+        trackTileViews.values().forEach(TrackTileView::refreshPlayback);
+        queueViews.values().forEach(QueueView::refreshPlayback);
+        virtualTileViews.values().forEach(VirtualTileView::refreshPlayback);
+    }
+
     private void refreshWaveformLoadingIndicator() {
         boolean loadingWaveforms = waveformService.getPendingLoadCount() > 0;
-        waveformLoadingIndicator.setVisible(loadingWaveforms);
-        waveformLoadingIndicator.setManaged(loadingWaveforms);
+        if (waveformLoadingIndicator.isVisible() != loadingWaveforms) {
+            waveformLoadingIndicator.setVisible(loadingWaveforms);
+            waveformLoadingIndicator.setManaged(loadingWaveforms);
+            waveformLoadingIndicator.setProgress(loadingWaveforms
+                    ? ProgressIndicator.INDETERMINATE_PROGRESS
+                    : 0d);
+        }
     }
 
     private void requestProjectSave() {

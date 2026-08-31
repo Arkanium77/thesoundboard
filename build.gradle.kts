@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "team.isaz"
-version = "1.0.0"
+version = "1.1.0"
 val applicationVersion = version.toString()
 
 java {
@@ -139,8 +139,25 @@ val sakuraExamplePackage by tasks.registering(Zip::class) {
     destinationDirectory = file("examples/skins/Sakura")
 }
 
+val tacticalCodecExamplePackage by tasks.registering(Zip::class) {
+    group = "distribution"
+    description = "Packages the editable Tactical Codec example skin."
+    from("examples/skins/Tactical Codec/source")
+    archiveFileName = "Tactical Codec.tsbs"
+    destinationDirectory = file("examples/skins/Tactical Codec")
+}
+
+val retroAmpExamplePackage by tasks.registering(Zip::class) {
+    group = "distribution"
+    description = "Packages the editable Retro Amp example skin."
+    from("examples/skins/Retro Amp/source")
+    archiveFileName = "Retro Amp.tsbs"
+    destinationDirectory = file("examples/skins/Retro Amp")
+}
+
 val packageExampleSkins by tasks.registering {
-    dependsOn(nightModeExamplePackage, sakuraExamplePackage)
+    dependsOn(nightModeExamplePackage, sakuraExamplePackage, tacticalCodecExamplePackage,
+            retroAmpExamplePackage)
     group = "distribution"
     description = "Rebuilds all ready-to-install example skin packages."
 }
@@ -161,8 +178,17 @@ val preRevolutionaryLocalizationExamplePackage by tasks.registering(Zip::class) 
     destinationDirectory = file("examples/localizations/Pre-Revolutionary Russian")
 }
 
+val leetspeakLocalizationExamplePackage by tasks.registering(Zip::class) {
+    group = "distribution"
+    description = "Packages the editable Leetspeak localization example."
+    from("examples/localizations/Leetspeak/source")
+    archiveFileName = "Leetspeak.tsbl"
+    destinationDirectory = file("examples/localizations/Leetspeak")
+}
+
 val packageExampleLocalizations by tasks.registering {
-    dependsOn(russianLocalizationExamplePackage, preRevolutionaryLocalizationExamplePackage)
+    dependsOn(russianLocalizationExamplePackage, preRevolutionaryLocalizationExamplePackage,
+            leetspeakLocalizationExamplePackage)
     group = "distribution"
     description = "Rebuilds all ready-to-install example localization packages."
 }
@@ -171,6 +197,20 @@ val packageExamples by tasks.registering {
     dependsOn(packageExampleSkins, packageExampleLocalizations)
     group = "distribution"
     description = "Rebuilds all example skin and localization packages."
+}
+
+val bundledSkinPackages = fileTree("examples/skins") {
+    include("**/*.tsbs")
+}
+val bundledLocalizationPackages = fileTree("examples/localizations") {
+    include("**/*.tsbl")
+}
+val applicationAssetsDirectory = packageOutputDir.map { outputDirectory ->
+    if (releasePlatform == "macos") {
+        outputDirectory.dir("$appImageDirectoryName/Contents/assets")
+    } else {
+        outputDirectory.dir("$appImageDirectoryName/assets")
+    }
 }
 
 tasks.named("assemble") {
@@ -223,7 +263,7 @@ val createAppImage by tasks.registering(Exec::class) {
             "--app-version", applicationVersion,
             "--vendor", "Arkanium77 & ISAZ Team",
             "--copyright", "Copyright 2026 Arkanium77 & ISAZ Team",
-            "--description", "A desktop soundboard for organizing and playing audio tracks.",
+            "--description", applicationDisplayName,
             "--icon", applicationIcon.absolutePath,
             "--input", packageInputDir.get().asFile.absolutePath,
             "--main-jar", tasks.jar.get().archiveFileName.get(),
@@ -240,8 +280,23 @@ val createAppImage by tasks.registering(Exec::class) {
     }
 }
 
+val bundleApplicationAssets by tasks.registering(Sync::class) {
+    dependsOn(createAppImage, packageExamples)
+    group = "distribution"
+    description = "Copies ready-to-use skin and localization packages into the application image."
+    from(bundledSkinPackages) {
+        eachFile { path = "skins/$name" }
+        includeEmptyDirs = false
+    }
+    from(bundledLocalizationPackages) {
+        eachFile { path = "localization/$name" }
+        includeEmptyDirs = false
+    }
+    into(applicationAssetsDirectory)
+}
+
 val prepareRelease by tasks.registering(Sync::class) {
-    dependsOn(createAppImage)
+    dependsOn(bundleApplicationAssets)
     group = "distribution"
     description = "Stages the application image and release documentation."
     doFirst {

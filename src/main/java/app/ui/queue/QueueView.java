@@ -16,7 +16,6 @@ import app.waveform.WaveformData;
 import app.waveform.WaveformService;
 import javafx.application.Platform;
 import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
 import javafx.animation.SequentialTransition;
 import javafx.animation.Timeline;
@@ -25,7 +24,9 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
@@ -69,8 +70,8 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private final QueueWorkspaceTrackDropHandler addWorkspaceTrackAction;
     private final Consumer<QueueTrack> removeQueueTrackAction;
     private final QueueTrackMoveHandler moveQueueTrackAction;
+    private final VirtualTrackDropHandler addVirtualTrackAction;
     private final WorkspaceQueueMoveHandler moveWorkspaceQueueAction;
-    private final Timeline refreshTimeline;
 
     private final AnchorPane leftInsertionMarker = createInsertionMarker(true);
     private final AnchorPane rightInsertionMarker = createInsertionMarker(false);
@@ -96,20 +97,28 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private final ToggleButton loopTrackButton = new ToggleButton(Texts.text(TextKey.QUEUE_TRACK), loopTrackGraphic);
     private final ToggleButton loopQueueButton = new ToggleButton(Texts.text(TextKey.QUEUE_QUEUE), loopQueueGraphic);
     private final Slider volumeSlider = new Slider(0d, 100d, 80d);
+    private final Slider trackVolumeSlider = new Slider(0d, 100d, 100d);
     private final WaveformSeekView waveformSeekView = new WaveformSeekView();
     private final Label currentTimeLabel = new Label("00:00");
     private final Label totalTimeLabel = new Label("00:00");
     private final Label volumeLabel = new Label(Texts.text(TextKey.QUEUE_VOLUME));
+    private final Label trackVolumeLabel = new Label(Texts.text(TextKey.QUEUE_TRACK_VOLUME));
+    private final MenuItem resetTrackVolumesItem = new MenuItem(Texts.text(TextKey.QUEUE_RESET_TRACK_VOLUMES));
+    private final ContextMenu contextMenu = new ContextMenu(resetTrackVolumesItem);
     private final FlowPane chipContainer = new FlowPane();
     private final ScrollPane chipScrollPane = new ScrollPane(chipContainer);
     private final BorderPane content = new BorderPane();
     private final HBox titleRow = new HBox();
     private final HBox transportRow = new HBox();
+    private final HBox volumeRow = new HBox();
+    private final HBox trackVolumeRow = new HBox();
+    private final VBox volumeControls = new VBox();
     private final HBox progressTimeRow = new HBox();
     private final HBox progressRow = new HBox();
     private final VBox body = new VBox();
 
     private boolean editingQueueName;
+    private boolean titleHovered;
     private String editingOriginalQueueName;
     private QueueTrackChipView insertionTargetChipView;
     private boolean insertionAfter;
@@ -123,13 +132,13 @@ public class QueueView extends StackPane implements WorkspaceItemView {
             UiConfig uiConfig,
             WorkspaceQueueItem workspaceQueueItem,
             WaveformService waveformService,
-            int progressRefreshMillis,
             Runnable removeQueueAction,
             Runnable persistenceChangeAction,
             QueueAudioDropHandler addAudioFilesAction,
             QueueWorkspaceTrackDropHandler addWorkspaceTrackAction,
             Consumer<QueueTrack> removeQueueTrackAction,
             QueueTrackMoveHandler moveQueueTrackAction,
+            VirtualTrackDropHandler addVirtualTrackAction,
             WorkspaceQueueMoveHandler moveWorkspaceQueueAction
     ) {
         getStyleClass().add("queue-tile");
@@ -141,25 +150,29 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         this.addWorkspaceTrackAction = addWorkspaceTrackAction;
         this.removeQueueTrackAction = removeQueueTrackAction;
         this.moveQueueTrackAction = moveQueueTrackAction;
+        this.addVirtualTrackAction = addVirtualTrackAction;
         this.moveWorkspaceQueueAction = moveWorkspaceQueueAction;
         this.baseWaveformHeight = uiConfig.getWaveformHeight();
-        this.refreshTimeline = new Timeline(new KeyFrame(Duration.millis(progressRefreshMillis), event -> refresh()));
-
         configureLayout(uiConfig);
         configureActions();
         rebuildChips();
         refresh();
 
-        refreshTimeline.setCycleCount(Timeline.INDEFINITE);
-        refreshTimeline.play();
     }
 
     public void dispose() {
-        refreshTimeline.stop();
+        chipContainer.getChildren().stream()
+                .filter(QueueTrackChipView.class::isInstance)
+                .map(QueueTrackChipView.class::cast)
+                .forEach(QueueTrackChipView::dispose);
         waveformRequestGeneration++;
         currentWaveformPath = null;
         waveformSeekView.setWaveformData(WaveformData.empty());
         stopTitleAnimation();
+    }
+
+    public void refreshPlayback() {
+        refresh();
     }
 
     public void updateTileMetrics(double tileWidth, double tileHeight, double tileScale) {
@@ -181,6 +194,10 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     }
 
     public void rebuildChips() {
+        chipContainer.getChildren().stream()
+                .filter(QueueTrackChipView.class::isInstance)
+                .map(QueueTrackChipView.class::cast)
+                .forEach(QueueTrackChipView::dispose);
         List<QueueTrackChipView> chipViews = new ArrayList<>();
         for (QueueTrack queueTrack : workspaceQueueItem.getTracks()) {
             AudioFile audioFile = workspaceQueueItem.getAudioFile(queueTrack.getAudioFileId()).orElse(null);
@@ -201,7 +218,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
                         removeQueueTrackAction.accept(track);
                         rebuildChips();
                         refresh();
-                    }
+                    },
+                    volume -> workspaceQueueItem.setTrackVolume(queueTrack.getId(), volume),
+                    persistenceChangeAction
             );
             chipView.updateScale(currentScale);
             configureChipDragAndDrop(chipView);
@@ -223,6 +242,15 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         queueNameLabel.setWrapText(false);
         titleViewport.setClip(titleClip);
         titleViewport.getChildren().add(queueNameLabel);
+        titleViewport.setOnMouseEntered(event -> {
+            titleHovered = true;
+            updateTitleAnimation();
+        });
+        titleViewport.setOnMouseExited(event -> {
+            titleHovered = false;
+            stopTitleAnimation();
+            queueNameLabel.setTranslateX(0d);
+        });
         titleViewport.widthProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         titleViewport.heightProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         queueNameLabel.layoutBoundsProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
@@ -256,11 +284,21 @@ public class QueueView extends StackPane implements WorkspaceItemView {
                 removeQueueButton,
                 loopTrackButton,
                 loopQueueButton,
-                volumeLabel,
-                volumeSlider
+                volumeControls
         );
         transportRow.setAlignment(Pos.CENTER_LEFT);
+
+        volumeRow.getChildren().setAll(volumeLabel, volumeSlider);
+        volumeRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(volumeSlider, Priority.ALWAYS);
+
+        trackVolumeRow.getChildren().setAll(trackVolumeLabel, trackVolumeSlider);
+        trackVolumeRow.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(trackVolumeSlider, Priority.ALWAYS);
+        volumeControls.getChildren().setAll(volumeRow, trackVolumeRow);
+        VBox.setVgrow(volumeRow, Priority.ALWAYS);
+        VBox.setVgrow(trackVolumeRow, Priority.ALWAYS);
+        HBox.setHgrow(volumeControls, Priority.ALWAYS);
 
         progressTimeRow.getChildren().setAll(currentTimeLabel, createSpacer(), totalTimeLabel);
         progressTimeRow.setAlignment(Pos.CENTER_LEFT);
@@ -292,6 +330,15 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         waveformSeekView.setWaveformData(WaveformData.empty());
         applyScale(1d);
         updateTitleAnimation();
+        resetTrackVolumesItem.setOnAction(event -> {
+            workspaceQueueItem.resetTrackVolumes();
+            trackVolumeSlider.setValue(100d);
+            persistenceChangeAction.run();
+        });
+        setOnContextMenuRequested(event -> {
+            contextMenu.show(this, event.getScreenX(), event.getScreenY());
+            event.consume();
+        });
     }
 
     public void refreshLocalization() {
@@ -300,6 +347,8 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         loopTrackButton.setText(Texts.text(TextKey.QUEUE_TRACK));
         loopQueueButton.setText(Texts.text(TextKey.QUEUE_QUEUE));
         volumeLabel.setText(Texts.text(TextKey.QUEUE_VOLUME));
+        trackVolumeLabel.setText(Texts.text(TextKey.QUEUE_TRACK_VOLUME));
+        resetTrackVolumesItem.setText(Texts.text(TextKey.QUEUE_RESET_TRACK_VOLUMES));
         queueNameField.setPromptText(Texts.text(TextKey.QUEUE_NAME));
         loopTrackButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_LOOP_TRACK)));
         loopQueueButton.setTooltip(new Tooltip(Texts.text(TextKey.QUEUE_LOOP_QUEUE)));
@@ -383,6 +432,13 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         volumeSlider.valueProperty().addListener((observable, oldValue, newValue) ->
                 workspaceQueueItem.setVolume(newValue.doubleValue() / 100d)
         );
+        trackVolumeSlider.valueProperty().addListener((observable, oldValue, newValue) ->
+                workspaceQueueItem.setSelectedTrackVolume(newValue.doubleValue() / 100d)
+        );
+        trackVolumeSlider.valueChangingProperty().addListener((observable, oldValue, newValue) -> {
+            if (!newValue) persistenceChangeAction.run();
+        });
+        trackVolumeSlider.setOnMouseReleased(event -> persistenceChangeAction.run());
         waveformSeekView.setSeekHandler(position -> {
             workspaceQueueItem.seek(position);
             refresh();
@@ -450,9 +506,11 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     }
 
     private void refresh() {
-        PlaybackStatus playbackStatus = workspaceQueueItem.getStatus();
-        Duration currentTime = workspaceQueueItem.getCurrentTime();
-        Duration totalTime = workspaceQueueItem.getTotalDuration();
+        PlaybackStatus activePlaybackStatus = workspaceQueueItem.getStatus();
+        PlaybackStatus playbackStatus = workspaceQueueItem.getFocusedStatus();
+        waveformSeekView.setPlaying(playbackStatus == PlaybackStatus.PLAYING);
+        Duration currentTime = workspaceQueueItem.getFocusedCurrentTime();
+        Duration totalTime = workspaceQueueItem.getFocusedTotalDuration();
         refreshWaveformSource();
 
         Node graphic = playbackStatus == PlaybackStatus.PLAYING ? pauseGraphic : playGraphic;
@@ -467,14 +525,20 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         currentTimeLabel.setText(formatDuration(waveformSeekView.getDisplayedPosition()));
         totalTimeLabel.setText(formatDuration(totalTime));
 
-        UUID selectedTrackId = workspaceQueueItem.getSelectedTrack().map(QueueTrack::getId).orElse(null);
-        boolean activeTrack = selectedTrackId != null;
+        UUID selectedTrackId = workspaceQueueItem.getFocusedTrack().map(QueueTrack::getId).orElse(null);
+        UUID activeTrackId = workspaceQueueItem.getActiveTrackId();
+        trackVolumeSlider.setDisable(selectedTrackId == null);
+        double selectedVolume = workspaceQueueItem.getSelectedTrackVolume() * 100d;
+        if (Math.abs(trackVolumeSlider.getValue() - selectedVolume) > 0.01d) {
+            trackVolumeSlider.setValue(selectedVolume);
+        }
         for (var node : chipContainer.getChildren()) {
             if (!(node instanceof QueueTrackChipView chipView)) {
                 continue;
             }
             boolean selected = Objects.equals(chipView.getQueueTrack().getId(), selectedTrackId);
-            chipView.refresh(selected, playbackStatus, activeTrack && selected);
+            chipView.refresh(selected, activePlaybackStatus,
+                    Objects.equals(chipView.getQueueTrack().getId(), activeTrackId));
         }
         if (!editingQueueName) {
             updateTitleAnimation();
@@ -580,6 +644,8 @@ public class QueueView extends StackPane implements WorkspaceItemView {
             return true;
         }
 
+        if (DragPayload.parseVirtualTileTrack(payload) != null) return true;
+
         QueueTrackPayload queueTrackPayload = parseQueueTrackPayload(payload);
         if (queueTrackPayload != null) {
             if (!queueTrackPayload.queueId().equals(getWorkspaceItemId())) {
@@ -608,6 +674,12 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         UUID workspaceTrackId = parseWorkspaceTrackId(payload);
         if (workspaceTrackId != null) {
             addWorkspaceTrackAction.addWorkspaceTrack(workspaceTrackId, targetQueueTrackId, placeAfter);
+            return true;
+        }
+
+        DragPayload.VirtualTileTrackRef virtualTrack = DragPayload.parseVirtualTileTrack(payload);
+        if (virtualTrack != null) {
+            addVirtualTrackAction.add(virtualTrack.tileId(), virtualTrack.trackId(), targetQueueTrackId, placeAfter);
             return true;
         }
 
@@ -722,6 +794,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         titleRow.setSpacing(8d * scale);
         titleRow.setPadding(new Insets(0, 18d * scale, 0, 0));
         transportRow.setSpacing(5d * scale);
+        volumeControls.setSpacing(2d * scale);
+        volumeRow.setSpacing(5d * scale);
+        trackVolumeRow.setSpacing(5d * scale);
         progressTimeRow.setSpacing(1d * scale);
         body.setSpacing(2d * scale);
         queueNameLabel.setStyle("-fx-font-size: " + (14d * scale) + "px; -fx-font-weight: bold;");
@@ -737,7 +812,14 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         removeQueueButton.setStyle(buttonStyle(11d * scale, 3d * scale, 8d * scale));
         loopTrackButton.setStyle(buttonStyle(11d * scale, 2d * scale, 7d * scale));
         loopQueueButton.setStyle(buttonStyle(11d * scale, 2d * scale, 7d * scale));
+        volumeLabel.setMinWidth(82d * scale);
+        volumeLabel.setPrefWidth(82d * scale);
+        trackVolumeLabel.setMinWidth(82d * scale);
+        trackVolumeLabel.setPrefWidth(82d * scale);
+        volumeSlider.setMinWidth(136d * scale);
         volumeSlider.setPrefWidth(136d * scale);
+        trackVolumeSlider.setMinWidth(136d * scale);
+        trackVolumeSlider.setPrefWidth(136d * scale);
         currentTimeLabel.setStyle("-fx-font-size: " + (11d * scale) + "px;");
         totalTimeLabel.setStyle("-fx-font-size: " + (11d * scale) + "px;");
         chipContainer.setPadding(new Insets(0));
@@ -811,7 +893,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         titleClip.setHeight(Math.max(titleViewport.getHeight(), 22d * currentScale));
 
         double overflow = queueNameLabel.getLayoutBounds().getWidth() - titleViewport.getWidth();
-        if (editingQueueName || overflow <= 4d) {
+        if (editingQueueName || !titleHovered || overflow <= 4d) {
             stopTitleAnimation();
             queueNameLabel.setTranslateX(0d);
             return;
@@ -861,6 +943,10 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     @FunctionalInterface
     public interface QueueTrackMoveHandler {
         void moveQueueTrack(UUID sourceQueueId, UUID queueTrackId, UUID targetQueueTrackId, boolean placeAfter);
+    }
+
+    public interface VirtualTrackDropHandler {
+        void add(UUID tileId, UUID trackId, UUID targetQueueTrackId, boolean placeAfter);
     }
 
     @FunctionalInterface

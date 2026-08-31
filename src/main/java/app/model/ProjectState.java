@@ -9,6 +9,7 @@ public class ProjectState {
     private List<AudioFile> audioFiles = new ArrayList<>();
     private List<WorkspaceTrack> workspaceTracks = new ArrayList<>();
     private List<WorkspaceQueue> workspaceQueues = new ArrayList<>();
+    private List<WorkspaceVirtualTile> workspaceVirtualTiles = new ArrayList<>();
 
     public ProjectState() {
     }
@@ -59,5 +60,10 @@ public class ProjectState {
 
     public void setWorkspaceQueues(List<WorkspaceQueue> workspaceQueues) {
         this.workspaceQueues = workspaceQueues == null ? new ArrayList<>() : new ArrayList<>(workspaceQueues);
+    }
+
+    public List<WorkspaceVirtualTile> getWorkspaceVirtualTiles() { return workspaceVirtualTiles; }
+    public void setWorkspaceVirtualTiles(List<WorkspaceVirtualTile> workspaceVirtualTiles) {
+        this.workspaceVirtualTiles = workspaceVirtualTiles == null ? new ArrayList<>() : new ArrayList<>(workspaceVirtualTiles);
     }
 }

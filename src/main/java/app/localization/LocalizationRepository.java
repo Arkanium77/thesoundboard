@@ -46,6 +46,14 @@ public class LocalizationRepository {
         return findAll().stream().filter(item -> item.manifest().getUid().equals(uid)).findFirst().orElseGet(this::english);
     }
 
+    public LocalizationDescriptor findSelected(UUID uid, int version) {
+        return findAll().stream()
+                .filter(item -> item.manifest().getUid().equals(uid))
+                .filter(item -> item.manifest().getVersion() == version)
+                .findFirst()
+                .orElseGet(this::english);
+    }
+
     public LocalizationDescriptor loadDirectory(Path source) {
         return load(source).orElseThrow(() -> new IllegalArgumentException("The localization folder is incomplete or invalid"));
     }
@@ -70,7 +78,8 @@ public class LocalizationRepository {
         try {
             LocalizationManifest manifest = mapper.readValue(manifestFile.toFile(), LocalizationManifest.class);
             if (manifest.getUid() == null || manifest.getName() == null || manifest.getName().isBlank()
-                    || manifest.getLocalizationVersion() != 1 || ENGLISH_UID.equals(manifest.getUid())) return Optional.empty();
+                    || manifest.getLocalizationVersion() != 1 || manifest.getVersion() < 1
+                    || ENGLISH_UID.equals(manifest.getUid())) return Optional.empty();
             Path stringsFile = source.resolve(manifest.getStrings()).normalize();
             if (!stringsFile.startsWith(source.normalize()) || !Files.isRegularFile(stringsFile)) return Optional.empty();
             Map<String, String> raw = mapper.readValue(stringsFile.toFile(), new TypeReference<LinkedHashMap<String, String>>() {});

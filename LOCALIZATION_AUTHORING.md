@@ -10,7 +10,7 @@ The Soundboard localizations are ZIP-compatible `.tsbl` packages. The package ro
 4. Choose **Create Package...**, select the source folder, and save the `.tsbl` outside that folder.
 5. Install the package and inspect the main window, settings, dialogs, empty states, tooltips, tracks, and queues.
 
-Editable examples and ready packages are available in [`examples/localizations`](examples/localizations). Rebuild them with `./gradlew packageExampleLocalizations` or `.\gradlew.bat packageExampleLocalizations`.
+Editable examples and ready packages are available in [`examples/localizations`](examples/localizations). Leetspeak is the language-neutral reference implementation; the Russian examples demonstrate non-Latin catalogs. Rebuild them with `./gradlew packageExampleLocalizations` or `.\gradlew.bat packageExampleLocalizations`.
 
 ## Manifest
 
@@ -19,13 +19,15 @@ uid: 2195946d-8797-4f48-a81b-a2a12d1c4a30
 name: "🇷🇺 Русский"
 languageTag: ru
 localizationVersion: 1
+version: 1
 strings: strings.yml
 ```
 
 - `uid` is the stable identity. Keep it unchanged when publishing an update.
 - `name` is UTF-8 and may contain emoji.
 - `languageTag` should be a BCP 47 language tag such as `ru`, `ja`, or `pt-BR`.
-- `localizationVersion` is currently `1`.
+- `localizationVersion` is the package-format version and is currently `1`.
+- `version` is the localization revision described below.
 - `strings` is a safe path inside the package.
 
 ## Strings
@@ -53,6 +55,12 @@ Use **Settings → Localization → Update...** and select either the editable s
 
 Search the updated `strings.yml` for newly appended English text, translate it, then package and reinstall using the same UID. Keep a source folder under version control; `.tsbl` is a distribution artifact, not the most convenient editing format.
 
+Use the manifest field `version` as a positive, monotonically increasing package revision starting at `1`. Keep the UID unchanged for revisions of the same localization. Different versions are installed side by side; omitting `version` is supported for older packages and means version 1.
+
 ## Installation and updates
 
 Installed localizations live under `~/.thesoundboard/localizations` (`%USERPROFILE%\.thesoundboard\localizations` on Windows), outside the application installation. They survive ordinary updates where a new release is copied over an old one. Installing the same UID offers a complete replacement, while export creates a transferable `.tsbl` copy.
+
+Release builds include ready-to-use packages under `TheSoundboard/assets/localization`. The application scans an ordered list of package-source directories on startup and whenever **Settings → Localization** is refreshed. A valid package that is not installed yet is imported automatically, while a package with an installed UID becomes an update source without silently replacing the installed localization. Dropping another `.tsbl` into this directory makes it visible after reopening the section or pressing its loop button. Files in the application directory are replaceable release assets; retain a separate copy if a custom package must survive application-folder replacement.
+
+The application also remembers the original `.tsbl` path selected through the installation dialog. If that file exists it takes priority over automatically discovered sources; otherwise updates fall back through the configured source directories in order. Localizations installed by an earlier application version need either one manual replacement or a matching discovered package before their source becomes known.

@@ -27,6 +27,7 @@ public class WorkspaceTrackItem {
     private boolean trackCreationFailed;
     private boolean muted;
     private double masterVolume;
+    private Duration pendingSeekPosition;
 
     public WorkspaceTrackItem(
             Path rootPath,
@@ -76,6 +77,7 @@ public class WorkspaceTrackItem {
     }
 
     public Duration getCurrentTime() {
+        if (pendingSeekPosition != null) return pendingSeekPosition;
         return playingTrack == null ? Duration.ZERO : playingTrack.getCurrentTime();
     }
 
@@ -91,12 +93,17 @@ public class WorkspaceTrackItem {
         PlaybackStatus playbackStatus = playingTrack.getStatus();
         if (playbackStatus == PlaybackStatus.PLAYING) {
             playingTrack.pause();
+        } else if (pendingSeekPosition != null) {
+            Duration startPosition = pendingSeekPosition;
+            pendingSeekPosition = null;
+            playingTrack.restorePlayback(startPosition, false);
         } else {
             playingTrack.play();
         }
     }
 
     public void stop() {
+        pendingSeekPosition = null;
         if (playingTrack != null) {
             playingTrack.stop();
         }
@@ -120,10 +127,23 @@ public class WorkspaceTrackItem {
         return true;
     }
 
+    /**
+     * Retains a seek made before playback instead of trusting a stopped media backend to preserve it. JavaFX can
+     * report the requested position and still reset it to zero on the next Play. Active and paused tracks seek
+     * immediately; READY, STOPPED and FINISHED tracks reapply the position through restorePlayback when started.
+     */
     public void seek(Duration position) {
-        if (ensureTrackInitialized() && playingTrack != null) {
-            playingTrack.seek(position);
+        if (!ensureTrackInitialized() || playingTrack == null) return;
+
+        Duration seekPosition = position == null || position.isUnknown() || position.isIndefinite()
+                || position.lessThan(Duration.ZERO) ? Duration.ZERO : position;
+        PlaybackStatus status = playingTrack.getStatus();
+        if (status == PlaybackStatus.PLAYING || status == PlaybackStatus.PAUSED) {
+            pendingSeekPosition = null;
+            playingTrack.seek(seekPosition);
+            return;
         }
+        pendingSeekPosition = seekPosition;
     }
 
     public void setVolume(double volume) {
@@ -152,7 +172,38 @@ public class WorkspaceTrackItem {
         applyVolume();
     }
 
+    public PlaybackSnapshot snapshotPlayback() {
+        return new PlaybackSnapshot(getStatus(), getCurrentTime(), muted);
+    }
+
+    public PlaybackTransfer detachPlayback() {
+        if (playingTrack == null) return null;
+        pendingSeekPosition = null;
+        PlaybackTransfer transfer = new PlaybackTransfer(playingTrack, playingTrack.getStatus(), muted);
+        playingTrack = null;
+        return transfer;
+    }
+
+    public void acceptPlayback(PlaybackTransfer transfer) {
+        if (transfer == null || !transfer.isActive()) return;
+        if (playingTrack != null) playingTrack.dispose();
+        playingTrack = transfer.playingTrack();
+        pendingSeekPosition = null;
+        muted = transfer.muted();
+        applyVolume();
+        playingTrack.setLoop(workspaceTrack.isLoop());
+    }
+
+    public void restorePlayback(PlaybackSnapshot snapshot) {
+        if (snapshot == null || !snapshot.isActive() || !ensureTrackInitialized() || playingTrack == null) return;
+        pendingSeekPosition = null;
+        muted = snapshot.muted();
+        applyVolume();
+        playingTrack.restorePlayback(snapshot.position(), snapshot.status() == PlaybackStatus.PAUSED);
+    }
+
     public void dispose() {
+        pendingSeekPosition = null;
         if (playingTrack != null) {
             playingTrack.dispose();
             playingTrack = null;

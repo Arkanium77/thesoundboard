@@ -60,5 +60,8 @@ public class ProjectStateRepository {
         if (projectState.getWorkspaceQueues() == null) {
             projectState.setWorkspaceQueues(null);
         }
+        if (projectState.getWorkspaceVirtualTiles() == null) {
+            projectState.setWorkspaceVirtualTiles(null);
+        }
     }
 }

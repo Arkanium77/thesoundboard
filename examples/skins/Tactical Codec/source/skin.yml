@@ -1,0 +1,14 @@
+uid: 5f0b1e71-c5cc-4e75-9c00-5a1e70000001
+name: "📟 Tactical Codec"
+skinVersion: 1
+version: 2
+stylesheet: skin.css
+fonts:
+  regular: system
+  bold: system
+  italic: system
+  boldItalic: system
+rendering:
+  windows: AUTOMATIC
+  linux: AUTOMATIC
+  macos: AUTOMATIC

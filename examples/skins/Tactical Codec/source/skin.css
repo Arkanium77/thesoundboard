@@ -1,0 +1,270 @@
+.soundboard-root {
+    -tsb-paper: #d8d0b4;
+    -tsb-paper-dark: #b8ad8b;
+    -tsb-steel: #5f675d;
+    -tsb-steel-dark: #30362f;
+    -tsb-red: #9f1d20;
+    -tsb-red-dark: #5f1012;
+    -tsb-ink: #211f19;
+    -tsb-surface: -tsb-paper;
+    -tsb-border: -tsb-steel-dark;
+    -tsb-icon: -tsb-ink;
+    -tsb-insertion: -tsb-red;
+    -tsb-chip-selected: -tsb-red;
+    -tsb-playing-background: #aeb88a;
+    -tsb-playing-border: #3f5c32;
+    -tsb-paused-background: #d7bd72;
+    -tsb-paused-border: #80601a;
+    -tsb-finished-background: #c99586;
+    -tsb-finished-border: -tsb-red-dark;
+    -tsb-ready-background: #c7c1a5;
+    -fx-base: -tsb-paper-dark;
+    -fx-background: #817e6d;
+    -fx-control-inner-background: -tsb-paper;
+    -fx-accent: -tsb-red;
+    -fx-focus-color: -tsb-red;
+    -fx-faint-focus-color: rgba(159, 29, 32, 0.24);
+    -fx-text-fill: -tsb-ink;
+    -fx-font-family: "System";
+}
+
+.soundboard-icon {
+    -fx-fill: -tsb-icon;
+}
+
+.status-bar {
+    -fx-background-color: -tsb-paper-dark;
+    -fx-border-color: -tsb-steel-dark transparent transparent transparent;
+    -fx-border-width: 1px 0 0 0;
+}
+
+.project-tree .tree-cell:selected {
+    -fx-background-color: #bda99a;
+}
+
+.project-tree:focused .tree-cell:selected {
+    -fx-background-color: -tsb-red;
+    -fx-text-fill: #f5edd2;
+}
+
+.button,
+.toggle-button,
+.menu-button {
+    -fx-background-color:
+        -tsb-steel-dark,
+        linear-gradient(to bottom, #e2dbc3 0%, #bdb18e 52%, #958a6d 100%);
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 0;
+    -fx-border-color: #161a16;
+    -fx-border-width: 1px 2px 3px 1px;
+    -fx-border-radius: 0;
+    -fx-padding: 6px 12px 7px 12px;
+    -fx-font-weight: bold;
+    -fx-effect: none;
+}
+
+.button:hover,
+.toggle-button:hover,
+.menu-button:hover {
+    -fx-background-color:
+        -tsb-red-dark,
+        linear-gradient(to bottom, #e4d8b7 0%, #c9af73 100%);
+}
+
+.button:pressed,
+.toggle-button:pressed,
+.toggle-button:selected {
+    -fx-background-color:
+        #171a17,
+        linear-gradient(to bottom, #756d58 0%, #a69b79 100%);
+    -fx-border-width: 3px 1px 1px 3px;
+    -fx-padding: 8px 10px 5px 14px;
+    -fx-effect: none;
+}
+
+.virtual-mini-control {
+    -fx-padding: 3px 4px 4px 4px;
+    -fx-border-width: 1px 1px 2px 1px;
+}
+
+.virtual-mini-control:pressed,
+.virtual-mini-control:selected {
+    -fx-padding: 4px 3px 3px 5px;
+    -fx-border-width: 2px 1px 1px 2px;
+}
+
+.track-tile,
+.queue-tile,
+.virtual-tile {
+    -fx-background-color:
+        -tsb-steel-dark,
+        linear-gradient(to bottom right, #dcd3b8 0%, #b9ad89 100%);
+    -fx-background-insets: 0, 3;
+    -fx-background-radius: 0;
+    -fx-border-color: #171a17;
+    -fx-border-width: 2px 4px 5px 2px;
+    -fx-border-radius: 0;
+    -fx-effect: none;
+}
+
+.virtual-tile-grid {
+    -fx-background-color: #73776a;
+    -fx-background-radius: 0;
+    -fx-border-color: #242923;
+    -fx-border-width: 2px;
+}
+
+.virtual-tile-drag-handle {
+    -fx-background-color: #73776a;
+    -fx-border-color: transparent transparent #242923 transparent;
+    -fx-border-width: 0 0 2px 0;
+}
+
+.virtual-mini-tile,
+.queue-chip {
+    -fx-background-color: linear-gradient(to bottom, #e1dac1 0%, #b6aa88 100%);
+    -fx-background-radius: 0;
+    -fx-border-color: #3b4038;
+    -fx-border-width: 1px 2px 3px 1px;
+    -fx-border-radius: 0;
+}
+
+.virtual-mini-tile {
+    -fx-border-width: 1px;
+    -fx-effect: none;
+}
+
+.virtual-mini-tile:insert-before {
+    -fx-border-color: -tsb-red #3b4038 -tsb-red -tsb-red;
+    -fx-border-width: 1px 1px 1px 3px;
+}
+
+.virtual-mini-tile:insert-after {
+    -fx-border-color: -tsb-red -tsb-red -tsb-red #3b4038;
+    -fx-border-width: 1px 3px 1px 1px;
+}
+
+.virtual-mini-tile-empty {
+    -fx-background-color: #96937f;
+    -fx-opacity: 0.85;
+}
+
+.queue-chip:selected {
+    -fx-border-color: -tsb-red;
+    -fx-border-width: 3px;
+}
+
+.queue-chip:playing {
+    -fx-background-color: -tsb-playing-background;
+    -fx-border-color: -tsb-playing-border;
+}
+
+.queue-chip:paused {
+    -fx-background-color: -tsb-paused-background;
+    -fx-border-color: -tsb-paused-border;
+}
+
+.queue-chip:finished {
+    -fx-background-color: -tsb-finished-background;
+    -fx-border-color: -tsb-finished-border;
+}
+
+.queue-chip:ready {
+    -fx-background-color: -tsb-ready-background;
+    -fx-border-color: -tsb-red;
+}
+
+.menu,
+.menu-item,
+.context-menu,
+.list-view,
+.tree-view,
+.scroll-pane > .viewport {
+    -fx-background-radius: 0;
+}
+
+.context-menu {
+    -fx-background-color: -tsb-steel-dark, -tsb-paper;
+    -fx-background-insets: 0, 2;
+    -fx-border-color: #171a17;
+    -fx-border-width: 2px;
+}
+
+.menu-item:focused {
+    -fx-background-color: -tsb-red;
+}
+
+.menu-item:focused .label {
+    -fx-text-fill: #f5edd2;
+}
+
+.slider .track {
+    -fx-background-color: #2c312b, #91876b;
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 0;
+}
+
+.slider .thumb {
+    -fx-background-color: -tsb-steel-dark, #c8bd9c;
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 0;
+    -fx-pref-width: 16px;
+    -fx-pref-height: 20px;
+}
+
+.waveform-seek-view {
+    -tsb-waveform-active-color: -tsb-red;
+    -tsb-waveform-idle-color: #77745f;
+    -tsb-waveform-playhead-color: #4d0b0d;
+    -tsb-waveform-disabled-color: #9f9a86;
+    -tsb-waveform-bottom-aligned: true;
+}
+
+.insertion-marker {
+    -fx-background-color: -tsb-red;
+}
+
+.settings-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -tsb-red-dark;
+}
+
+.package-choice {
+    -fx-background-color: -tsb-paper;
+    -fx-border-color: -tsb-steel-dark;
+    -fx-border-width: 2px;
+    -fx-padding: 6px 8px;
+}
+
+.package-choice .label {
+    -fx-text-fill: -tsb-ink;
+}
+
+.settings-navigation:focused .list-cell:selected {
+    -fx-background-color: -tsb-red;
+    -fx-text-fill: #f5edd2;
+}
+
+.settings-window:window-inactive .settings-navigation .list-cell:selected {
+    -fx-background-color: #bda99a;
+    -fx-text-fill: -tsb-ink;
+}
+
+.package-source-list {
+    -fx-border-color: -tsb-steel-dark;
+    -fx-border-width: 2px;
+}
+
+.package-source-row {
+    -fx-border-color: transparent transparent -tsb-steel-dark transparent;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.package-source-row-even {
+    -fx-background-color: -tsb-paper;
+}
+
+.package-source-row-odd {
+    -fx-background-color: -tsb-paper-dark;
+}

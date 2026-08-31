@@ -5,6 +5,7 @@ import java.util.UUID;
 
 public final class SkinBootstrap {
     private static UUID startupSkinUid = SkinRepository.DEFAULT_SKIN_UID;
+    private static int startupSkinVersion = 1;
     private static RenderingMode startupRenderingMode = RenderingMode.AUTOMATIC;
 
     private SkinBootstrap() {
@@ -13,16 +14,20 @@ public final class SkinBootstrap {
     public static void applySelectedSkinRendering() {
         SkinPackageInstaller.applyPendingOperations(new SkinRepository());
         SkinPreferences preferences = new SkinPreferences();
-        SkinDescriptor skin = new SkinRepository().findSelected(preferences.loadSelectedSkinUid());
+        SkinDescriptor skin = new SkinRepository().findSelected(
+                preferences.loadSelectedSkinUid(), preferences.loadSelectedSkinVersion());
         RenderingMode renderingMode = resolveRenderingMode(skin.manifest());
         applyRenderingMode(renderingMode);
         startupSkinUid = skin.manifest().getUid();
+        startupSkinVersion = skin.manifest().getVersion();
         startupRenderingMode = renderingMode;
     }
 
     public static UUID getStartupSkinUid() {
         return startupSkinUid;
     }
+
+    public static int getStartupSkinVersion() { return startupSkinVersion; }
 
     public static RenderingMode getStartupRenderingMode() {
         return startupRenderingMode;

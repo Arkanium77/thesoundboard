@@ -5,6 +5,8 @@ import app.model.ProjectState;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
+import app.model.VirtualTileTrack;
+import app.model.WorkspaceVirtualTile;
 import app.scan.ScannedAudioFile;
 import app.support.RelativePathUtils;
 
@@ -58,6 +60,7 @@ public class ProjectStateSynchronizer {
         projectState.setAudioFiles(audioFiles);
         normalizeWorkspaceOrder(projectState);
         normalizeQueueTracks(projectState);
+        normalizeVirtualTiles(projectState);
         return projectState;
     }
 
@@ -68,6 +71,9 @@ public class ProjectStateSynchronizer {
         }
         for (WorkspaceQueue workspaceQueue : projectState.getWorkspaceQueues()) {
             entries.add(new WorkspaceOrderEntry(workspaceQueue.getOrder(), workspaceQueue::setOrder));
+        }
+        for (WorkspaceVirtualTile tile : projectState.getWorkspaceVirtualTiles()) {
+            entries.add(new WorkspaceOrderEntry(tile.getOrder(), tile::setOrder));
         }
 
         entries.sort(Comparator.comparingInt(WorkspaceOrderEntry::order));
@@ -87,6 +93,18 @@ public class ProjectStateSynchronizer {
             if (workspaceQueue.getSelectedTrackId() == null && !queueTracks.isEmpty()) {
                 workspaceQueue.setSelectedTrackId(queueTracks.getFirst().getId());
             }
+        }
+    }
+
+    private void normalizeVirtualTiles(ProjectState projectState) {
+        for (WorkspaceVirtualTile tile : projectState.getWorkspaceVirtualTiles()) {
+            List<VirtualTileTrack> tracks = new ArrayList<>(tile.getTracks());
+            tracks.sort(Comparator.comparingInt(VirtualTileTrack::getOrder));
+            if (tracks.size() > tile.getLayout().getCapacity()) {
+                tracks = new ArrayList<>(tracks.subList(0, tile.getLayout().getCapacity()));
+            }
+            for (int index = 0; index < tracks.size(); index++) tracks.get(index).setOrder(index);
+            tile.setTracks(tracks);
         }
     }
 

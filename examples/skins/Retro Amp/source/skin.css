@@ -1,0 +1,280 @@
+.soundboard-root {
+    -fx-base: #24243b;
+    -fx-background: #161625;
+    -fx-control-inner-background: #050509;
+    -fx-accent: #e0cd30;
+    -fx-focus-color: #e0cd30;
+    -fx-faint-focus-color: rgba(224, 205, 48, 0.28);
+    -fx-text-background-color: #e6ebef;
+    -fx-text-base-color: #e6ebef;
+    -fx-text-fill: #e6ebef;
+    -fx-font-family: "Monospaced";
+    -tsb-surface: #24243b;
+    -tsb-border: #8996a5;
+    -tsb-icon: #11131b;
+    -tsb-insertion: #39ff53;
+    -tsb-chip-selected: #e0cd30;
+    -tsb-playing-background: #14351a;
+    -tsb-playing-border: #39ff53;
+    -tsb-paused-background: #3b3820;
+    -tsb-paused-border: #f4e36a;
+    -tsb-finished-background: #3a202c;
+    -tsb-finished-border: #ff5477;
+    -tsb-ready-background: #202b3f;
+}
+
+.soundboard-root,
+.workspace-pane,
+.workspace-header,
+.project-pane,
+.project-tree-container,
+.status-bar,
+.soundboard-root .split-pane,
+.soundboard-root .split-pane-divider {
+    -fx-background-color: #19192a;
+}
+
+.main-header,
+.status-bar {
+    -fx-background-color: linear-gradient(to bottom, #38384f 0%, #202034 48%, #151522 100%);
+    -fx-border-color: #e0cd30 transparent #09090f transparent;
+    -fx-border-width: 1px 0 2px 0;
+}
+
+.project-pane {
+    -fx-border-color: transparent #08080d transparent transparent;
+    -fx-border-width: 0 2px 0 0;
+}
+
+.project-tree,
+.project-tree .virtual-flow,
+.project-tree .clipped-container,
+.project-tree .sheet {
+    -fx-background-color: #050509;
+}
+
+.project-tree .tree-cell {
+    -fx-background-color: #050509;
+    -fx-text-fill: #dbe5ea;
+}
+
+.project-tree .tree-cell:selected {
+    -fx-background-color: #34344c;
+    -fx-text-fill: #e0cd30;
+}
+
+.project-tree:focused .tree-cell:selected {
+    -fx-background-color: #4b4b68;
+    -fx-text-fill: #f4e36a;
+}
+
+.soundboard-root .button,
+.soundboard-root .toggle-button,
+.soundboard-root .menu-button,
+.soundboard-root .combo-box-base {
+    -fx-background-color:
+        #11131b,
+        linear-gradient(to bottom, #f5f8f7 0%, #cbd4d6 46%, #929da4 52%, #e6eceb 100%);
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 0;
+    -fx-border-color: #e9eeee #59636b #30373d #f5f8f7;
+    -fx-border-width: 1px 2px 2px 1px;
+    -fx-border-radius: 0;
+    -fx-text-fill: #11131b;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.7), 2, 0, 2, 2);
+}
+
+.soundboard-root .button:hover,
+.soundboard-root .toggle-button:hover {
+    -fx-background-color: #11131b, linear-gradient(to bottom, #fff3b0 0%, #e0cd30 100%);
+}
+
+.soundboard-root .button:pressed,
+.soundboard-root .toggle-button:pressed,
+.soundboard-root .toggle-button:selected {
+    -fx-background-color: #08090d, linear-gradient(to bottom, #69747b 0%, #c3cdcf 100%);
+    -fx-border-color: #30373d #f5f8f7 #e9eeee #59636b;
+    -fx-effect: innershadow(three-pass-box, rgba(0, 0, 0, 0.7), 3, 0, 1, 1);
+}
+
+.track-tile,
+.queue-tile,
+.virtual-tile {
+    -fx-background-color: linear-gradient(to bottom, #303047 0%, #1c1c31 100%);
+    -fx-border-color: #e0cd30 #756b18 #756b18 #e0cd30;
+    -fx-border-width: 2px 3px 3px 2px;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
+    -fx-effect: dropshadow(three-pass-box, rgba(0, 0, 0, 0.75), 4, 0, 3, 3);
+}
+
+.track-tile .label,
+.queue-tile .label,
+.virtual-tile .label {
+    -fx-text-fill: #e8edf0;
+}
+
+.virtual-tile-grid {
+    -fx-background-color: #08080d;
+    -fx-border-color: #59636b;
+    -fx-border-width: 1px;
+}
+
+.virtual-tile-drag-handle {
+    -fx-background-color: linear-gradient(to right, #34344c 0%, #e0cd30 50%, #34344c 100%);
+    -fx-border-color: transparent transparent #08080d transparent;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.virtual-mini-tile,
+.queue-chip {
+    -fx-background-color: #11111d;
+    -fx-border-color: #59636b;
+    -fx-border-width: 1px;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.virtual-mini-tile-empty {
+    -fx-background-color: #08080d;
+    -fx-opacity: 0.82;
+}
+
+.virtual-mini-tile:insert-before {
+    -fx-border-color: -tsb-insertion #59636b -tsb-insertion -tsb-insertion;
+    -fx-border-width: 1px 1px 1px 3px;
+}
+
+.virtual-mini-tile:insert-after {
+    -fx-border-color: -tsb-insertion -tsb-insertion -tsb-insertion #59636b;
+    -fx-border-width: 1px 3px 1px 1px;
+}
+
+.queue-chip:selected { -fx-border-color: -tsb-chip-selected; -fx-border-width: 2px; }
+.queue-chip:playing { -fx-background-color: -tsb-playing-background; -fx-border-color: -tsb-playing-border; }
+.queue-chip:paused { -fx-background-color: -tsb-paused-background; -fx-border-color: -tsb-paused-border; }
+.queue-chip:finished { -fx-background-color: -tsb-finished-background; -fx-border-color: -tsb-finished-border; }
+.queue-chip:ready { -fx-background-color: -tsb-ready-background; -fx-border-color: -tsb-chip-selected; }
+
+.soundboard-icon { -fx-fill: -tsb-icon; }
+.insertion-marker { -fx-background-color: -tsb-insertion; }
+
+.waveform-seek-view {
+    -tsb-waveform-active-color: #39ff53;
+    -tsb-waveform-idle-color: #e0cd30;
+    -tsb-waveform-playhead-color: #ffffff;
+    -tsb-waveform-disabled-color: #555568;
+    -tsb-waveform-bottom-aligned: true;
+    -tsb-waveform-amplitude-coloring: true;
+    -tsb-waveform-smooth-coloring: true;
+    -tsb-waveform-low-color: #39ff53;
+    -tsb-waveform-mid-color: #e0cd30;
+    -tsb-waveform-high-color: #ff5533;
+    -tsb-waveform-idle-low-color: #45784d;
+    -tsb-waveform-idle-mid-color: #82782c;
+    -tsb-waveform-idle-high-color: #86463a;
+}
+
+.slider .track {
+    -fx-background-color: #050509, #39ff53;
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 0;
+}
+
+.slider .thumb {
+    -fx-background-color: #252936, linear-gradient(to right, #eef2f1 0%, #7f8c94 50%, #e5ebea 100%);
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 0;
+    -fx-pref-width: 13px;
+    -fx-pref-height: 20px;
+}
+
+.settings-window,
+.settings-content,
+.settings-navigation,
+.settings-navigation .list-cell,
+.settings-dialog,
+.settings-dialog > .button-bar > .container,
+.settings-dialog:header .header-panel {
+    -fx-background-color: #19192a;
+}
+
+.settings-navigation .list-cell {
+    -fx-text-fill: #e6ebef;
+}
+
+.settings-navigation:focused .list-cell:selected {
+    -fx-background-color: #4b4b68;
+    -fx-text-fill: #f4e36a;
+}
+
+.settings-window:window-inactive .settings-navigation .list-cell:selected {
+    -fx-background-color: #303047;
+    -fx-text-fill: #e0cd30;
+}
+
+.settings-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #39ff53;
+}
+
+.combo-box-base .list-cell {
+    -fx-text-fill: #11131b;
+}
+
+.soundboard-root .button .text,
+.soundboard-root .toggle-button .text,
+.soundboard-root .menu-button .text,
+.soundboard-root .combo-box-base > .list-cell > .text {
+    -fx-effect: dropshadow(one-pass-box, rgba(255, 255, 255, 0.7), 1, 0, 0, 1);
+}
+
+.combo-box-popup .list-view,
+.combo-box-popup .list-cell {
+    -fx-background-color: #292940;
+    -fx-text-fill: #eef2f3;
+}
+
+.combo-box-popup .list-cell:hover,
+.combo-box-popup .list-cell:filled:selected {
+    -fx-background-color: #e0cd30;
+    -fx-text-fill: #11131b;
+}
+
+.package-choice {
+    -fx-background-color: #08080d;
+    -fx-border-color: #77838c;
+    -fx-border-width: 1px;
+    -fx-padding: 7px 9px;
+}
+
+.package-choice .label,
+.package-choice.radio-button {
+    -fx-text-fill: #e6ebef;
+}
+
+.package-source-list,
+.package-source-path-scroll,
+.package-source-path-scroll > .viewport,
+.package-source-action-scroll,
+.package-source-action-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.package-source-list { -fx-border-color: #77838c; -fx-border-width: 1px; }
+.package-source-row { -fx-padding: 6px; -fx-border-color: transparent transparent #59636b transparent; -fx-border-width: 0 0 1px 0; }
+.package-source-row-even { -fx-background-color: #181827; }
+.package-source-row-odd { -fx-background-color: #222239; }
+
+.context-menu {
+    -fx-background-color: #09090f;
+    -fx-border-color: #8996a5;
+    -fx-border-width: 1px;
+    -fx-background-radius: 0;
+}
+
+.menu-item .label { -fx-text-fill: #e6ebef; }
+.menu-item:focused { -fx-background-color: #4b4b68; }
+.menu-item:focused .label { -fx-text-fill: #f4e36a; }

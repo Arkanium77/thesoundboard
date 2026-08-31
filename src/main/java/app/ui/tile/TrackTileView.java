@@ -13,7 +13,6 @@ import app.waveform.WaveformData;
 import app.waveform.WaveformService;
 import javafx.application.Platform;
 import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
 import javafx.animation.SequentialTransition;
 import javafx.animation.Timeline;
@@ -54,7 +53,6 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     private final WaveformService waveformService;
     private final Runnable removeAction;
     private final Runnable persistenceChangeAction;
-    private final Timeline refreshTimeline;
     private final BorderPane contentPane = new BorderPane();
     private final AnchorPane leftInsertionMarker = createInsertionMarker(true);
     private final AnchorPane rightInsertionMarker = createInsertionMarker(false);
@@ -90,10 +88,10 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     private Path currentWaveformPath;
     private long waveformRequestGeneration;
     private SequentialTransition titleAnimation;
+    private boolean titleHovered;
 
     public TrackTileView(
             UiConfig uiConfig,
-            int progressRefreshMillis,
             WorkspaceTrackItem workspaceTrackItem,
             WaveformService waveformService,
             Runnable removeAction,
@@ -105,22 +103,20 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         this.removeAction = removeAction;
         this.persistenceChangeAction = persistenceChangeAction;
         this.baseWaveformHeight = uiConfig.getWaveformHeight();
-        this.refreshTimeline = new Timeline(new KeyFrame(Duration.millis(progressRefreshMillis), event -> refresh()));
-
         configureLayout(uiConfig);
         configureActions();
         refresh();
-
-        refreshTimeline.setCycleCount(Timeline.INDEFINITE);
-        refreshTimeline.play();
     }
 
     public void dispose() {
-        refreshTimeline.stop();
         waveformRequestGeneration++;
         currentWaveformPath = null;
         waveformSeekView.setWaveformData(WaveformData.empty());
         stopTitleAnimation();
+    }
+
+    public void refreshPlayback() {
+        refresh();
     }
 
     public void refreshLocalization() {
@@ -148,6 +144,15 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         titleLabel.setWrapText(false);
         titleViewport.setClip(titleClip);
         titleViewport.getChildren().add(titleLabel);
+        titleViewport.setOnMouseEntered(event -> {
+            titleHovered = true;
+            updateTitleAnimation();
+        });
+        titleViewport.setOnMouseExited(event -> {
+            titleHovered = false;
+            stopTitleAnimation();
+            titleLabel.setTranslateX(0d);
+        });
         titleViewport.widthProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         titleViewport.heightProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         titleLabel.layoutBoundsProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
@@ -238,6 +243,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     private void refresh() {
         boolean missing = workspaceTrackItem.isMissing();
         PlaybackStatus playbackStatus = workspaceTrackItem.getStatus();
+        waveformSeekView.setPlaying(playbackStatus == PlaybackStatus.PLAYING);
         Duration currentTime = workspaceTrackItem.getCurrentTime();
         Duration totalTime = workspaceTrackItem.getTotalDuration();
         refreshWaveformSource();
@@ -455,7 +461,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         titleClip.setHeight(Math.max(titleViewport.getHeight(), 22d * currentScale));
 
         double overflow = titleLabel.getLayoutBounds().getWidth() - titleViewport.getWidth();
-        if (overflow <= 4d) {
+        if (!titleHovered || overflow <= 4d) {
             stopTitleAnimation();
             titleLabel.setTranslateX(0d);
             return;

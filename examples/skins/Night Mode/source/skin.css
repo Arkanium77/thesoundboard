@@ -58,8 +58,17 @@
     -fx-text-fill: #f8f8f2;
 }
 
+.status-bar {
+    -fx-background-color: #282a36;
+}
+
 .soundboard-root .tree-cell:selected,
 .soundboard-root .list-cell:selected {
+    -fx-background-color: #373946;
+}
+
+.soundboard-root .tree-view:focused .tree-cell:selected,
+.soundboard-root .list-view:focused .list-cell:selected {
     -fx-background-color: #44475a;
 }
 
@@ -89,10 +98,18 @@
 
 .track-tile,
 .queue-tile,
-.queue-chip {
+.queue-chip,
+.virtual-tile,
+.virtual-mini-tile {
     -fx-background-color: -tsb-surface;
     -fx-border-color: -tsb-border;
 }
+.virtual-tile-grid { -fx-background-color: derive(-tsb-surface, -5%); }
+.virtual-tile-drag-handle { -fx-background-color: derive(-tsb-surface, -12%); -fx-border-color: transparent transparent -tsb-border transparent; -fx-border-width: 0 0 1px 0; }
+.virtual-mini-tile-empty { -fx-opacity: 0.72; }
+.virtual-mini-tile { -fx-border-width: 1px; }
+.virtual-mini-tile:insert-before { -fx-border-color: -tsb-insertion -tsb-border -tsb-insertion -tsb-insertion; -fx-border-width: 1px 1px 1px 3px; }
+.virtual-mini-tile:insert-after { -fx-border-color: -tsb-insertion -tsb-insertion -tsb-insertion -tsb-border; -fx-border-width: 1px 3px 1px 1px; }
 
 .queue-chip:selected { -fx-border-color: -tsb-chip-selected; }
 .queue-chip:playing { -fx-background-color: -tsb-playing-background; -fx-border-color: -tsb-playing-border; }
@@ -100,4 +117,22 @@
 .queue-chip:finished { -fx-background-color: -tsb-finished-background; -fx-border-color: -tsb-finished-border; }
 .queue-chip:ready { -fx-background-color: -tsb-ready-background; -fx-border-color: -tsb-chip-selected; }
 .insertion-marker { -fx-background-color: -tsb-insertion; }
+.waveform-seek-view {
+    -tsb-waveform-active-color: #bd93f9;
+    -tsb-waveform-idle-color: #6272a4;
+    -tsb-waveform-playhead-color: #8be9fd;
+    -tsb-waveform-disabled-color: #44475a;
+}
+.package-source-list,
+.package-source-path-scroll,
+.package-source-path-scroll > .viewport,
+.package-source-action-scroll,
+.package-source-action-scroll > .viewport { -fx-background-color: transparent; }
+.package-source-list { -fx-border-color: -tsb-border; -fx-border-width: 1px; }
+.package-source-row { -fx-padding: 6px; -fx-border-color: transparent transparent -tsb-border transparent; -fx-border-width: 0 0 1px 0; }
+.package-source-row-even { -fx-background-color: -tsb-surface; }
+.package-source-row-odd { -fx-background-color: derive(-tsb-surface, -5%); }
 .settings-title { -fx-font-size: 18px; -fx-font-weight: bold; }
+.package-choice { -fx-background-color: -tsb-surface; -fx-border-color: -tsb-border; -fx-border-width: 1px; -fx-padding: 7px 9px; }
+.settings-navigation:focused .list-cell:selected { -fx-background-color: #44475a; }
+.settings-window:window-inactive .settings-navigation .list-cell:selected { -fx-background-color: #373946; -fx-text-fill: #f8f8f2; }

@@ -18,6 +18,7 @@ class SkinRepositoryTest {
         SkinDescriptor skin = new SkinRepository(temporaryDirectory).findSelected(SkinRepository.DEFAULT_SKIN_UID);
 
         Assertions.assertThat(skin.isBuiltIn()).isTrue();
+        Assertions.assertThat(skin.manifest().getVersion()).isEqualTo(2);
         Assertions.assertThat(skin.resolveResource(skin.manifest().getStylesheet())).isNotNull();
         Assertions.assertThat(skin.manifest().getFonts().getRegular()).isEqualTo(SkinManifest.SYSTEM_FONT);
         Assertions.assertThat(skin.manifest().getFonts().getBold()).isEqualTo(SkinManifest.SYSTEM_FONT);

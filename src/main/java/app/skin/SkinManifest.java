@@ -9,6 +9,7 @@ public class SkinManifest {
     private UUID uid;
     private String name;
     private int skinVersion = 1;
+    private int version = 1;
     private String stylesheet;
     private Fonts fonts = new Fonts();
     private Map<String, String> icons = new LinkedHashMap<>();
@@ -37,6 +38,10 @@ public class SkinManifest {
     public void setSkinVersion(int skinVersion) {
         this.skinVersion = skinVersion;
     }
+
+    public int getVersion() { return version; }
+
+    public void setVersion(int version) { this.version = version; }
 
     public String getStylesheet() {
         return stylesheet;

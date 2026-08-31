@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.UUID;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipEntry;
 
@@ -85,6 +87,157 @@ class LocalizationPackageInstallerTest {
         Assertions.assertThat(packageAdditions).isGreaterThan(0);
         Assertions.assertThat(packagedStrings)
                 .contains("main.save", "Пакетный перевод", "removed.package.string", "Не удалять", "main.open_folder");
+    }
+
+    @Test
+    void replacesInstalledLocalizationFromRememberedPackage() throws IOException {
+        Path source = temporaryDirectory.resolve("source");
+        Files.createDirectories(source);
+        Files.writeString(source.resolve("localization.yml"), """
+                uid: 2195946d-8797-4f48-a81b-a2a12d1c4a30
+                name: Remembered
+                languageTag: ru
+                localizationVersion: 1
+                strings: strings.yml
+                """);
+        Files.writeString(source.resolve("strings.yml"), "main.save: Первый");
+        Path packageFile = temporaryDirectory.resolve("packages").resolve("remembered.tsbl");
+        Files.createDirectories(packageFile.getParent());
+        LocalizationRepository repository = new LocalizationRepository(temporaryDirectory.resolve("installed"));
+        LocalizationPackageInstaller installer = new LocalizationPackageInstaller(repository);
+        installer.createPackage(source, packageFile);
+        LocalizationDescriptor installed = installer.install(packageFile);
+
+        Files.delete(packageFile);
+
+        Assertions.assertThat(installer.canUpdate(installed)).isFalse();
+
+        Files.writeString(source.resolve("strings.yml"), "main.save: Второй");
+        installer.createPackage(source, packageFile);
+        LocalizationDescriptor updated = installer.update(installed);
+
+        Assertions.assertThat(installer.canUpdate(updated)).isTrue();
+        Assertions.assertThat(updated.strings()).containsEntry("main.save", "Второй");
+
+        Files.delete(packageFile);
+        installer.delete(updated);
+
+        Assertions.assertThat(repository.getDirectory()
+                        .resolve("_sources")
+                        .resolve("2195946d-8797-4f48-a81b-a2a12d1c4a30.path"))
+                .doesNotExist();
+    }
+
+    @Test
+    void keepsVersionsOfSameLocalizationInstalledSeparately() throws IOException {
+        Path source = temporaryDirectory.resolve("versioned-source");
+        Files.createDirectories(source);
+        Files.writeString(source.resolve("localization.yml"), """
+                uid: 2195946d-8797-4f48-a81b-a2a12d1c4a30
+                name: Versioned
+                languageTag: en-x-versioned
+                localizationVersion: 1
+                version: 1
+                strings: strings.yml
+                """);
+        Files.writeString(source.resolve("strings.yml"), "main.save: One");
+        Path firstPackage = temporaryDirectory.resolve("version-one.tsbl");
+        Path secondPackage = temporaryDirectory.resolve("version-two.tsbl");
+        LocalizationRepository repository = new LocalizationRepository(temporaryDirectory.resolve("installed"));
+        LocalizationPackageInstaller installer = new LocalizationPackageInstaller(repository);
+        installer.createPackage(source, firstPackage);
+        installer.install(firstPackage);
+        Files.writeString(source.resolve("localization.yml"), Files.readString(source.resolve("localization.yml"))
+                .replace("version: 1", "version: 2"));
+        Files.writeString(source.resolve("strings.yml"), "main.save: Two");
+        installer.createPackage(source, secondPackage);
+        installer.install(secondPackage);
+
+        Assertions.assertThat(repository.findAll().stream()
+                        .filter(item -> item.manifest().getUid().toString().startsWith("2195946d")))
+                .extracting(item -> item.manifest().getVersion())
+                .containsExactlyInAnyOrder(1, 2);
+        Assertions.assertThat(repository.getDirectory().resolve("2195946d-8797-4f48-a81b-a2a12d1c4a30-v2"))
+                .isDirectory();
+        LocalizationDescriptor first = repository.findSelected(
+                UUID.fromString("2195946d-8797-4f48-a81b-a2a12d1c4a30"), 1);
+        installer.delete(first);
+        installer.installAvailablePackages(List.of(temporaryDirectory));
+
+        Assertions.assertThat(firstPackage).isRegularFile();
+        Assertions.assertThat(repository.findAll().stream()
+                .filter(item -> item.manifest().getUid().equals(first.manifest().getUid())))
+                .extracting(item -> item.manifest().getVersion())
+                .containsExactly(2);
+        Files.writeString(repository.getDirectory().resolve("_disabled")
+                .resolve("2195946d-8797-4f48-a81b-a2a12d1c4a30"), "disabled");
+        installer.installAvailablePackages(List.of(temporaryDirectory));
+
+        Assertions.assertThat(repository.findAll().stream()
+                        .filter(item -> item.manifest().getUid().equals(first.manifest().getUid())))
+                .extracting(item -> item.manifest().getVersion())
+                .containsExactlyInAnyOrder(1, 2);
+    }
+
+    @Test
+    void protectsBundledLocalizationSourceFromDeletion() throws IOException {
+        Path protectedDirectory = temporaryDirectory.resolve("assets").resolve("localization");
+        Files.createDirectories(protectedDirectory);
+        Path packageFile = protectedDirectory.resolve("Russian.tsbl");
+        LocalizationRepository repository = new LocalizationRepository(temporaryDirectory.resolve("installed"));
+        LocalizationPackageInstaller installer = new LocalizationPackageInstaller(repository, List.of(protectedDirectory));
+        installer.createPackage(Path.of("examples", "localizations", "Russian", "source"), packageFile);
+        LocalizationDescriptor installed = installer.install(packageFile);
+
+        Assertions.assertThatThrownBy(() -> installer.deleteSourceFile(installed, packageFile))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("protected");
+        Assertions.assertThat(packageFile).isRegularFile();
+        Assertions.assertThat(installed.directory()).isDirectory();
+    }
+
+    @Test
+    void discoversLocalizationsFromMultipleOrderedSourceDirectories() throws IOException {
+        Path editableSource = temporaryDirectory.resolve("editable");
+        Files.createDirectories(editableSource);
+        Files.writeString(editableSource.resolve("localization.yml"), """
+                uid: 2195946d-8797-4f48-a81b-a2a12d1c4a30
+                name: Discovered
+                languageTag: ru
+                localizationVersion: 1
+                strings: strings.yml
+                """);
+        Path firstSource = temporaryDirectory.resolve("first-source");
+        Path secondSource = temporaryDirectory.resolve("second-source");
+        Files.createDirectories(firstSource);
+        Files.createDirectories(secondSource);
+        LocalizationRepository repository = new LocalizationRepository(temporaryDirectory.resolve("installed"));
+        LocalizationPackageInstaller installer = new LocalizationPackageInstaller(repository);
+        Files.writeString(editableSource.resolve("strings.yml"), "main.save: Первый источник");
+        installer.createPackage(editableSource, firstSource.resolve("Russian.tsbl"));
+        Files.writeString(editableSource.resolve("strings.yml"), "main.save: Второй источник");
+        installer.createPackage(editableSource, secondSource.resolve("Russian.tsbl"));
+
+        installer.installAvailablePackages(List.of(firstSource, secondSource));
+
+        LocalizationDescriptor discovered = repository.findSelected(
+                UUID.fromString("2195946d-8797-4f48-a81b-a2a12d1c4a30")
+        );
+        Assertions.assertThat(discovered.strings()).containsEntry("main.save", "Первый источник");
+        Assertions.assertThat(installer.isDiscovered(discovered)).isTrue();
+
+        installer.deleteSourceFile(discovered, firstSource.resolve("Russian.tsbl"));
+        Assertions.assertThat(discovered.directory()).isDirectory();
+        Assertions.assertThat(installer.canUpdate(discovered)).isTrue();
+        LocalizationDescriptor updatedFromFallback = installer.update(discovered);
+
+        Assertions.assertThat(updatedFromFallback.strings()).containsEntry("main.save", "Второй источник");
+
+        installer.deleteSourceFile(updatedFromFallback, secondSource.resolve("Russian.tsbl"));
+
+        Assertions.assertThat(secondSource.resolve("Russian.tsbl")).doesNotExist();
+        Assertions.assertThat(updatedFromFallback.directory()).isDirectory();
+        Assertions.assertThat(installer.canUpdate(updatedFromFallback)).isFalse();
     }
 
     private String readPackageEntry(Path packageFile, String entryName) throws IOException {

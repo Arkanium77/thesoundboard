@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -35,6 +36,9 @@ public class WorkspaceQueueItem {
 
     private PlayingTrack playingTrack;
     private UUID playingQueueTrackId;
+    private UUID focusedQueueTrackId;
+    private UUID pendingSeekQueueTrackId;
+    private Duration pendingSeekPosition;
     private boolean trackCreationFailed;
     private boolean finishedHandled;
     private double masterVolume;
@@ -85,12 +89,21 @@ public class WorkspaceQueueItem {
                 .findFirst();
     }
 
+    public Optional<QueueTrack> getFocusedTrack() {
+        ensureFocusedTrack();
+        return getTracks().stream().filter(track -> track.getId().equals(focusedQueueTrackId)).findFirst();
+    }
+
+    public UUID getActiveTrackId() {
+        return playingQueueTrackId;
+    }
+
     public Optional<AudioFile> getAudioFile(UUID audioFileId) {
         return Optional.ofNullable(audioFilesById.get(audioFileId));
     }
 
     public Optional<Path> getSelectedAudioPath() {
-        QueueTrack selectedTrack = getSelectedTrack().orElse(null);
+        QueueTrack selectedTrack = getFocusedTrack().orElse(null);
         if (selectedTrack == null) {
             return Optional.empty();
         }
@@ -129,6 +142,35 @@ public class WorkspaceQueueItem {
         return playingTrack == null ? PlaybackStatus.READY : playingTrack.getStatus();
     }
 
+    public PlaybackStatus getFocusedStatus() {
+        refreshPlaybackState();
+        return focusedQueueTrackId != null && focusedQueueTrackId.equals(playingQueueTrackId) && playingTrack != null
+                ? playingTrack.getStatus() : PlaybackStatus.READY;
+    }
+
+    public Duration getFocusedCurrentTime() {
+        if (focusedQueueTrackId != null && focusedQueueTrackId.equals(pendingSeekQueueTrackId)
+                && pendingSeekPosition != null) {
+            if (focusedQueueTrackId.equals(playingQueueTrackId) && playingTrack != null) {
+                Duration currentTime = playingTrack.getCurrentTime();
+                PlaybackStatus status = playingTrack.getStatus();
+                if ((status == PlaybackStatus.PLAYING || status == PlaybackStatus.PAUSED)
+                        && Math.abs(currentTime.toMillis() - pendingSeekPosition.toMillis()) <= 250d) {
+                    clearPendingSeek();
+                    return currentTime;
+                }
+            }
+            return pendingSeekPosition;
+        }
+        return focusedQueueTrackId != null && focusedQueueTrackId.equals(playingQueueTrackId) && playingTrack != null
+                ? playingTrack.getCurrentTime() : Duration.ZERO;
+    }
+
+    public Duration getFocusedTotalDuration() {
+        return focusedQueueTrackId != null && focusedQueueTrackId.equals(playingQueueTrackId) && playingTrack != null
+                ? playingTrack.getTotalDuration() : Duration.ZERO;
+    }
+
     public Duration getCurrentTime() {
         refreshPlaybackState();
         return playingTrack == null ? Duration.ZERO : playingTrack.getCurrentTime();
@@ -140,10 +182,12 @@ public class WorkspaceQueueItem {
     }
 
     public void togglePlayPause() {
-        QueueTrack selectedTrack = getSelectedTrack().orElse(null);
+        QueueTrack selectedTrack = getFocusedTrack().orElse(null);
         if (selectedTrack == null) {
             return;
         }
+
+        workspaceQueue.setSelectedTrackId(selectedTrack.getId());
 
         if (!ensurePlayingTrack(selectedTrack)) {
             return;
@@ -153,6 +197,8 @@ public class WorkspaceQueueItem {
         finishedHandled = false;
         if (playbackStatus == PlaybackStatus.PLAYING) {
             playingTrack.pause();
+        } else if (selectedTrack.getId().equals(pendingSeekQueueTrackId) && pendingSeekPosition != null) {
+            playingTrack.restorePlayback(pendingSeekPosition, false);
         } else {
             playingTrack.play();
         }
@@ -160,7 +206,7 @@ public class WorkspaceQueueItem {
 
     public void stop() {
         finishedHandled = false;
-        if (playingTrack != null) {
+        if (playingTrack != null && Objects.equals(focusedQueueTrackId, playingQueueTrackId)) {
             playingTrack.stop();
         }
     }
@@ -196,7 +242,9 @@ public class WorkspaceQueueItem {
     }
 
     public void selectTrack(UUID queueTrackId) {
-        selectTrack(queueTrackId, false);
+        if (queueTrackId != null && getTracks().stream().anyMatch(track -> track.getId().equals(queueTrackId))) {
+            focusedQueueTrackId = queueTrackId;
+        }
     }
 
     public void playSelectedTrack(UUID queueTrackId) {
@@ -204,11 +252,11 @@ public class WorkspaceQueueItem {
     }
 
     public boolean isLoopCurrentTrack() {
-        return getSelectedTrack().map(QueueTrack::isLoop).orElse(false);
+        return getFocusedTrack().map(QueueTrack::isLoop).orElse(false);
     }
 
     public void setLoopCurrentTrack(boolean loop) {
-        getSelectedTrack().ifPresent(queueTrack -> {
+        getFocusedTrack().ifPresent(queueTrack -> {
             queueTrack.setLoop(loop);
             if (playingTrack != null && queueTrack.getId().equals(playingQueueTrackId)) {
                 playingTrack.setLoop(loop);
@@ -233,6 +281,26 @@ public class WorkspaceQueueItem {
         applyVolume();
     }
 
+    public double getSelectedTrackVolume() {
+        return getFocusedTrack().map(QueueTrack::getVolume).orElse(QueueTrack.DEFAULT_VOLUME);
+    }
+
+    public void setSelectedTrackVolume(double volume) {
+        getFocusedTrack().ifPresent(track -> setTrackVolume(track.getId(), volume));
+    }
+
+    public void setTrackVolume(UUID queueTrackId, double volume) {
+        getTracks().stream().filter(track -> track.getId().equals(queueTrackId)).findFirst().ifPresent(track -> {
+            track.setVolume(clampVolume(volume));
+            if (queueTrackId.equals(playingQueueTrackId)) applyVolume();
+        });
+    }
+
+    public void resetTrackVolumes() {
+        workspaceQueue.getTracks().forEach(track -> track.setVolume(QueueTrack.DEFAULT_VOLUME));
+        applyVolume();
+    }
+
     public void setMasterVolume(double masterVolume) {
         this.masterVolume = masterVolume;
         applyVolume();
@@ -249,10 +317,72 @@ public class WorkspaceQueueItem {
         }
     }
 
+    /**
+     * Retains a seek made before playback exists or after Stop. JavaFX may ignore a seek issued before MediaPlayer is
+     * ready and may reset a stopped player to its start when Play is invoked, so the requested position is associated
+     * with the focused queue entry and reapplied through restorePlayback on the next Play. A seek during active or
+     * paused playback is applied immediately because no subsequent state transition can discard it.
+     */
     public void seek(Duration position) {
-        if (playingTrack != null) {
-            playingTrack.seek(position);
+        QueueTrack focusedTrack = getFocusedTrack().orElse(null);
+        if (focusedTrack == null) return;
+
+        Duration seekPosition = position == null ? Duration.ZERO : position;
+        if (playingTrack != null && focusedTrack.getId().equals(playingQueueTrackId)) {
+            playingTrack.seek(seekPosition);
+            PlaybackStatus status = playingTrack.getStatus();
+            if (status == PlaybackStatus.PLAYING || status == PlaybackStatus.PAUSED) {
+                clearPendingSeek();
+                return;
+            }
         }
+        pendingSeekQueueTrackId = focusedTrack.getId();
+        pendingSeekPosition = seekPosition;
+    }
+
+    public PlaybackSnapshot snapshotPlayback(UUID queueTrackId) {
+        refreshPlaybackState();
+        if (playingTrack == null || !queueTrackId.equals(playingQueueTrackId)) return PlaybackSnapshot.stopped();
+        return new PlaybackSnapshot(playingTrack.getStatus(), playingTrack.getCurrentTime(), false);
+    }
+
+    public boolean hasActivePlayback() {
+        refreshPlaybackState();
+        if (playingTrack == null) return false;
+        PlaybackStatus status = playingTrack.getStatus();
+        return status == PlaybackStatus.PLAYING || status == PlaybackStatus.PAUSED;
+    }
+
+    public PlaybackTransfer detachPlayback(UUID queueTrackId) {
+        refreshPlaybackState();
+        if (playingTrack == null || !queueTrackId.equals(playingQueueTrackId)) return null;
+        PlaybackTransfer transfer = new PlaybackTransfer(playingTrack, playingTrack.getStatus(), false);
+        playingTrack = null;
+        playingQueueTrackId = null;
+        return transfer;
+    }
+
+    public void acceptPlayback(UUID queueTrackId, PlaybackTransfer transfer) {
+        if (transfer == null || !transfer.isActive()) return;
+        QueueTrack track = getTracks().stream().filter(candidate -> candidate.getId().equals(queueTrackId))
+                .findFirst().orElse(null);
+        if (track == null) return;
+        disposeCurrentTrack();
+        playingTrack = transfer.playingTrack();
+        playingQueueTrackId = queueTrackId;
+        workspaceQueue.setSelectedTrackId(queueTrackId);
+        focusedQueueTrackId = queueTrackId;
+        finishedHandled = false;
+        applyVolume();
+        playingTrack.setLoop(track.isLoop());
+    }
+
+    public void restorePlayback(UUID queueTrackId, PlaybackSnapshot snapshot) {
+        if (snapshot == null || !snapshot.isActive()) return;
+        QueueTrack track = getTracks().stream().filter(candidate -> candidate.getId().equals(queueTrackId))
+                .findFirst().orElse(null);
+        if (track == null || !ensurePlayingTrack(track)) return;
+        playingTrack.restorePlayback(snapshot.position(), snapshot.status() == PlaybackStatus.PAUSED);
     }
 
     public void refreshAfterMutation() {
@@ -263,6 +393,7 @@ public class WorkspaceQueueItem {
         List<QueueTrack> queueTracks = getTracks();
         workspaceQueue.setTracks(queueTracks);
         ensureSelectedTrack();
+        ensureFocusedTrack();
 
         UUID selectedTrackId = workspaceQueue.getSelectedTrackId();
         if (selectedTrackId == null) {
@@ -332,6 +463,7 @@ public class WorkspaceQueueItem {
         }
 
         workspaceQueue.setSelectedTrackId(queueTrackId);
+        focusedQueueTrackId = queueTrackId;
         QueueTrack queueTrack = getSelectedTrack().orElse(null);
         if (queueTrack == null) {
             return;
@@ -392,6 +524,13 @@ public class WorkspaceQueueItem {
         workspaceQueue.setSelectedTrackId(queueTracks.isEmpty() ? null : queueTracks.getFirst().getId());
     }
 
+    private void ensureFocusedTrack() {
+        if (focusedQueueTrackId != null
+                && getTracks().stream().anyMatch(track -> track.getId().equals(focusedQueueTrackId))) return;
+        focusedQueueTrackId = workspaceQueue.getSelectedTrackId();
+        if (focusedQueueTrackId == null && !getTracks().isEmpty()) focusedQueueTrackId = getTracks().getFirst().getId();
+    }
+
     private boolean ensurePlayingTrack(QueueTrack queueTrack) {
         if (playingTrack != null && queueTrack.getId().equals(playingQueueTrackId)) {
             return true;
@@ -434,10 +573,24 @@ public class WorkspaceQueueItem {
         playingQueueTrackId = null;
     }
 
+    private void clearPendingSeek() {
+        pendingSeekQueueTrackId = null;
+        pendingSeekPosition = null;
+    }
+
     private void applyVolume() {
         if (playingTrack != null) {
-            playingTrack.setVolume(workspaceQueue.getVolume() * masterVolume);
+            double trackVolume = getTracks().stream()
+                    .filter(track -> track.getId().equals(playingQueueTrackId))
+                    .map(QueueTrack::getVolume)
+                    .findFirst()
+                    .orElse(1d);
+            playingTrack.setVolume(workspaceQueue.getVolume() * trackVolume * masterVolume);
         }
+    }
+
+    private double clampVolume(double volume) {
+        return Math.max(0d, Math.min(1d, volume));
     }
 
     private void reshuffleTracks() {
