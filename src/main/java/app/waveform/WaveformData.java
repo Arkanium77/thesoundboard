@@ -1,13 +1,16 @@
 package app.waveform;
 
+import javafx.util.Duration;
+
 public class WaveformData {
-    private static final WaveformData EMPTY = new WaveformData(new double[0], new double[0]);
+    private static final WaveformData EMPTY = new WaveformData(new double[0], new double[0], Duration.ZERO);
 
     private final double[] peakAmplitudes;
     private final double[] rmsAmplitudes;
+    private final Duration duration;
 
     public WaveformData(double[] amplitudes) {
-        this(amplitudes, amplitudes);
+        this(amplitudes, amplitudes, Duration.ZERO);
     }
 
     /**
@@ -16,8 +19,20 @@ public class WaveformData {
      * rather than silently displaying two modes with different timelines.
      */
     public WaveformData(double[] peakAmplitudes, double[] rmsAmplitudes) {
+        this(peakAmplitudes, rmsAmplitudes, Duration.ZERO);
+    }
+
+    /**
+     * Keeps duration beside the decoded envelopes because waveform loading happens before lazy MediaPlayer creation.
+     * Without this independent timeline an unplayed track displays a real waveform over a one-millisecond placeholder,
+     * so every pre-play seek resolves to zero. Duration is immutable cache data and must describe the same source as
+     * both amplitude arrays; unknown decoder durations remain zero for backward-compatible non-seekable fallback.
+     */
+    public WaveformData(double[] peakAmplitudes, double[] rmsAmplitudes, Duration duration) {
         this.peakAmplitudes = peakAmplitudes == null ? new double[0] : peakAmplitudes.clone();
         this.rmsAmplitudes = rmsAmplitudes == null ? new double[0] : rmsAmplitudes.clone();
+        this.duration = duration == null || duration.isUnknown() || duration.isIndefinite()
+                || duration.lessThan(Duration.ZERO) ? Duration.ZERO : duration;
         if (this.peakAmplitudes.length != this.rmsAmplitudes.length) {
             throw new IllegalArgumentException("Peak and RMS waveform data must have the same size");
         }
@@ -33,6 +48,10 @@ public class WaveformData {
 
     public int size() {
         return rmsAmplitudes.length;
+    }
+
+    public Duration getDuration() {
+        return duration;
     }
 
     public double amplitudeAt(int index) {

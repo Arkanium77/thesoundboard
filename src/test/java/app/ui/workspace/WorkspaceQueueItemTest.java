@@ -243,13 +243,69 @@ class WorkspaceQueueItemTest {
         Assertions.assertThat(player.volume).isEqualTo(0.2d);
     }
 
+    @Test
+    void restoresSeekPositionWhenPlaybackStartsAfterStop() throws IOException {
+        Path rootPath = TestDirectorySupport.createTempDirectory("workspace-queue-seek-");
+        Files.writeString(rootPath.resolve("one.mp3"), "audio");
+        UUID audioId = UUID.randomUUID();
+        UUID trackId = UUID.randomUUID();
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue A", 0, 0.8d, false);
+        queue.setTracks(List.of(new QueueTrack(trackId, audioId, 0, false)));
+        queue.setSelectedTrackId(trackId);
+        FakePlayingTrack player = new FakePlayingTrack();
+        WorkspaceQueueItem item = new WorkspaceQueueItem(rootPath, queue,
+                List.of(new AudioFile(audioId, "one.mp3", "one.mp3", false)), path -> player,
+                1d, exception -> { });
+
+        item.togglePlayPause();
+        item.stop();
+        item.seek(Duration.seconds(7));
+
+        Assertions.assertThat(item.getFocusedCurrentTime()).isEqualTo(Duration.seconds(7));
+
+        player.events.clear();
+        item.togglePlayPause();
+
+        Assertions.assertThat(player.playbackStatus).isEqualTo(PlaybackStatus.PLAYING);
+        Assertions.assertThat(player.currentTime).isEqualTo(Duration.seconds(7));
+        Assertions.assertThat(item.getFocusedCurrentTime()).isEqualTo(Duration.seconds(7));
+        Assertions.assertThat(player.events).containsExactly("seek", "play");
+    }
+
+    @Test
+    void restoresSeekPositionWhenPlaybackHasNotBeenCreatedYet() throws IOException {
+        Path rootPath = TestDirectorySupport.createTempDirectory("workspace-queue-initial-seek-");
+        Files.writeString(rootPath.resolve("one.mp3"), "audio");
+        UUID audioId = UUID.randomUUID();
+        UUID trackId = UUID.randomUUID();
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue A", 0, 0.8d, false);
+        queue.setTracks(List.of(new QueueTrack(trackId, audioId, 0, false)));
+        queue.setSelectedTrackId(trackId);
+        FakePlayingTrack player = new FakePlayingTrack();
+        WorkspaceQueueItem item = new WorkspaceQueueItem(rootPath, queue,
+                List.of(new AudioFile(audioId, "one.mp3", "one.mp3", false)), path -> player,
+                1d, exception -> { });
+
+        item.seek(Duration.seconds(4));
+
+        Assertions.assertThat(item.getFocusedCurrentTime()).isEqualTo(Duration.seconds(4));
+
+        item.togglePlayPause();
+
+        Assertions.assertThat(player.playbackStatus).isEqualTo(PlaybackStatus.PLAYING);
+        Assertions.assertThat(player.currentTime).isEqualTo(Duration.seconds(4));
+    }
+
     private static final class FakePlayingTrack implements PlayingTrack {
         private int playCalls;
         private PlaybackStatus playbackStatus = PlaybackStatus.READY;
         private double volume;
+        private Duration currentTime = Duration.ZERO;
+        private final List<String> events = new ArrayList<>();
 
         @Override
         public void play() {
+            events.add("play");
             playCalls++;
             playbackStatus = PlaybackStatus.PLAYING;
         }
@@ -266,6 +322,8 @@ class WorkspaceQueueItemTest {
 
         @Override
         public void seek(Duration position) {
+            events.add("seek");
+            currentTime = position;
         }
 
         @Override
@@ -279,7 +337,7 @@ class WorkspaceQueueItemTest {
 
         @Override
         public Duration getCurrentTime() {
-            return Duration.ZERO;
+            return currentTime;
         }
 
         @Override

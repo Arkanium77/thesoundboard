@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "team.isaz"
-version = "1.0.0"
+version = "1.1.0"
 val applicationVersion = version.toString()
 
 java {
@@ -263,7 +263,7 @@ val createAppImage by tasks.registering(Exec::class) {
             "--app-version", applicationVersion,
             "--vendor", "Arkanium77 & ISAZ Team",
             "--copyright", "Copyright 2026 Arkanium77 & ISAZ Team",
-            "--description", "A desktop soundboard for organizing and playing audio tracks.",
+            "--description", applicationDisplayName,
             "--icon", applicationIcon.absolutePath,
             "--input", packageInputDir.get().asFile.absolutePath,
             "--main-jar", tasks.jar.get().archiveFileName.get(),

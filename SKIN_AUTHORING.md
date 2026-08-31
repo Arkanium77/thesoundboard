@@ -52,6 +52,12 @@ Bundle the license required by every included font, image, or icon. Do not assum
 
 Skin CSS may use JavaFX selectors and properties. Application classes include:
 
+Avoid `-fx-effect` on controls or repeated workspace elements such as `.button`, `.track-tile`, `.queue-tile`, and
+`.virtual-tile`. JavaFX renders shadows and blurs through intermediate off-screen images; changing a waveform inside
+one affected tile can invalidate effects across a large scene and force Windows DWM to composite hundreds of megabytes
+of temporary textures per frame. Prefer layered `-fx-background-color`, asymmetric borders, background insets, and
+gradients for depth. Effects remain supported for small, isolated, infrequently repainted decorations.
+
 - application: `.soundboard-root`, `.main-header`, `.status-bar`;
 - project tree: `.project-pane`, `.project-tree-container`, `.project-tree-background`, `.project-tree`;
 - workspace: `.workspace-pane`, `.workspace-header`, `.workspace-view`, `.workspace-background`, `.workspace-scroll`, `.workspace-content`;
@@ -89,6 +95,8 @@ Waveforms are centered and use the active/idle colors by default. A skin can ins
 ```
 
 When amplitude coloring is enabled, played and unplayed bars use their respective low, mid, and high palettes instead of the playback-progress active/idle colors. Smooth coloring interpolates between palette colors; when disabled, the same colors form three discrete bands. All colors are freely selectable. The playhead color remains independent. Waveform calculation is an application-wide user preference rather than a skin property, so the same skin can be compared using peak-linear, RMS-linear, and RMS-dB envelopes.
+
+The built-in Canvas renderer is selected with `-tsb-waveform-rendering`: `bars` or the experimental `fire`. These are controlled application renderers rather than executable skin code. `fire` remains available for skin experiments but is not enabled by the bundled skins and may change in a future release. Fire also supports `-tsb-waveform-fire-low-color`, `-tsb-waveform-fire-mid-color`, and `-tsb-waveform-fire-high-color`. Its `-tsb-waveform-animation-speed` accepts values such as `1` for normal speed, `0.5` for half speed, and `2` for double speed. `-tsb-waveform-animation-amplitude` controls the animated height deviation (`0.03` is the default; values are capped at `0.5`). Motion runs only over the played part while the owning track is actively playing; the future part and paused, stopped, or hidden waveforms remain static.
 
 Relative URLs resolve from `skin.css`:
 

@@ -36,6 +36,12 @@ public record PackageSourceDirectories(
         return new PackageSourceDirectories(List.of(), List.of());
     }
 
+    /**
+     * Resolves the directory that owns packaged assets across jpackage layouts. Windows puts the launcher directly
+     * beside assets, Linux puts it under a {@code bin} child, and macOS puts it under {@code Contents/MacOS}. Treating
+     * every launcher parent as the application root made Linux silently search {@code bin/assets}; keep these layout
+     * rules explicit so working-directory changes and platform launchers cannot hide bundled packages again.
+     */
     static Path resolveApplicationDirectory(String jpackageAppPath, Path workingDirectory) {
         if (jpackageAppPath == null || jpackageAppPath.isBlank()) {
             return workingDirectory.toAbsolutePath().normalize();
@@ -43,7 +49,10 @@ public record PackageSourceDirectories(
         try {
             Path launcher = Path.of(jpackageAppPath).toAbsolutePath().normalize();
             Path applicationDirectory = launcher.getParent();
-            if (applicationDirectory != null
+            if (applicationDirectory != null && "bin".equals(applicationDirectory.getFileName().toString())
+                    && applicationDirectory.getParent() != null) {
+                applicationDirectory = applicationDirectory.getParent();
+            } else if (applicationDirectory != null
                     && "MacOS".equals(applicationDirectory.getFileName().toString())
                     && applicationDirectory.getParent() != null
                     && "Contents".equals(applicationDirectory.getParent().getFileName().toString())) {

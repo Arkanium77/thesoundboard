@@ -5,11 +5,14 @@ import app.waveform.WaveformDisplayMode;
 import app.waveform.WaveformDisplaySettings;
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.WeakChangeListener;
+import javafx.animation.AnimationTimer;
 import javafx.css.CssMetaData;
 import javafx.css.SimpleStyleableBooleanProperty;
+import javafx.css.SimpleStyleableDoubleProperty;
 import javafx.css.SimpleStyleableObjectProperty;
 import javafx.css.Styleable;
 import javafx.css.StyleableBooleanProperty;
+import javafx.css.StyleableDoubleProperty;
 import javafx.css.StyleableObjectProperty;
 import javafx.css.StyleablePropertyFactory;
 import javafx.scene.canvas.Canvas;
@@ -17,6 +20,9 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
+import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.LinearGradient;
+import javafx.scene.paint.Stop;
 import javafx.util.Duration;
 
 import java.util.List;
@@ -31,6 +37,7 @@ public class WaveformSeekView extends Region {
     private static final double MID_AMPLITUDE_POSITION = 0.72d;
     private static final double ADAPTIVE_DECIBEL_FLOOR = -72d;
     private static final double ADAPTIVE_DISPLAY_EXPONENT = 1.35d;
+    private static final long ANIMATION_FRAME_NANOS = 33_333_333L;
 
     private static final Color DEFAULT_ACTIVE_BAR_COLOR = Color.web("#4a83d8");
     private static final Color DEFAULT_IDLE_BAR_COLOR = Color.web("#c7d3ea");
@@ -42,6 +49,9 @@ public class WaveformSeekView extends Region {
     private static final Color DEFAULT_IDLE_LOW_AMPLITUDE_COLOR = Color.web("#8ac796");
     private static final Color DEFAULT_IDLE_MID_AMPLITUDE_COLOR = Color.web("#d8c98b");
     private static final Color DEFAULT_IDLE_HIGH_AMPLITUDE_COLOR = Color.web("#d59b9b");
+    private static final Color DEFAULT_FIRE_LOW_COLOR = Color.web("#8b1608");
+    private static final Color DEFAULT_FIRE_MID_COLOR = Color.web("#ff6a00");
+    private static final Color DEFAULT_FIRE_HIGH_COLOR = Color.web("#fff08a");
 
     private static final StyleablePropertyFactory<WaveformSeekView> STYLEABLE_PROPERTY_FACTORY =
             new StyleablePropertyFactory<>(Region.getClassCssMetaData());
@@ -123,6 +133,30 @@ public class WaveformSeekView extends Region {
                     view -> view.idleHighAmplitudeColor,
                     DEFAULT_IDLE_HIGH_AMPLITUDE_COLOR
             );
+    private static final CssMetaData<WaveformSeekView, WaveformRendering> RENDERING_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createEnumCssMetaData(
+                    WaveformRendering.class, "-tsb-waveform-rendering", view -> view.rendering, WaveformRendering.BARS
+            );
+    private static final CssMetaData<WaveformSeekView, Color> FIRE_LOW_COLOR_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createColorCssMetaData(
+                    "-tsb-waveform-fire-low-color", view -> view.fireLowColor, DEFAULT_FIRE_LOW_COLOR
+            );
+    private static final CssMetaData<WaveformSeekView, Color> FIRE_MID_COLOR_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createColorCssMetaData(
+                    "-tsb-waveform-fire-mid-color", view -> view.fireMidColor, DEFAULT_FIRE_MID_COLOR
+            );
+    private static final CssMetaData<WaveformSeekView, Color> FIRE_HIGH_COLOR_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createColorCssMetaData(
+                    "-tsb-waveform-fire-high-color", view -> view.fireHighColor, DEFAULT_FIRE_HIGH_COLOR
+            );
+    private static final CssMetaData<WaveformSeekView, Number> ANIMATION_SPEED_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createSizeCssMetaData(
+                    "-tsb-waveform-animation-speed", view -> view.animationSpeed, 1d
+            );
+    private static final CssMetaData<WaveformSeekView, Number> ANIMATION_AMPLITUDE_META_DATA =
+            STYLEABLE_PROPERTY_FACTORY.createSizeCssMetaData(
+                    "-tsb-waveform-animation-amplitude", view -> view.animationAmplitude, 0.03d
+            );
 
     private final Canvas canvas = new Canvas();
     private final StyleableObjectProperty<Color> activeBarColor = new SimpleStyleableObjectProperty<>(
@@ -164,6 +198,24 @@ public class WaveformSeekView extends Region {
     private final StyleableObjectProperty<Color> idleHighAmplitudeColor = new SimpleStyleableObjectProperty<>(
             IDLE_HIGH_AMPLITUDE_COLOR_META_DATA, this, "idleHighAmplitudeColor", DEFAULT_IDLE_HIGH_AMPLITUDE_COLOR
     );
+    private final StyleableObjectProperty<WaveformRendering> rendering = new SimpleStyleableObjectProperty<>(
+            RENDERING_META_DATA, this, "rendering", WaveformRendering.BARS
+    );
+    private final StyleableObjectProperty<Color> fireLowColor = new SimpleStyleableObjectProperty<>(
+            FIRE_LOW_COLOR_META_DATA, this, "fireLowColor", DEFAULT_FIRE_LOW_COLOR
+    );
+    private final StyleableObjectProperty<Color> fireMidColor = new SimpleStyleableObjectProperty<>(
+            FIRE_MID_COLOR_META_DATA, this, "fireMidColor", DEFAULT_FIRE_MID_COLOR
+    );
+    private final StyleableObjectProperty<Color> fireHighColor = new SimpleStyleableObjectProperty<>(
+            FIRE_HIGH_COLOR_META_DATA, this, "fireHighColor", DEFAULT_FIRE_HIGH_COLOR
+    );
+    private final StyleableDoubleProperty animationSpeed = new SimpleStyleableDoubleProperty(
+            ANIMATION_SPEED_META_DATA, this, "animationSpeed", 1d
+    );
+    private final StyleableDoubleProperty animationAmplitude = new SimpleStyleableDoubleProperty(
+            ANIMATION_AMPLITUDE_META_DATA, this, "animationAmplitude", 0.03d
+    );
     private final ChangeListener<WaveformDisplayMode> displayModeListener =
             (observable, oldValue, newValue) -> redraw();
     private final WeakChangeListener<WaveformDisplayMode> weakDisplayModeListener =
@@ -173,11 +225,26 @@ public class WaveformSeekView extends Region {
     private Consumer<Duration> seekHandler = duration -> {
     };
     private double totalMillis = 1d;
+    private double playerTotalMillis;
+    private double waveformTotalMillis;
     private double currentMillis;
     private boolean dragging;
     private double dragMillis;
     private Double pendingSeekMillis;
     private long pendingSeekDeadlineNanos;
+    private boolean playing;
+    private long lastAnimationFrame;
+    private double animationPhase;
+    private final AnimationTimer animationTimer = new AnimationTimer() {
+        @Override
+        public void handle(long now) {
+            if (lastAnimationFrame == 0L) lastAnimationFrame = now;
+            if (now - lastAnimationFrame < ANIMATION_FRAME_NANOS) return;
+            animationPhase += (now - lastAnimationFrame) / 1_000_000_000d * Math.max(0.05d, animationSpeed.get());
+            lastAnimationFrame = now;
+            redraw();
+        }
+    };
 
     public WaveformSeekView() {
         getStyleClass().add("waveform-seek-view");
@@ -195,6 +262,11 @@ public class WaveformSeekView extends Region {
         idleLowAmplitudeColor.addListener((observable, oldValue, newValue) -> redraw());
         idleMidAmplitudeColor.addListener((observable, oldValue, newValue) -> redraw());
         idleHighAmplitudeColor.addListener((observable, oldValue, newValue) -> redraw());
+        rendering.addListener((observable, oldValue, newValue) -> updateAnimation());
+        fireLowColor.addListener((observable, oldValue, newValue) -> redraw());
+        fireMidColor.addListener((observable, oldValue, newValue) -> redraw());
+        fireHighColor.addListener((observable, oldValue, newValue) -> redraw());
+        sceneProperty().addListener((observable, oldValue, newValue) -> updateAnimation());
         WaveformDisplaySettings.modeProperty().addListener(weakDisplayModeListener);
         widthProperty().addListener((observable, oldValue, newValue) -> redraw());
         heightProperty().addListener((observable, oldValue, newValue) -> redraw());
@@ -208,26 +280,64 @@ public class WaveformSeekView extends Region {
 
     public void setWaveformData(WaveformData waveformData) {
         this.waveformData = waveformData == null ? WaveformData.empty() : waveformData;
+        waveformTotalMillis = Math.max(this.waveformData.getDuration().toMillis(), 0d);
+        totalMillis = Math.max(Math.max(playerTotalMillis, waveformTotalMillis), 1d);
         redraw();
     }
 
+    /**
+     * Redraws only when the displayed timeline can actually change. Every workspace item polls playback state, and
+     * repainting every stopped Canvas on every poll forces JavaFX to continuously upload identical textures to the
+     * GPU. Pending seeks still force the transition redraw so this optimization must never hide seek settlement.
+     */
     public void setPlaybackPosition(Duration currentTime, Duration totalTime) {
-        totalMillis = Math.max(totalTime == null ? 0d : totalTime.toMillis(), 1d);
-        currentMillis = Math.max(currentTime == null ? 0d : currentTime.toMillis(), 0d);
+        playerTotalMillis = Math.max(totalTime == null ? 0d : totalTime.toMillis(), 0d);
+        double nextTotalMillis = Math.max(Math.max(playerTotalMillis, waveformTotalMillis), 1d);
+        double nextCurrentMillis = Math.max(currentTime == null ? 0d : currentTime.toMillis(), 0d);
+        boolean changed = Double.compare(totalMillis, nextTotalMillis) != 0
+                || Double.compare(currentMillis, nextCurrentMillis) != 0;
+        totalMillis = nextTotalMillis;
+        currentMillis = nextCurrentMillis;
 
         if (pendingSeekMillis != null) {
             if (Math.abs(currentMillis - pendingSeekMillis) <= SEEK_SETTLE_THRESHOLD_MILLIS
                     || System.nanoTime() >= pendingSeekDeadlineNanos) {
                 pendingSeekMillis = null;
+                changed = true;
             }
         }
 
-        redraw();
+        if (changed) redraw();
     }
 
     public void setSeekHandler(Consumer<Duration> seekHandler) {
         this.seekHandler = seekHandler == null ? duration -> {
         } : seekHandler;
+    }
+
+    /**
+     * Controls renderer animation from actual playback state rather than elapsed position. Media time can remain
+     * non-zero while paused, so deriving animation from position would keep every paused fire waveform consuming
+     * frames. Only a visible FIRE view in PLAYING state owns an animation timer; all other states are fully static,
+     * which is the performance invariant future animated modes must preserve. Animation is also clipped logically to
+     * the played part of the waveform so future audio remains a stable navigation reference.
+     */
+    public void setPlaying(boolean playing) {
+        // Polling views repeatedly report the same state; restarting or stopping the timer would redraw static canvases.
+        if (this.playing == playing) return;
+        this.playing = playing;
+        updateAnimation();
+    }
+
+    private void updateAnimation() {
+        boolean animate = playing && rendering.get() == WaveformRendering.FIRE && getScene() != null;
+        if (animate) {
+            animationTimer.start();
+        } else {
+            animationTimer.stop();
+            lastAnimationFrame = 0L;
+            redraw();
+        }
     }
 
     public Duration getDisplayedPosition() {
@@ -251,7 +361,7 @@ public class WaveformSeekView extends Region {
     }
 
     private void handleMousePressed(MouseEvent event) {
-        if (isDisabled() || totalMillis <= 0d) {
+        if (isDisabled() || playerTotalMillis <= 0d && waveformTotalMillis <= 0d) {
             return;
         }
 
@@ -301,6 +411,14 @@ public class WaveformSeekView extends Region {
         return currentMillis;
     }
 
+    /**
+     * Draws one of a closed set of application-owned renderers while preserving sampled amplitudes, progress, seek
+     * behavior and disabled state. Skins select and parameterize a renderer through CSS but cannot supply executable
+     * drawing code; this keeps third-party packages safe and renderer cost predictable. Fire deliberately respects
+     * bottom alignment and amplitude coloring independently: geometry remains native to the skin, while palettes such
+     * as Retro Amp can map animated height to color instead of losing their intensity semantics. New modes must retain
+     * exact zero as silence and must not start animation outside {@link #setPlaying(boolean)}.
+     */
     private void redraw() {
         double width = canvas.getWidth();
         double height = canvas.getHeight();
@@ -324,14 +442,33 @@ public class WaveformSeekView extends Region {
         double centerY = height / 2d;
         double maxBarHeight = Math.max(4d, height - 2d);
 
+        WaveformRendering renderingMode = rendering.get();
         for (int index = 0; index < barCount; index++) {
             double amplitude = amplitudes[index];
+            double colorAmplitude = amplitude;
+            double barCenterX = index * (barWidth + BAR_GAP) + barWidth / 2d;
+            boolean played = barCenterX <= progressX;
+            if (renderingMode == WaveformRendering.FIRE && played && amplitude > 0d) {
+                double oscillation = Math.sin(animationPhase * 8d + index * 1.73d);
+                double motion = Math.max(0d, Math.min(0.5d, animationAmplitude.get()));
+                double flame = 1d - motion + motion * oscillation;
+                amplitude = Math.max(0d, Math.min(1d, amplitude * flame));
+                if (playing) colorAmplitude = Math.max(0d, Math.min(1d, colorAmplitude + oscillation * 0.14d));
+            }
             double barHeight = amplitude <= 0d ? 0d : Math.max(2d, amplitude * maxBarHeight);
             double x = index * (barWidth + BAR_GAP);
-            double y = bottomAligned.get() ? height - barHeight : centerY - barHeight / 2d;
-            double barCenterX = x + barWidth / 2d;
+            boolean anchored = bottomAligned.get();
+            double y = anchored ? height - barHeight : centerY - barHeight / 2d;
             if (barHeight > 0d) {
-                graphicsContext.setFill(resolveBarColor(barCenterX <= progressX, amplitude));
+                if (renderingMode == WaveformRendering.FIRE && played && !amplitudeColoring.get()) {
+                    Color low = fireLowColor.get();
+                    Color mid = fireMidColor.get();
+                    Color high = fireHighColor.get();
+                    graphicsContext.setFill(new LinearGradient(0d, y + barHeight, 0d, y, false,
+                            CycleMethod.NO_CYCLE, new Stop(0d, low), new Stop(0.55d, mid), new Stop(1d, high)));
+                } else {
+                    graphicsContext.setFill(resolveBarColor(played, colorAmplitude));
+                }
                 graphicsContext.fillRoundRect(x, y, barWidth, barHeight, barWidth, barWidth);
             }
         }

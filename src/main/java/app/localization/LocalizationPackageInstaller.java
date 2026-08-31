@@ -134,6 +134,42 @@ public class LocalizationPackageInstaller {
         packageSources.synchronizeVersionedDiscovered(discoveredSources);
     }
 
+    /**
+     * Processes only a newly added source directory and merges its discoveries with existing source metadata. A full
+     * synchronization treats absent directories as removed, so using it after adding one directory would require an
+     * unnecessary rescan of every configured source merely to preserve their records.
+     */
+    public void installAvailablePackages(Path sourceDirectory) {
+        if (!Files.isDirectory(sourceDirectory)) return;
+        Map<String, List<Path>> discoveredSources = new LinkedHashMap<>();
+        try (var packages = Files.list(sourceDirectory)) {
+            for (Path packageFile : packages
+                    .filter(Files::isRegularFile)
+                    .filter(this::hasPackageExtension)
+                    .sorted()
+                    .toList()) {
+                try {
+                    LocalizationManifest manifest = readPackageManifest(packageFile);
+                    PackageIdentity identity = new PackageIdentity(manifest.getUid(), manifest.getVersion());
+                    addDiscoveredSource(discoveredSources, identity, packageFile);
+                    Path target = repository.getDirectory().resolve(identity.storageName());
+                    if (!Files.exists(target) && !isDisabled(identity)) {
+                        install(packageFile, false, null, false);
+                    }
+                } catch (LocalizationAlreadyInstalledException exception) {
+                    LocalizationManifest manifest = exception.getLocalization();
+                    addDiscoveredSource(discoveredSources,
+                            new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
+                } catch (IOException | IllegalArgumentException exception) {
+                    // Invalid packages do not prevent the remaining files in the added directory from being discovered.
+                }
+            }
+        } catch (IOException | SecurityException exception) {
+            return;
+        }
+        packageSources.mergeVersionedDiscovered(discoveredSources);
+    }
+
     private LocalizationDescriptor install(Path packageFile, boolean replace, UUID expectedUid,
                                            boolean rememberSource) throws IOException {
         requireExtension(packageFile);

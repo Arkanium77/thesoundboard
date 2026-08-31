@@ -115,6 +115,8 @@ public class SkinService {
 
     public void addPackageSourceDirectory(Path directory) throws IOException {
         packageSourceDirectories.add(directory);
+        new SkinPackageInstaller(repository).installAvailablePackages(directory);
+        if (activeSkin != null) refreshSelectedSkin();
     }
 
     public void removePackageSourceDirectory(Path directory) throws IOException {

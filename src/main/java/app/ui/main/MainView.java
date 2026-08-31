@@ -3,6 +3,7 @@ package app.ui.main;
 import app.audio.AudioEngine;
 import app.config.AppConfig;
 import app.model.AudioFile;
+import app.model.PlaybackStatus;
 import app.model.ProjectState;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
@@ -67,9 +68,6 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
-import javafx.util.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,9 +84,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 public class MainView extends BorderPane {
@@ -102,6 +103,11 @@ public class MainView extends BorderPane {
     private final DoubleProperty uiScale;
     private final SkinService skinService;
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService uiRefreshScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "soundboard-ui-refresh");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final LastProjectPreferences lastProjectPreferences;
 
     private final Node settingsGraphic = UiIcons.settings();
@@ -146,14 +152,15 @@ public class MainView extends BorderPane {
     private final Map<UUID, WorkspaceVirtualTileItem> workspaceVirtualTileItems = new LinkedHashMap<>();
     private final Map<UUID, VirtualTileView> virtualTileViews = new LinkedHashMap<>();
     private final AtomicInteger saveGeneration = new AtomicInteger();
+    private final AtomicBoolean uiRefreshQueued = new AtomicBoolean();
     private final double baseTrackTileWidth;
     private final double baseTrackTileHeight;
-    private final Timeline waveformLoadingIndicatorTimeline = new Timeline(new KeyFrame(Duration.millis(150), event -> refreshWaveformLoadingIndicator()));
 
     private Path currentRootPath;
     private ProjectState projectState;
     private boolean loading;
     private boolean workspacePauseLatched;
+    private boolean workspacePlaybackWasActive;
     private boolean rebuildingWorkspace;
     private double masterVolume;
     private ScaleTarget scaleTarget = ScaleTarget.INTERFACE;
@@ -232,6 +239,7 @@ public class MainView extends BorderPane {
         configureActions();
         rebuildTree();
         rebuildWorkspace();
+        startUiRefreshScheduler();
         refreshInterfaceScale();
     }
 
@@ -239,7 +247,7 @@ public class MainView extends BorderPane {
         LOGGER.info("Shutting down application resources");
         saveCurrentProjectSynchronously();
         clearWorkspace();
-        waveformLoadingIndicatorTimeline.stop();
+        uiRefreshScheduler.shutdownNow();
         waveformService.shutdown();
         executorService.shutdownNow();
     }
@@ -454,7 +462,7 @@ public class MainView extends BorderPane {
         workspaceStopButton.setFocusTraversable(false);
         waveformLoadingIndicator.setVisible(false);
         waveformLoadingIndicator.setManaged(false);
-        waveformLoadingIndicator.setProgress(ProgressIndicator.INDETERMINATE_PROGRESS);
+        waveformLoadingIndicator.setProgress(0d);
         waveformLoadingIndicator.setPrefSize(18d, 18d);
         waveformLoadingIndicator.setMinSize(18d, 18d);
         waveformLoadingIndicator.setMaxSize(18d, 18d);
@@ -491,8 +499,6 @@ public class MainView extends BorderPane {
         masterVolumeSlider.valueProperty().addListener((observable, oldValue, newValue) -> updateMasterVolume(newValue.doubleValue() / 100d));
         updateMasterVolume(masterVolume);
         refreshWorkspaceTransportButtons();
-        waveformLoadingIndicatorTimeline.setCycleCount(Timeline.INDEFINITE);
-        waveformLoadingIndicatorTimeline.play();
         refreshWaveformLoadingIndicator();
     }
 
@@ -783,7 +789,7 @@ public class MainView extends BorderPane {
         );
         workspaceVirtualTileItems.put(tile.getId(), item);
         VirtualTileView view = new VirtualTileView(
-                appConfig.getWorkspace().getProgressRefreshMillis(), item, waveformService,
+                item, waveformService,
                 (audioFileIds, targetTrackId, placeAfter) -> addAudioFilesToVirtualTile(
                         tile.getId(), audioFileIds, targetTrackId, placeAfter),
                 (workspaceTrackId, targetTrackId, placeAfter) -> moveWorkspaceTrackToVirtualTile(
@@ -943,7 +949,6 @@ public class MainView extends BorderPane {
                 appConfig.getUi(),
                 workspaceQueueItem,
                 waveformService,
-                appConfig.getWorkspace().getProgressRefreshMillis(),
                 () -> removeQueue(workspaceQueue.getId()),
                 this::requestProjectSave,
                 (audioFileIds, targetQueueTrackId, placeAfter) -> addAudioFilesToQueue(workspaceQueue.getId(), audioFileIds, targetQueueTrackId, placeAfter),
@@ -1278,7 +1283,6 @@ public class MainView extends BorderPane {
 
         TrackTileView trackTileView = new TrackTileView(
                 appConfig.getUi(),
-                appConfig.getWorkspace().getProgressRefreshMillis(),
                 workspaceTrackItem,
                 waveformService,
                 () -> removeWorkspaceTrack(workspaceTrack.getId()),
@@ -1562,10 +1566,54 @@ public class MainView extends BorderPane {
         }
     }
 
+    /**
+     * Uses a daemon scheduler instead of a JavaFX Timeline. An indefinite Timeline keeps the JavaFX master animation
+     * timer and native renderer pulsing near display frequency even when its key frames run only a few times per second;
+     * on effect-heavy skins that made an otherwise idle window continuously rasterize and present large surfaces. The
+     * scheduler wakes the FX thread only at the configured polling interval and coalesces delayed requests so a busy UI
+     * cannot accumulate stale refresh work. Actual playback and hover animations remain free to request their own pulses.
+     */
+    private void startUiRefreshScheduler() {
+        long refreshMillis = appConfig.getWorkspace().getProgressRefreshMillis();
+        uiRefreshScheduler.scheduleAtFixedRate(this::requestUiRefresh, refreshMillis, refreshMillis, TimeUnit.MILLISECONDS);
+    }
+
+    private void requestUiRefresh() {
+        if (!uiRefreshQueued.compareAndSet(false, true)) return;
+        Platform.runLater(() -> {
+            try {
+                refreshWaveformLoadingIndicator();
+                refreshWorkspacePlaybackViews();
+            } finally {
+                uiRefreshQueued.set(false);
+            }
+        });
+    }
+
+    private void refreshWorkspacePlaybackViews() {
+        boolean activePlayback = workspaceTrackItems.values().stream()
+                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING)
+                || workspaceQueueItems.values().stream()
+                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING)
+                || workspaceVirtualTileItems.values().stream()
+                .flatMap(item -> item.getTrackItems().stream())
+                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING);
+        if (!activePlayback && !workspacePlaybackWasActive) return;
+        workspacePlaybackWasActive = activePlayback;
+        trackTileViews.values().forEach(TrackTileView::refreshPlayback);
+        queueViews.values().forEach(QueueView::refreshPlayback);
+        virtualTileViews.values().forEach(VirtualTileView::refreshPlayback);
+    }
+
     private void refreshWaveformLoadingIndicator() {
         boolean loadingWaveforms = waveformService.getPendingLoadCount() > 0;
-        waveformLoadingIndicator.setVisible(loadingWaveforms);
-        waveformLoadingIndicator.setManaged(loadingWaveforms);
+        if (waveformLoadingIndicator.isVisible() != loadingWaveforms) {
+            waveformLoadingIndicator.setVisible(loadingWaveforms);
+            waveformLoadingIndicator.setManaged(loadingWaveforms);
+            waveformLoadingIndicator.setProgress(loadingWaveforms
+                    ? ProgressIndicator.INDETERMINATE_PROGRESS
+                    : 0d);
+        }
     }
 
     private void requestProjectSave() {

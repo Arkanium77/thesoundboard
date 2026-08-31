@@ -1,9 +1,18 @@
 package app.waveform;
 
+import javafx.util.Duration;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class WaveformDataTest {
+    @Test
+    void retainsDurationForSeekingBeforeMediaPlayerCreation() {
+        WaveformData waveformData = new WaveformData(
+                new double[]{0.2d, 0.4d}, new double[]{0.1d, 0.3d}, Duration.seconds(12));
+
+        Assertions.assertThat(waveformData.getDuration()).isEqualTo(Duration.seconds(12));
+    }
+
     @Test
     void keepsPeakAndRootMeanSquareEnvelopesOnTheSameTimeline() {
         WaveformData waveformData = new WaveformData(

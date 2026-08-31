@@ -30,7 +30,13 @@ class WaveformSeekViewTest {
                 "-tsb-waveform-high-color",
                 "-tsb-waveform-idle-low-color",
                 "-tsb-waveform-idle-mid-color",
-                "-tsb-waveform-idle-high-color"
+                "-tsb-waveform-idle-high-color",
+                "-tsb-waveform-rendering",
+                "-tsb-waveform-fire-low-color",
+                "-tsb-waveform-fire-mid-color",
+                "-tsb-waveform-fire-high-color",
+                "-tsb-waveform-animation-speed",
+                "-tsb-waveform-animation-amplitude"
         );
     }
 

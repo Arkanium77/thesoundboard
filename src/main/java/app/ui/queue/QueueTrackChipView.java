@@ -49,6 +49,7 @@ public class QueueTrackChipView extends StackPane {
     private boolean lastActiveTrack;
     private PlaybackStatus lastPlaybackStatus;
     private SequentialTransition titleAnimation;
+    private boolean titleHovered;
 
     public QueueTrackChipView(
             QueueTrack queueTrack,
@@ -65,6 +66,15 @@ public class QueueTrackChipView extends StackPane {
         titleLabel.setWrapText(false);
         titleViewport.setClip(titleClip);
         titleViewport.getChildren().add(titleLabel);
+        titleViewport.setOnMouseEntered(event -> {
+            titleHovered = true;
+            updateTitleAnimation();
+        });
+        titleViewport.setOnMouseExited(event -> {
+            titleHovered = false;
+            stopTitleAnimation();
+            titleLabel.setTranslateX(0d);
+        });
         titleViewport.widthProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         titleViewport.heightProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         titleLabel.layoutBoundsProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
@@ -104,6 +114,14 @@ public class QueueTrackChipView extends StackPane {
 
     public QueueTrack getQueueTrack() {
         return queueTrack;
+    }
+
+    /**
+     * Stops transitions before a queue rebuild detaches this chip. JavaFX animations retain their target nodes, so
+     * merely replacing the children would otherwise keep obsolete chips and labels alive indefinitely.
+     */
+    public void dispose() {
+        stopTitleAnimation();
     }
 
     public void setInsertionMarker(WorkspaceInsertionMarker insertionMarker) {
@@ -235,7 +253,7 @@ public class QueueTrackChipView extends StackPane {
 
         double viewportWidth = titleViewport.getWidth();
         double labelWidth = titleLabel.getLayoutBounds().getWidth();
-        if (viewportWidth <= 0d || labelWidth <= viewportWidth) {
+        if (!titleHovered || viewportWidth <= 0d || labelWidth <= viewportWidth) {
             stopTitleAnimation();
             titleLabel.setTranslateX(0d);
             return;

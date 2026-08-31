@@ -37,6 +37,8 @@ public class WorkspaceQueueItem {
     private PlayingTrack playingTrack;
     private UUID playingQueueTrackId;
     private UUID focusedQueueTrackId;
+    private UUID pendingSeekQueueTrackId;
+    private Duration pendingSeekPosition;
     private boolean trackCreationFailed;
     private boolean finishedHandled;
     private double masterVolume;
@@ -147,6 +149,19 @@ public class WorkspaceQueueItem {
     }
 
     public Duration getFocusedCurrentTime() {
+        if (focusedQueueTrackId != null && focusedQueueTrackId.equals(pendingSeekQueueTrackId)
+                && pendingSeekPosition != null) {
+            if (focusedQueueTrackId.equals(playingQueueTrackId) && playingTrack != null) {
+                Duration currentTime = playingTrack.getCurrentTime();
+                PlaybackStatus status = playingTrack.getStatus();
+                if ((status == PlaybackStatus.PLAYING || status == PlaybackStatus.PAUSED)
+                        && Math.abs(currentTime.toMillis() - pendingSeekPosition.toMillis()) <= 250d) {
+                    clearPendingSeek();
+                    return currentTime;
+                }
+            }
+            return pendingSeekPosition;
+        }
         return focusedQueueTrackId != null && focusedQueueTrackId.equals(playingQueueTrackId) && playingTrack != null
                 ? playingTrack.getCurrentTime() : Duration.ZERO;
     }
@@ -182,6 +197,8 @@ public class WorkspaceQueueItem {
         finishedHandled = false;
         if (playbackStatus == PlaybackStatus.PLAYING) {
             playingTrack.pause();
+        } else if (selectedTrack.getId().equals(pendingSeekQueueTrackId) && pendingSeekPosition != null) {
+            playingTrack.restorePlayback(pendingSeekPosition, false);
         } else {
             playingTrack.play();
         }
@@ -300,10 +317,27 @@ public class WorkspaceQueueItem {
         }
     }
 
+    /**
+     * Retains a seek made before playback exists or after Stop. JavaFX may ignore a seek issued before MediaPlayer is
+     * ready and may reset a stopped player to its start when Play is invoked, so the requested position is associated
+     * with the focused queue entry and reapplied through restorePlayback on the next Play. A seek during active or
+     * paused playback is applied immediately because no subsequent state transition can discard it.
+     */
     public void seek(Duration position) {
-        if (playingTrack != null) {
-            playingTrack.seek(position);
+        QueueTrack focusedTrack = getFocusedTrack().orElse(null);
+        if (focusedTrack == null) return;
+
+        Duration seekPosition = position == null ? Duration.ZERO : position;
+        if (playingTrack != null && focusedTrack.getId().equals(playingQueueTrackId)) {
+            playingTrack.seek(seekPosition);
+            PlaybackStatus status = playingTrack.getStatus();
+            if (status == PlaybackStatus.PLAYING || status == PlaybackStatus.PAUSED) {
+                clearPendingSeek();
+                return;
+            }
         }
+        pendingSeekQueueTrackId = focusedTrack.getId();
+        pendingSeekPosition = seekPosition;
     }
 
     public PlaybackSnapshot snapshotPlayback(UUID queueTrackId) {
@@ -537,6 +571,11 @@ public class WorkspaceQueueItem {
             playingTrack = null;
         }
         playingQueueTrackId = null;
+    }
+
+    private void clearPendingSeek() {
+        pendingSeekQueueTrackId = null;
+        pendingSeekPosition = null;
     }
 
     private void applyVolume() {

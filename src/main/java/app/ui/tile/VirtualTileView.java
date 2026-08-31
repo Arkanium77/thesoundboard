@@ -13,7 +13,6 @@ import app.ui.workspace.WorkspaceTrackItem;
 import app.ui.workspace.WorkspaceVirtualTileItem;
 import app.waveform.WaveformData;
 import app.waveform.WaveformService;
-import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
 import javafx.animation.SequentialTransition;
 import javafx.animation.Timeline;
@@ -73,14 +72,13 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
     private final GridPane grid = new GridPane();
     private final Region dragHandle = new Region();
     private final Rectangle gridClip = new Rectangle();
-    private final Timeline refreshTimeline;
     private final Map<UUID, MiniTrackControls> controls = new LinkedHashMap<>();
     private final Region leftMarker = createMarker();
     private final Region rightMarker = createMarker();
     private ContextMenu activeContextMenu;
     private double currentScale = 1d;
 
-    public VirtualTileView(int progressRefreshMillis, WorkspaceVirtualTileItem tileItem,
+    public VirtualTileView(WorkspaceVirtualTileItem tileItem,
                            WaveformService waveformService, AudioDropHandler addTracksAction,
                            WorkspaceTrackDropHandler addWorkspaceTrackAction,
                            VirtualTrackMoveHandler moveTrackAction, TrackRemovalHandler removeTrackAction,
@@ -111,9 +109,6 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
         StackPane.setAlignment(leftMarker, Pos.CENTER_LEFT);
         StackPane.setAlignment(rightMarker, Pos.CENTER_RIGHT);
         setOnMousePressed(event -> hideActiveContextMenu());
-        refreshTimeline = new Timeline(new KeyFrame(Duration.millis(progressRefreshMillis), event -> refresh()));
-        refreshTimeline.setCycleCount(Timeline.INDEFINITE);
-        refreshTimeline.play();
     }
 
     public void rebuild() {
@@ -149,10 +144,11 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
 
     public void refreshLocalization() { rebuild(); }
     public void dispose() {
-        refreshTimeline.stop();
         hideActiveContextMenu();
         controls.values().forEach(MiniTrackControls::dispose);
     }
+
+    public void refreshPlayback() { refresh(); }
 
     @Override public UUID getWorkspaceItemId() { return tileItem.getTile().getId(); }
     @Override public void setInsertionMarker(WorkspaceInsertionMarker marker) {
@@ -477,6 +473,7 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
 
         private void refresh() {
             PlaybackStatus playbackStatus = item.getStatus();
+            if (waveform != null) waveform.setPlaying(playbackStatus == PlaybackStatus.PLAYING);
             playPause.setGraphic(playbackStatus == PlaybackStatus.PLAYING ? pauseGraphic : playGraphic);
             boolean disabled = item.isMissing() || playbackStatus == PlaybackStatus.ERROR;
             playPause.setDisable(disabled);
@@ -545,6 +542,7 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
         private final Label label = new Label();
         private final Rectangle clip = new Rectangle();
         private SequentialTransition animation;
+        private boolean hovered;
 
         private TitleMarquee(String text) {
             label.setText(text);
@@ -553,6 +551,15 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
             setMinWidth(0d);
             setMaxWidth(Double.MAX_VALUE);
             getChildren().add(label);
+            setOnMouseEntered(event -> {
+                hovered = true;
+                updateAnimation();
+            });
+            setOnMouseExited(event -> {
+                hovered = false;
+                if (animation != null) animation.stop();
+                label.setTranslateX(0d);
+            });
             widthProperty().addListener((observable, oldValue, newValue) -> updateAnimation());
             heightProperty().addListener((observable, oldValue, newValue) -> updateAnimation());
             label.layoutBoundsProperty().addListener((observable, oldValue, newValue) -> updateAnimation());
@@ -572,7 +579,7 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
             if (animation != null) animation.stop();
             label.setTranslateX(0d);
             double overflow = label.getLayoutBounds().getWidth() - getWidth();
-            if (overflow <= 2d || getWidth() <= 0d) return;
+            if (!hovered || overflow <= 2d || getWidth() <= 0d) return;
             PauseTransition before = new PauseTransition(Duration.seconds(1));
             TranslateTransition left = new TranslateTransition(Duration.millis(Math.max(1200d, overflow * 35d)), label);
             left.setToX(-overflow);

@@ -12,9 +12,14 @@ public interface PlayingTrack {
 
     void seek(Duration position);
 
+    /**
+     * Restores position before starting playback because media backends are allowed to reset a stopped player when
+     * Play is invoked. Implementations that have an asynchronous ready state must defer this whole ordered sequence;
+     * reversing it can make a transferred or explicitly positioned track audibly and permanently start at zero.
+     */
     default void restorePlayback(Duration position, boolean paused) {
-        play();
         seek(position);
+        play();
         if (paused) pause();
     }
 

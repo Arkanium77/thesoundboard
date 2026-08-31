@@ -86,6 +86,29 @@ class WorkspaceTrackItemTest {
     }
 
     @Test
+    void reappliesSeekWhenStartingAStoppedTrack() throws IOException {
+        Path rootPath = TestDirectorySupport.createTempDirectory("workspace-track-item-seek-");
+        Files.writeString(rootPath.resolve("theme.mp3"), "audio");
+        FakePlayingTrack fakePlayingTrack = new FakePlayingTrack();
+        WorkspaceTrack model = new WorkspaceTrack(UUID.randomUUID(), UUID.randomUUID(), 0, 0.7d, false);
+        AudioFile audioFile = new AudioFile(model.getAudioFileId(), "theme.mp3", "theme.mp3", false);
+        WorkspaceTrackItem item = new WorkspaceTrackItem(
+                rootPath, model, audioFile, path -> fakePlayingTrack, 1d, exception -> { });
+
+        item.stop();
+        item.seek(Duration.seconds(6));
+
+        Assertions.assertThat(item.getCurrentTime()).isEqualTo(Duration.seconds(6));
+        Assertions.assertThat(fakePlayingTrack.seekPosition).isEqualTo(Duration.ZERO);
+
+        item.togglePlayPause();
+
+        Assertions.assertThat(fakePlayingTrack.seekPosition).isEqualTo(Duration.seconds(6));
+        Assertions.assertThat(fakePlayingTrack.playCalls).isEqualTo(1);
+        Assertions.assertThat(fakePlayingTrack.playbackStatus).isEqualTo(PlaybackStatus.PLAYING);
+    }
+
+    @Test
     void restoresPlaybackPositionAndPausedStateAfterMovingBetweenContainers() throws IOException {
         Path rootPath = TestDirectorySupport.createTempDirectory("workspace-track-item-transfer-");
         Files.writeString(rootPath.resolve("theme.mp3"), "audio");

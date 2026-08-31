@@ -62,7 +62,10 @@ public class LocalizationService {
     }
     public List<Path> getPackageSourceDirectories() { return packageSourceDirectories.getDirectories(); }
     public List<Path> getBundledPackageSourceDirectories() { return packageSourceDirectories.getBundledDirectories(); }
-    public void addPackageSourceDirectory(Path directory) throws IOException { packageSourceDirectories.add(directory); }
+    public void addPackageSourceDirectory(Path directory) throws IOException {
+        packageSourceDirectories.add(directory);
+        new LocalizationPackageInstaller(repository).installAvailablePackages(directory);
+    }
     public void removePackageSourceDirectory(Path directory) throws IOException { packageSourceDirectories.remove(directory); }
     public UUID getSelectedUid() { return preferences.load(); }
     public int getSelectedVersion() { return preferences.loadVersion(); }

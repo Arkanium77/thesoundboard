@@ -1,5 +1,7 @@
 package app.waveform;
 
+import javafx.util.Duration;
+
 import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioInputStream;
@@ -64,7 +66,11 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
             }
         }
 
-        return new WaveformData(normalize(peaks), normalize(toRootMeanSquare(squaredAmplitudeSums, frameCounts)));
+        return new WaveformData(
+                normalize(peaks),
+                normalize(toRootMeanSquare(squaredAmplitudeSums, frameCounts)),
+                durationOf(totalFrames, pcmFormat)
+        );
     }
 
     /**
@@ -78,12 +84,14 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
         int frameSize = pcmFormat.getFrameSize();
         byte[] buffer = new byte[Math.max(frameSize * 1024, 4096)];
         int chunkFrameIndex = 0;
+        long totalFrameCount = 0L;
         double chunkSquaredAmplitudeSum = 0d;
         double chunkPeak = 0d;
 
         int bytesRead;
         while ((bytesRead = pcmStream.read(buffer)) >= 0) {
             int usableBytes = bytesRead - bytesRead % frameSize;
+            totalFrameCount += usableBytes / frameSize;
             for (int offset = 0; offset < usableBytes; offset += frameSize) {
                 double amplitude = decodeFrameAmplitude(buffer, offset, pcmFormat.getChannels());
                 chunkSquaredAmplitudeSum += amplitude * amplitude;
@@ -125,7 +133,7 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
             levels[index] = Math.sqrt(squaredLevelSum / chunkCount);
         }
 
-        return new WaveformData(normalize(peaks), normalize(levels));
+        return new WaveformData(normalize(peaks), normalize(levels), durationOf(totalFrameCount, pcmFormat));
     }
 
     private AudioFormat toPcmFormat(AudioFormat sourceFormat) {
@@ -200,5 +208,10 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
             }
         }
         return levels;
+    }
+
+    private Duration durationOf(long frameCount, AudioFormat audioFormat) {
+        if (frameCount <= 0L || audioFormat.getFrameRate() <= 0f) return Duration.ZERO;
+        return Duration.seconds(frameCount / audioFormat.getFrameRate());
     }
 }

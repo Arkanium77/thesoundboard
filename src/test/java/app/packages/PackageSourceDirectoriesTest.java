@@ -42,6 +42,22 @@ class PackageSourceDirectoriesTest {
     }
 
     @Test
+    void resolvesAssetsAboveLinuxBinDirectory() {
+        Path applicationDirectory = temporaryDirectory.resolve("TheSoundboard");
+        Path launcher = applicationDirectory.resolve("bin").resolve("TheSoundboard");
+
+        Path resolved = PackageSourceDirectories.resolveApplicationDirectory(
+                launcher.toString(), temporaryDirectory.resolve("working"));
+        PackageSourceDirectories sources = PackageSourceDirectories.fromApplicationDirectory(resolved);
+
+        Assertions.assertThat(resolved).isEqualTo(applicationDirectory.toAbsolutePath().normalize());
+        Assertions.assertThat(sources.skinDirectories())
+                .containsExactly(applicationDirectory.toAbsolutePath().normalize().resolve("assets/skins"));
+        Assertions.assertThat(sources.localizationDirectories())
+                .containsExactly(applicationDirectory.toAbsolutePath().normalize().resolve("assets/localization"));
+    }
+
+    @Test
     void fallsBackToWorkingDirectoryOutsidePackagedApplication() {
         Path workingDirectory = temporaryDirectory.resolve("working");
 

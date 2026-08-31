@@ -86,6 +86,7 @@ class SkinPackageInstallerTest {
         installer.delete(replaced);
         Assertions.assertThat(replaced.directory()).doesNotExist();
         Assertions.assertThat(skinsDirectory.resolve("_packages").resolve(MOON_UID + ".tsbs")).doesNotExist();
+        Assertions.assertThat(repository.findAll()).hasSize(1).allMatch(SkinDescriptor::isBuiltIn);
     }
 
     @Test

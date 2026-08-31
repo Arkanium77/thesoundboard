@@ -147,6 +147,48 @@ public class SkinPackageInstaller {
         packageSources.synchronizeVersionedDiscovered(discoveredSources);
     }
 
+    /**
+     * Discovers packages only in a newly added source directory. Existing discovered sources are deliberately merged,
+     * not replaced: the directory is appended to the configured search order, so an already available higher-priority
+     * source must keep ownership of the installed UID/version. When no source was previously available, the new source
+     * also synchronizes an existing unpacked cache so same-version edits become visible immediately.
+     */
+    public void installAvailablePackages(Path sourceDirectory) {
+        if (!Files.isDirectory(sourceDirectory)) return;
+        Map<String, List<Path>> discoveredSources = new LinkedHashMap<>();
+        Set<String> processedPackages = new LinkedHashSet<>();
+        try (var packages = Files.list(sourceDirectory)) {
+            for (Path packageFile : packages
+                    .filter(Files::isRegularFile)
+                    .filter(this::hasPackageExtension)
+                    .sorted()
+                    .toList()) {
+                try {
+                    SkinManifest manifest = readPackageManifest(packageFile);
+                    PackageIdentity identity = new PackageIdentity(manifest.getUid(), manifest.getVersion());
+                    addDiscoveredSource(discoveredSources, identity, packageFile);
+                    if (!processedPackages.add(identity.storageName())) continue;
+                    Path target = repository.getExternalSkinsDirectory().resolve(identity.storageName());
+                    boolean existingSourceAvailable = packageSources.isDiscovered(identity.uid(), identity.version());
+                    if (Files.exists(target) && !existingSourceAvailable) {
+                        install(packageFile, true, identity.uid(), false);
+                    } else if (!Files.exists(target) && !isDisabled(identity)) {
+                        install(packageFile, false, null, false);
+                    }
+                } catch (SkinAlreadyInstalledException exception) {
+                    SkinManifest manifest = exception.getSkin();
+                    addDiscoveredSource(discoveredSources,
+                            new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
+                } catch (IOException | IllegalArgumentException exception) {
+                    // Invalid packages do not prevent the remaining files in the added directory from being discovered.
+                }
+            }
+        } catch (IOException | SecurityException exception) {
+            return;
+        }
+        packageSources.mergeVersionedDiscovered(discoveredSources);
+    }
+
     private SkinDescriptor install(Path packageFile, boolean replaceExisting, UUID expectedUid,
                                    boolean rememberSource) throws IOException {
         requirePackageExtension(packageFile);
@@ -313,6 +355,7 @@ public class SkinPackageInstaller {
                 .resolve("_packages")
                 .resolve(identity(skin).storageName() + ".tsbs"));
         packageSources.forget(skin.manifest().getUid(), skin.manifest().getVersion());
+        repository.invalidate();
     }
 
     private SkinDescriptor validateExtractedSkin(Path temporaryDirectory) throws IOException {
@@ -375,6 +418,7 @@ public class SkinPackageInstaller {
             }
             Files.move(temporaryDirectory, targetDirectory);
             storePackageCopy(packageFile, identity);
+            repository.invalidate();
         } catch (IOException | RuntimeException exception) {
             deleteRecursively(targetDirectory);
             Files.deleteIfExists(storedPackage);
@@ -519,6 +563,7 @@ public class SkinPackageInstaller {
         } catch (IOException exception) {
             // Empty maintenance directories are harmless.
         }
+        repository.invalidate();
     }
 
     private Path pendingRoot() {

@@ -124,6 +124,30 @@ public class PackageSourceRegistry {
         }
     }
 
+    /**
+     * Adds sources found in one newly registered directory without replacing the discovery snapshot produced from the
+     * other configured directories. Calling the full synchronization here would require rescanning every directory to
+     * avoid interpreting omitted directories as removed; merging preserves existing source priority and availability
+     * while making source-folder addition proportional only to the contents of the added folder.
+     */
+    public void mergeVersionedDiscovered(Map<String, List<Path>> discoveredSources) {
+        try {
+            Files.createDirectories(directory);
+            for (Map.Entry<String, List<Path>> entry : discoveredSources.entrySet()) {
+                LinkedHashSet<Path> merged = new LinkedHashSet<>();
+                List<Path> existing = new ArrayList<>();
+                readPaths(discoveredSourcesFile(entry.getKey()), existing);
+                existing.stream().map(Path::toAbsolutePath).map(Path::normalize).forEach(merged::add);
+                entry.getValue().stream().map(Path::toAbsolutePath).map(Path::normalize).forEach(merged::add);
+                if (!merged.isEmpty()) {
+                    Files.write(discoveredSourcesFile(entry.getKey()), merged.stream().map(Path::toString).toList());
+                }
+            }
+        } catch (IOException | SecurityException exception) {
+            // A later full refresh can reconstruct discovery metadata when incremental persistence is unavailable.
+        }
+    }
+
     public void forget(UUID uid) {
         forget(uid, 1);
     }

@@ -18,6 +18,7 @@ public final class EmojiText {
     private static final double EMOJI_SIZE = 16d;
     private static final String RESOURCE_ROOT = "/emoji/twemoji/";
     private static final Map<String, Image> imageCache = new LinkedHashMap<>();
+    private static final Map<String, List<Segment>> segmentCache = new LinkedHashMap<>();
 
     private EmojiText() {
     }
@@ -40,7 +41,18 @@ public final class EmojiText {
         return content;
     }
 
+    /**
+     * Caches immutable segmentation results because emoji recognition probes many possible classpath resources at each
+     * code-point position. Package names are rendered repeatedly when settings sections are rebuilt; repeating those
+     * negative resource lookups on the JavaFX thread made opening the skins list pause even after package scanning was
+     * removed. The cache contains only user-visible package labels encountered by this process.
+     */
     static List<Segment> parse(String value) {
+        String normalizedValue = value == null ? "" : value;
+        return segmentCache.computeIfAbsent(normalizedValue, EmojiText::parseUncached);
+    }
+
+    private static List<Segment> parseUncached(String value) {
         int[] codePoints = value.codePoints().toArray();
         List<Segment> segments = new ArrayList<>();
         StringBuilder text = new StringBuilder();

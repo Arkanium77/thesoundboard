@@ -16,7 +16,6 @@ import app.waveform.WaveformData;
 import app.waveform.WaveformService;
 import javafx.application.Platform;
 import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
 import javafx.animation.PauseTransition;
 import javafx.animation.SequentialTransition;
 import javafx.animation.Timeline;
@@ -73,7 +72,6 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private final QueueTrackMoveHandler moveQueueTrackAction;
     private final VirtualTrackDropHandler addVirtualTrackAction;
     private final WorkspaceQueueMoveHandler moveWorkspaceQueueAction;
-    private final Timeline refreshTimeline;
 
     private final AnchorPane leftInsertionMarker = createInsertionMarker(true);
     private final AnchorPane rightInsertionMarker = createInsertionMarker(false);
@@ -120,6 +118,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private final VBox body = new VBox();
 
     private boolean editingQueueName;
+    private boolean titleHovered;
     private String editingOriginalQueueName;
     private QueueTrackChipView insertionTargetChipView;
     private boolean insertionAfter;
@@ -133,7 +132,6 @@ public class QueueView extends StackPane implements WorkspaceItemView {
             UiConfig uiConfig,
             WorkspaceQueueItem workspaceQueueItem,
             WaveformService waveformService,
-            int progressRefreshMillis,
             Runnable removeQueueAction,
             Runnable persistenceChangeAction,
             QueueAudioDropHandler addAudioFilesAction,
@@ -155,23 +153,26 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         this.addVirtualTrackAction = addVirtualTrackAction;
         this.moveWorkspaceQueueAction = moveWorkspaceQueueAction;
         this.baseWaveformHeight = uiConfig.getWaveformHeight();
-        this.refreshTimeline = new Timeline(new KeyFrame(Duration.millis(progressRefreshMillis), event -> refresh()));
-
         configureLayout(uiConfig);
         configureActions();
         rebuildChips();
         refresh();
 
-        refreshTimeline.setCycleCount(Timeline.INDEFINITE);
-        refreshTimeline.play();
     }
 
     public void dispose() {
-        refreshTimeline.stop();
+        chipContainer.getChildren().stream()
+                .filter(QueueTrackChipView.class::isInstance)
+                .map(QueueTrackChipView.class::cast)
+                .forEach(QueueTrackChipView::dispose);
         waveformRequestGeneration++;
         currentWaveformPath = null;
         waveformSeekView.setWaveformData(WaveformData.empty());
         stopTitleAnimation();
+    }
+
+    public void refreshPlayback() {
+        refresh();
     }
 
     public void updateTileMetrics(double tileWidth, double tileHeight, double tileScale) {
@@ -193,6 +194,10 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     }
 
     public void rebuildChips() {
+        chipContainer.getChildren().stream()
+                .filter(QueueTrackChipView.class::isInstance)
+                .map(QueueTrackChipView.class::cast)
+                .forEach(QueueTrackChipView::dispose);
         List<QueueTrackChipView> chipViews = new ArrayList<>();
         for (QueueTrack queueTrack : workspaceQueueItem.getTracks()) {
             AudioFile audioFile = workspaceQueueItem.getAudioFile(queueTrack.getAudioFileId()).orElse(null);
@@ -237,6 +242,15 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         queueNameLabel.setWrapText(false);
         titleViewport.setClip(titleClip);
         titleViewport.getChildren().add(queueNameLabel);
+        titleViewport.setOnMouseEntered(event -> {
+            titleHovered = true;
+            updateTitleAnimation();
+        });
+        titleViewport.setOnMouseExited(event -> {
+            titleHovered = false;
+            stopTitleAnimation();
+            queueNameLabel.setTranslateX(0d);
+        });
         titleViewport.widthProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         titleViewport.heightProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
         queueNameLabel.layoutBoundsProperty().addListener((observable, oldValue, newValue) -> updateTitleAnimation());
@@ -494,6 +508,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private void refresh() {
         PlaybackStatus activePlaybackStatus = workspaceQueueItem.getStatus();
         PlaybackStatus playbackStatus = workspaceQueueItem.getFocusedStatus();
+        waveformSeekView.setPlaying(playbackStatus == PlaybackStatus.PLAYING);
         Duration currentTime = workspaceQueueItem.getFocusedCurrentTime();
         Duration totalTime = workspaceQueueItem.getFocusedTotalDuration();
         refreshWaveformSource();
@@ -878,7 +893,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         titleClip.setHeight(Math.max(titleViewport.getHeight(), 22d * currentScale));
 
         double overflow = queueNameLabel.getLayoutBounds().getWidth() - titleViewport.getWidth();
-        if (editingQueueName || overflow <= 4d) {
+        if (editingQueueName || !titleHovered || overflow <= 4d) {
             stopTitleAnimation();
             queueNameLabel.setTranslateX(0d);
             return;
