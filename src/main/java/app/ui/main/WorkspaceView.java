@@ -32,13 +32,18 @@ import javafx.scene.layout.StackPane;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 
 public class WorkspaceView extends BorderPane {
     private static final double AUTO_SCROLL_EDGE = 64d;
     private static final double AUTO_SCROLL_MAX_SPEED = 640d;
-    private final FlowPane contentPane = new FlowPane();
+    private final FlowPane contentPane = new FlowPane() {
+        @Override
+        protected void layoutChildren() {
+            super.layoutChildren();
+            updateTileVisibility();
+        }
+    };
     private final Label emptyStateLabel = new Label(Texts.text(TextKey.WORKSPACE_EMPTY));
     private final ScrollPane scrollPane = new ScrollPane(contentPane);
     private final Region background = new Region();
@@ -78,6 +83,7 @@ public class WorkspaceView extends BorderPane {
         contentPane.setAlignment(Pos.TOP_LEFT);
 
         scrollPane.setFitToWidth(true);
+        scrollPane.vvalueProperty().addListener(observable -> updateTileVisibility());
         scrollPane.setContent(contentPane);
         scrollPane.viewportBoundsProperty().addListener((observable, oldValue, newValue) -> updateContainerSize(newValue));
         addEventFilter(ScrollEvent.SCROLL, event -> {
@@ -269,6 +275,7 @@ public class WorkspaceView extends BorderPane {
         dragAutoScroll.stop();
         dragPointerSceneY = Double.NaN;
         lastAutoScrollFrame = 0L;
+        updateTileVisibility();
     }
 
     static double calculateAutoScrollVelocity(double pointerY, double top, double bottom,
@@ -345,6 +352,24 @@ public class WorkspaceView extends BorderPane {
         });
 
         node.setOnDragDone(event -> clearInsertionMarker());
+    }
+
+    /** JFR showed Prism allocating paths/effect surfaces for hundreds of clipped cards on every playback pulse.
+     * Keep all nodes managed so FlowPane geometry, order and scroll range remain unchanged, but exclude offscreen
+     * cards from rendering. A margin preserves shadows and insertion markers. Drag auto-scroll temporarily retains
+     * all cards so a source or target never disappears during an active native drag gesture. */
+    private void updateTileVisibility() {
+        double height = scrollPane.getViewportBounds().getHeight();
+        if (height <= 0d) return;
+        double range = scrollPane.getVmax() - scrollPane.getVmin();
+        double fraction = range <= 0d ? 0d : (scrollPane.getVvalue() - scrollPane.getVmin()) / range;
+        double top = Math.max(0d, contentPane.getHeight() - height) * fraction;
+        for (Node node : contentPane.getChildren()) {
+            Bounds bounds = node.getBoundsInParent();
+            boolean visible = !Double.isNaN(dragPointerSceneY)
+                    || bounds.getMaxY() >= top - AUTO_SCROLL_EDGE && bounds.getMinY() <= top + height + AUTO_SCROLL_EDGE;
+            if (node.isVisible() != visible) node.setVisible(visible);
+        }
     }
 
     private void updateContainerSize(Bounds viewportBounds) {

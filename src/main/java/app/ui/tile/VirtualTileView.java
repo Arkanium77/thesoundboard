@@ -5,18 +5,17 @@ import app.localization.Texts;
 import app.model.PlaybackStatus;
 import app.model.VirtualTileLayout;
 import app.ui.UiIcons;
+import app.ui.UiViewport;
+import app.ui.TitleScrollAnimation;
+import app.ui.VolumeSliderSupport;
 import app.ui.drag.DragPayload;
 import app.ui.waveform.WaveformSeekView;
+import app.ui.waveform.WaveformSubscription;
 import app.ui.workspace.WorkspaceInsertionMarker;
 import app.ui.workspace.WorkspaceItemView;
 import app.ui.workspace.WorkspaceTrackItem;
 import app.ui.workspace.WorkspaceVirtualTileItem;
-import app.waveform.WaveformData;
 import app.waveform.WaveformService;
-import javafx.animation.PauseTransition;
-import javafx.animation.SequentialTransition;
-import javafx.animation.Timeline;
-import javafx.animation.TranslateTransition;
 import javafx.application.Platform;
 import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
@@ -48,10 +47,7 @@ import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
-import javafx.util.Duration;
 
-import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -148,7 +144,7 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
         controls.values().forEach(MiniTrackControls::dispose);
     }
 
-    public void refreshPlayback() { refresh(); }
+    public void refreshPlayback() { controls.values().forEach(MiniTrackControls::refreshPlayback); }
 
     @Override public UUID getWorkspaceItemId() { return tileItem.getTile().getId(); }
     @Override public void setInsertionMarker(WorkspaceInsertionMarker marker) {
@@ -273,9 +269,7 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
 
     private ContextMenu createTrackContextMenu(WorkspaceTrackItem trackItem) {
         Slider volume = new Slider(0d, 100d, trackItem.getWorkspaceTrack().getVolume() * 100d);
-        volume.valueProperty().addListener((observable, oldValue, newValue) ->
-                trackItem.setVolume(newValue.doubleValue() / 100d));
-        volume.setOnMouseReleased(event -> persistenceChangeAction.run());
+        VolumeSliderSupport.bind(volume, trackItem::setVolume, persistenceChangeAction);
         VBox volumeBox = new VBox(4d, new Label(Texts.text(TextKey.VIRTUAL_TILE_VOLUME)), volume);
         volumeBox.setPadding(new Insets(6d));
         CustomMenuItem volumeItem = new CustomMenuItem(volumeBox, false);
@@ -439,6 +433,8 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
         private final Circle status;
         private final VBox content;
 
+        private final WaveformSubscription subscription;
+
         private MiniTrackControls(WorkspaceTrackItem item, TitleMarquee title, Button playPause,
                                   Node playGraphic, Node pauseGraphic, Button stop, Node stopGraphic,
                                   ToggleButton mute, Node mutedGraphic, Node unmutedGraphic,
@@ -454,9 +450,11 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
             this.mutedGraphic = mutedGraphic;
             this.unmutedGraphic = unmutedGraphic;
             this.waveform = waveform;
+            this.subscription = waveform == null ? null : new WaveformSubscription(waveformService, waveform::setWaveformData);
             this.status = status;
             this.content = content;
-            if (waveform != null) waveform.setSeekHandler(item::seek);
+            item.setOnPlaybackChanged(this::refresh);
+            if (waveform != null) waveform.setSeekHandler(position -> { item.seek(position); refresh(); });
         }
 
         private void setLoopControls(ToggleButton loop, Node loopGraphic) {
@@ -465,10 +463,20 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
         }
 
         private void loadWaveform() {
+            if (subscription != null) subscription.load(item.getAudioPath().orElse(null));
+        }
+
+        private void refreshPlayback() {
+            if (item.getStatus() != PlaybackStatus.PLAYING) {
+                if (waveform != null) waveform.setPlaying(false);
+                return;
+            }
+            boolean visible = UiViewport.isVisible(content);
+            if (!visible) title.dispose();
             if (waveform == null) return;
-            Path path = item.getAudioPath().orElse(null);
-            if (path == null) return;
-            waveformService.loadWaveform(path).thenAccept(data -> Platform.runLater(() -> waveform.setWaveformData(data)));
+            boolean playing = item.getStatus() == PlaybackStatus.PLAYING;
+            waveform.setPlaying(visible && playing);
+            if (visible && playing) waveform.setPlaybackPosition(item.getCurrentTime(), item.getTotalDuration());
         }
 
         private void refresh() {
@@ -533,15 +541,17 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
         }
 
         private void dispose() {
+            item.setOnPlaybackChanged(null);
+            if (subscription != null) subscription.dispose();
             title.dispose();
-            if (waveform != null) waveform.setWaveformData(WaveformData.empty());
+            if (waveform != null) waveform.dispose();
         }
     }
 
     private static final class TitleMarquee extends Pane {
         private final Label label = new Label();
         private final Rectangle clip = new Rectangle();
-        private SequentialTransition animation;
+        private final TitleScrollAnimation animation = new TitleScrollAnimation(this, label, clip, TitleScrollAnimation.Style.MINI);
         private boolean hovered;
 
         private TitleMarquee(String text) {
@@ -557,7 +567,7 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
             });
             setOnMouseExited(event -> {
                 hovered = false;
-                if (animation != null) animation.stop();
+                animation.stop();
                 label.setTranslateX(0d);
             });
             widthProperty().addListener((observable, oldValue, newValue) -> updateAnimation());
@@ -573,25 +583,9 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
             Platform.runLater(this::updateAnimation);
         }
 
-        private void updateAnimation() {
-            clip.setWidth(Math.max(getWidth(), 0d));
-            clip.setHeight(Math.max(getHeight(), 0d));
-            if (animation != null) animation.stop();
-            label.setTranslateX(0d);
-            double overflow = label.getLayoutBounds().getWidth() - getWidth();
-            if (!hovered || overflow <= 2d || getWidth() <= 0d) return;
-            PauseTransition before = new PauseTransition(Duration.seconds(1));
-            TranslateTransition left = new TranslateTransition(Duration.millis(Math.max(1200d, overflow * 35d)), label);
-            left.setToX(-overflow);
-            PauseTransition after = new PauseTransition(Duration.seconds(1));
-            TranslateTransition right = new TranslateTransition(Duration.millis(Math.max(600d, overflow * 18d)), label);
-            right.setToX(0d);
-            animation = new SequentialTransition(before, left, after, right);
-            animation.setCycleCount(Timeline.INDEFINITE);
-            animation.play();
-        }
+        private void updateAnimation() { animation.update(hovered, 0d); }
 
-        private void dispose() { if (animation != null) animation.stop(); }
+        private void dispose() { animation.stop(); }
     }
 
     public interface AudioDropHandler {

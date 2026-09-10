@@ -3,8 +3,6 @@ package app.ui.main;
 import app.audio.AudioEngine;
 import app.config.AppConfig;
 import app.model.AudioFile;
-import app.model.PlaybackStatus;
-import app.model.ProjectState;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
@@ -15,11 +13,13 @@ import app.localization.TextKey;
 import app.localization.Texts;
 import app.project.ProjectLoadResult;
 import app.project.LastProjectPreferences;
-import app.project.ProjectStateCopySupport;
+import app.project.ProjectSessionController;
 import app.project.ProjectService;
+import app.project.ProjectSaveCoordinator;
 import app.project.ProjectStateEditor;
 import app.skin.SkinService;
 import app.ui.UiIcons;
+import app.ui.VolumeSliderSupport;
 import app.ui.drag.DragPayload;
 import app.ui.queue.QueueView;
 import app.ui.settings.SettingsWindow;
@@ -34,6 +34,8 @@ import app.ui.workspace.WorkspaceVirtualTileItem;
 import app.waveform.WaveformService;
 import app.waveform.WaveformPreferences;
 import javafx.application.Platform;
+import javafx.animation.PauseTransition;
+import javafx.util.Duration;
 import javafx.beans.property.DoubleProperty;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
@@ -72,7 +74,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -84,13 +85,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
 
 public class MainView extends BorderPane {
     private static final Logger LOGGER = LoggerFactory.getLogger(MainView.class);
@@ -151,16 +151,16 @@ public class MainView extends BorderPane {
     private final Map<UUID, QueueView> queueViews = new LinkedHashMap<>();
     private final Map<UUID, WorkspaceVirtualTileItem> workspaceVirtualTileItems = new LinkedHashMap<>();
     private final Map<UUID, VirtualTileView> virtualTileViews = new LinkedHashMap<>();
-    private final AtomicInteger saveGeneration = new AtomicInteger();
+    private final ProjectSaveCoordinator saveCoordinator;
+    private final PauseTransition saveDelay = new PauseTransition(Duration.millis(350));
     private final AtomicBoolean uiRefreshQueued = new AtomicBoolean();
     private final double baseTrackTileWidth;
     private final double baseTrackTileHeight;
 
-    private Path currentRootPath;
-    private ProjectState projectState;
-    private boolean loading;
+    private final ProjectSessionController session;
+    private boolean saving;
+    private volatile boolean shuttingDown;
     private boolean workspacePauseLatched;
-    private boolean workspacePlaybackWasActive;
     private boolean rebuildingWorkspace;
     private double masterVolume;
     private ScaleTarget scaleTarget = ScaleTarget.INTERFACE;
@@ -181,15 +181,16 @@ public class MainView extends BorderPane {
         this.stage = stage;
         this.appConfig = appConfig;
         this.projectService = projectService;
+        this.saveCoordinator = new ProjectSaveCoordinator(projectService);
         this.projectStateEditor = projectStateEditor;
         this.audioEngine = audioEngine;
         this.waveformService = waveformService;
         this.uiScale = uiScale;
         this.skinService = skinService;
         this.lastProjectPreferences = lastProjectPreferences;
+        this.session = new ProjectSessionController(appConfig.getSchemaVersion());
         this.settingsWindow = new SettingsWindow(stage, skinService, localizationService, lastProjectPreferences,
-                waveformPreferences, this::refreshLocalization);
-        this.projectState = ProjectState.empty(appConfig.getSchemaVersion());
+                waveformPreferences, this::refreshLocalization, this::prepareRestart);
         this.masterVolume = appConfig.getWorkspace().getDefaultMasterVolume();
         this.baseTrackTileWidth = appConfig.getUi().getTrackTileWidth();
         this.baseTrackTileHeight = appConfig.getUi().getTrackTileHeight();
@@ -244,13 +245,48 @@ public class MainView extends BorderPane {
     }
 
     public void shutdown() {
-        LOGGER.info("Shutting down application resources");
-        saveCurrentProjectSynchronously();
+        if (shuttingDown) return;
+        shuttingDown = true;
+        saveDelay.stop();
+        if (!session.isClosing() && session.getRootPath() != null && session.isWritable()) {
+            saveCoordinator.submit(session.snapshot());
+        }
+        session.beginClose();
+        saveCoordinator.shutdown();
         clearWorkspace();
         uiRefreshScheduler.shutdownNow();
         waveformService.shutdown();
         executorService.shutdownNow();
     }
+
+    /**
+     * Close and restart stop edits before submitting the final detached snapshot. Completion is delivered on FX,
+     * so neither the UI nor a worker waits for a callback blocked by the other. Failed writes leave the stage open.
+     * The continuation starts a replacement JVM only after persistence succeeds, or closes the current stage.
+     * Successful completion retains the closing flag so Application.stop cannot write again after a restart begins.
+     */
+    public void prepareClose(Runnable completed) {
+        if (settingsWindow.isPackageOperationRunning() || saving || session.isClosing()) return;
+        if (!confirmRecoverySave()) return;
+        session.beginClose();
+        saveCurrentProject(completed, true);
+    }
+
+    private void prepareRestart(BooleanSupplier restart) {
+        prepareClose(() -> { if (!restart.getAsBoolean()) session.cancelClose(); });
+    }
+
+    private boolean confirmRecoverySave() {
+        if (session.isWritable() || !session.isDirty()) return true;
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                "Save the recovered workspace before continuing? The unreadable original will be kept in a recovery file.",
+                ButtonType.OK, ButtonType.CANCEL);
+        alert.initOwner(stage);
+        return alert.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK;
+    }
+
+    public Path getCurrentRootPath() { return session.getRootPath(); }
+    public boolean isLoading() { return session.isLoading() || saving; }
 
     public void restoreLastProject(boolean forced) {
         if (forced || lastProjectPreferences.isRestoreOnStart()) {
@@ -275,9 +311,9 @@ public class MainView extends BorderPane {
         trackTileViews.values().forEach(TrackTileView::refreshLocalization);
         queueViews.values().forEach(QueueView::refreshLocalization);
         virtualTileViews.values().forEach(VirtualTileView::refreshLocalization);
-        statusLabel.setText(currentRootPath == null
+        statusLabel.setText(session.getRootPath() == null
                 ? Texts.text(TextKey.MAIN_READY)
-                : Texts.format(TextKey.STATUS_LOADED, currentRootPath));
+                : Texts.format(TextKey.STATUS_LOADED, session.getRootPath()));
     }
 
     private void configureLayout() {
@@ -487,16 +523,16 @@ public class MainView extends BorderPane {
         settingsButton.setOnAction(event -> settingsWindow.show());
         openFolderButton.setOnAction(event -> chooseFolder());
         rescanButton.setOnAction(event -> {
-            if (currentRootPath != null) {
-                loadProject(currentRootPath, false);
+            if (session.getRootPath() != null) {
+                loadProject(session.getRootPath(), false);
             }
         });
-        saveButton.setOnAction(event -> saveCurrentProjectSynchronously());
+        saveButton.setOnAction(event -> saveCurrentProject(() -> { }, false));
         clearWorkspaceButton.setOnAction(event -> clearWorkspaceTracks());
         rebuildStateButton.setOnAction(event -> rebuildStateFile());
         workspacePlayPauseButton.setOnAction(event -> toggleWorkspacePlayPause());
         workspaceStopButton.setOnAction(event -> stopWorkspacePlayback());
-        masterVolumeSlider.valueProperty().addListener((observable, oldValue, newValue) -> updateMasterVolume(newValue.doubleValue() / 100d));
+        VolumeSliderSupport.bind(masterVolumeSlider, this::updateMasterVolume, this::requestProjectSave);
         updateMasterVolume(masterVolume);
         refreshWorkspaceTransportButtons();
         refreshWaveformLoadingIndicator();
@@ -587,87 +623,77 @@ public class MainView extends BorderPane {
     private void chooseFolder() {
         DirectoryChooser directoryChooser = new DirectoryChooser();
         directoryChooser.setTitle(Texts.text(TextKey.MAIN_OPEN_FOLDER_DIALOG));
-        if (currentRootPath != null) {
-            directoryChooser.setInitialDirectory(currentRootPath.toFile());
+        if (session.getRootPath() != null) {
+            directoryChooser.setInitialDirectory(session.getRootPath().toFile());
         }
 
         File selectedDirectory = directoryChooser.showDialog(stage);
         if (selectedDirectory != null) {
-            loadProject(selectedDirectory.toPath(), true);
+            loadProject(selectedDirectory.toPath(), false);
         }
     }
 
-    private void loadProject(Path rootPath, boolean saveBeforeSwitch) {
-        if (loading) {
-            return;
-        }
+    /**
+     * Keeps the current session alive until scanning succeeds. Clearing it early used to let shutdown persist an
+     * empty workspace into the previous root. Pending saves are flushed before scanning, including rescans, and a
+     * failed write cancels the switch. Unreadable JSON disables automatic writes until an explicit Save preserves it
+     * through the repository's recovery copy. Late task completions must never install a session after shutdown.
+     */
+    private void loadProject(Path rootPath, boolean rebuild) {
+        if (session.isLoading() || session.isClosing() || saving || !confirmRecoverySave()) return;
+        saveCurrentProject(() -> beginProjectLoad(rootPath, rebuild), true);
+    }
 
-        if (saveBeforeSwitch && currentRootPath != null) {
-            saveCurrentProjectSynchronously();
-        }
-
-        if (currentRootPath != null && currentRootPath.equals(rootPath)) {
-            waveformService.clearUnderRoot(rootPath);
-        } else {
-            waveformService.clear();
-        }
-        refreshWaveformLoadingIndicator();
-
-        clearWorkspace();
-        projectState = ProjectState.empty(appConfig.getSchemaVersion());
-        rebuildTree();
-        rebuildWorkspace();
-
-        loading = true;
+    private void beginProjectLoad(Path rootPath, boolean rebuild) {
+        long generation = session.beginLoad();
         setControlsDisabled(true);
         statusLabel.setText(Texts.format(TextKey.STATUS_LOADING, rootPath));
-
         Task<ProjectLoadResult> loadTask = new Task<>() {
             @Override
             protected ProjectLoadResult call() throws Exception {
-                return projectService.loadProject(rootPath);
+                return rebuild ? projectService.rebuildProjectState(rootPath) : projectService.loadProject(rootPath);
             }
         };
-
         loadTask.setOnSucceeded(event -> {
-            loading = false;
-            ProjectLoadResult loadResult = loadTask.getValue();
-            currentRootPath = loadResult.getRootPath();
-            lastProjectPreferences.save(currentRootPath);
-            setControlsDisabled(false);
-            projectState = loadResult.getProjectState();
-            updateMasterVolume(projectState.getMasterVolume());
-            masterVolumeSlider.setValue(masterVolume * 100d);
-            projectPathLabel.setText(currentRootPath.toString());
-            statusLabel.setText(Texts.format(TextKey.STATUS_LOADED, currentRootPath));
-            rescanButton.setDisable(false);
-            saveButton.setDisable(false);
-
-            rebuildTree();
-            rebuildWorkspace();
-            if (loadResult.getPersistenceLoadException() == null) {
-                requestProjectSave();
-            }
-
-            if (loadResult.getPersistenceLoadException() != null) {
-                showError(
-                        "Failed to read saved project state",
-                        "The folder was opened without fully persisted state. See logs for details.",
-                        loadResult.getPersistenceLoadException()
-                );
-            }
+            if (shuttingDown || !session.acceptsLoad(generation)) return;
+            ProjectLoadResult result = loadTask.getValue();
+            saveCurrentProject(() -> completeProjectLoad(generation, result, rebuild), true);
         });
-
         loadTask.setOnFailed(event -> {
-            loading = false;
-            currentRootPath = null;
+            if (shuttingDown || !session.acceptsLoad(generation)) return;
+            session.failLoad(generation);
             setControlsDisabled(false);
-            projectPathLabel.setText(Texts.text(TextKey.MAIN_NO_FOLDER));
             statusLabel.setText(Texts.text(TextKey.STATUS_LOAD_FAILED));
-            showError("Failed to open folder", "The project folder could not be loaded.", asException(loadTask.getException()));
+            showError("Failed to open folder", "The previous project remains open.", asException(loadTask.getException()));
         });
-
         executorService.submit(loadTask);
+    }
+
+    /** A queue can advance while scanning even though controls are disabled. Flush that final old-session revision
+     * before switching roots. Rescans merge the completed file scan with the latest detached state, not the JSON read
+     * at scan start; the synchronous merge is in-memory only and cannot interleave with another playback callback. */
+    private void completeProjectLoad(long generation, ProjectLoadResult result, boolean rebuild) {
+        if (shuttingDown || !session.acceptsLoad(generation)) return;
+        if (!rebuild && session.isWritable() && Objects.equals(session.getRootPath(), result.getRootPath())) {
+            result = projectService.synchronizeLoadedState(result, session.snapshot().state());
+        }
+        saveDelay.stop();
+        saveCoordinator.invalidate();
+        if (!Objects.equals(session.getRootPath(), result.getRootPath())) waveformService.clear();
+        clearWorkspace();
+        session.completeLoad(generation, result);
+        lastProjectPreferences.save(session.getRootPath());
+        setControlsDisabled(false);
+        updateMasterVolume(session.getState().getMasterVolume());
+        masterVolumeSlider.setValue(masterVolume * 100d);
+        projectPathLabel.setText(session.getRootPath().toString());
+        statusLabel.setText(Texts.format(rebuild ? TextKey.STATUS_REBUILT : TextKey.STATUS_LOADED, session.getRootPath()));
+        rebuildTree();
+        rebuildWorkspace();
+        if (session.isWritable()) requestProjectSave();
+        else showError("Failed to read saved project state",
+                "Automatic saving is disabled. Save explicitly to preserve the unreadable original and write this workspace.",
+                result.getPersistenceLoadException());
     }
 
     private void rebuildTree() {
@@ -682,7 +708,7 @@ public class MainView extends BorderPane {
         Map<String, TreeItem<TreeNodeValue>> folderIndex = new HashMap<>();
         folderIndex.put("", realRoot);
 
-        projectState.getAudioFiles().stream()
+        session.getState().getAudioFiles().stream()
                 .filter(audioFile -> !audioFile.isMissing())
                 .sorted(Comparator.comparing(AudioFile::getRelativePath, String.CASE_INSENSITIVE_ORDER))
                 .forEach(audioFile -> {
@@ -760,12 +786,12 @@ public class MainView extends BorderPane {
     }
 
     private void createQueue() {
-        if (currentRootPath == null) {
+        if (session.getRootPath() == null) {
             return;
         }
 
         WorkspaceQueue workspaceQueue = projectStateEditor.createWorkspaceQueue(
-                projectState,
+                session.getState(),
                 nextQueueName(),
                 appConfig.getWorkspace().getDefaultVolume()
         );
@@ -775,8 +801,8 @@ public class MainView extends BorderPane {
     }
 
     private void createVirtualTile(VirtualTileLayout layout) {
-        if (currentRootPath == null) return;
-        WorkspaceVirtualTile tile = projectStateEditor.createWorkspaceVirtualTile(projectState, layout);
+        if (session.getRootPath() == null) return;
+        WorkspaceVirtualTile tile = projectStateEditor.createWorkspaceVirtualTile(session.getState(), layout);
         createVirtualTileView(tile);
         refreshWorkspaceOrder();
         requestProjectSave();
@@ -784,7 +810,7 @@ public class MainView extends BorderPane {
 
     private void createVirtualTileView(WorkspaceVirtualTile tile) {
         WorkspaceVirtualTileItem item = new WorkspaceVirtualTileItem(
-                currentRootPath, tile, projectState.getAudioFiles(), audioEngine, masterVolume,
+                session.getRootPath(), tile, session.getState().getAudioFiles(), audioEngine, masterVolume,
                 exception -> showError("Playback error", "Virtual tile track could not be initialized.", exception)
         );
         workspaceVirtualTileItems.put(tile.getId(), item);
@@ -810,7 +836,7 @@ public class MainView extends BorderPane {
 
     private void addAudioFilesToVirtualTile(UUID tileId, List<UUID> audioFileIds,
                                             UUID targetTrackId, boolean placeAfter) {
-        if (projectStateEditor.addVirtualTileTracks(projectState, tileId, audioFileIds,
+        if (projectStateEditor.addVirtualTileTracks(session.getState(), tileId, audioFileIds,
                 appConfig.getWorkspace().getDefaultVolume(), targetTrackId, placeAfter).isEmpty()) return;
         refreshVirtualTile(tileId);
         requestProjectSave();
@@ -820,7 +846,7 @@ public class MainView extends BorderPane {
                                                  UUID targetTrackId, boolean placeAfter) {
         WorkspaceTrackItem sourceItem = workspaceTrackItems.get(workspaceTrackId);
         List<UUID> previousTracks = virtualTrackIds(tileId);
-        if (!projectStateEditor.moveWorkspaceTrackToVirtualTile(projectState, workspaceTrackId,
+        if (!projectStateEditor.moveWorkspaceTrackToVirtualTile(session.getState(), workspaceTrackId,
                 tileId, targetTrackId, placeAfter)) return;
         PlaybackTransfer transfer = sourceItem == null ? null : sourceItem.detachPlayback();
         WorkspaceTrackItem item = workspaceTrackItems.remove(workspaceTrackId);
@@ -838,7 +864,7 @@ public class MainView extends BorderPane {
         WorkspaceVirtualTileItem sourceItem = workspaceVirtualTileItems.get(sourceTileId);
         WorkspaceTrackItem sourceTrack = sourceItem == null ? null : sourceItem.getTrackItem(trackId);
         List<UUID> previousTracks = virtualTrackIds(targetTileId);
-        if (!projectStateEditor.moveVirtualTileTrack(projectState, sourceTileId, targetTileId,
+        if (!projectStateEditor.moveVirtualTileTrack(session.getState(), sourceTileId, targetTileId,
                 trackId, targetTrackId, placeAfter)) return;
         PlaybackTransfer transfer = sourceTrack == null ? null : sourceTrack.detachPlayback();
         refreshVirtualTile(sourceTileId);
@@ -853,7 +879,7 @@ public class MainView extends BorderPane {
                                                  UUID targetWorkspaceItemId, boolean placeAfter) {
         WorkspaceVirtualTileItem sourceItem = workspaceVirtualTileItems.get(tileId);
         WorkspaceTrackItem sourceTrack = sourceItem == null ? null : sourceItem.getTrackItem(trackId);
-        WorkspaceTrack track = projectStateEditor.moveVirtualTileTrackToWorkspace(projectState, tileId,
+        WorkspaceTrack track = projectStateEditor.moveVirtualTileTrackToWorkspace(session.getState(), tileId,
                 trackId, targetWorkspaceItemId, placeAfter);
         if (track == null) return;
         PlaybackTransfer transfer = sourceTrack == null ? null : sourceTrack.detachPlayback();
@@ -869,7 +895,7 @@ public class MainView extends BorderPane {
                                              UUID targetTrackId, boolean placeAfter) {
         WorkspaceQueueItem queueItem = workspaceQueueItems.get(queueId);
         List<UUID> previousTracks = virtualTrackIds(tileId);
-        if (!projectStateEditor.moveQueueTrackToVirtualTile(projectState, queueId, queueTrackId,
+        if (!projectStateEditor.moveQueueTrackToVirtualTile(session.getState(), queueId, queueTrackId,
                 tileId, targetTrackId, placeAfter)) return;
         PlaybackTransfer transfer = queueItem == null ? null : queueItem.detachPlayback(queueTrackId);
         refreshQueueView(queueId);
@@ -879,7 +905,7 @@ public class MainView extends BorderPane {
     }
 
     private void removeVirtualTileTrack(UUID tileId, UUID trackId) {
-        projectStateEditor.removeVirtualTileTrack(projectState, tileId, trackId);
+        projectStateEditor.removeVirtualTileTrack(session.getState(), tileId, trackId);
         refreshVirtualTile(tileId);
         requestProjectSave();
     }
@@ -892,7 +918,7 @@ public class MainView extends BorderPane {
     }
 
     private List<UUID> virtualTrackIds(UUID tileId) {
-        return projectStateEditor.findWorkspaceVirtualTile(projectState, tileId)
+        return projectStateEditor.findWorkspaceVirtualTile(session.getState(), tileId)
                 .map(tile -> tile.getTracks().stream().map(track -> track.getId()).toList())
                 .orElseGet(List::of);
     }
@@ -909,7 +935,7 @@ public class MainView extends BorderPane {
     }
 
     private List<UUID> queueTrackIds(UUID queueId) {
-        return projectStateEditor.findWorkspaceQueue(projectState, queueId)
+        return projectStateEditor.findWorkspaceQueue(session.getState(), queueId)
                 .map(queue -> queue.getTracks().stream().map(track -> track.getId()).toList())
                 .orElseGet(List::of);
     }
@@ -929,20 +955,21 @@ public class MainView extends BorderPane {
         if (item != null) item.dispose();
         VirtualTileView view = virtualTileViews.remove(tileId);
         if (view != null) view.dispose();
-        projectStateEditor.removeWorkspaceVirtualTile(projectState, tileId);
+        projectStateEditor.removeWorkspaceVirtualTile(session.getState(), tileId);
         refreshWorkspaceOrder();
         requestProjectSave();
     }
 
     private void createQueueView(WorkspaceQueue workspaceQueue) {
         WorkspaceQueueItem workspaceQueueItem = new WorkspaceQueueItem(
-                currentRootPath,
+                session.getRootPath(),
                 workspaceQueue,
-                projectState.getAudioFiles(),
+                session.getState().getAudioFiles(),
                 audioEngine,
                 masterVolume,
                 exception -> showError("Playback error", "Queue track could not be initialized.", exception)
         );
+        workspaceQueueItem.setOnSelectionChanged(this::requestProjectSave);
         workspaceQueueItems.put(workspaceQueue.getId(), workspaceQueueItem);
 
         QueueView queueView = new QueueView(
@@ -978,19 +1005,12 @@ public class MainView extends BorderPane {
             return;
         }
 
-        List<QueueTrack> createdTracks = projectStateEditor.addQueueTracks(projectState, queueId, audioFileIds, targetQueueTrackId, placeAfter);
+        List<QueueTrack> createdTracks = projectStateEditor.addQueueTracks(session.getState(), queueId, audioFileIds, targetQueueTrackId, placeAfter);
         if (createdTracks.isEmpty()) {
             return;
         }
 
-        WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.get(queueId);
-        QueueView queueView = queueViews.get(queueId);
-        if (workspaceQueueItem != null) {
-            workspaceQueueItem.refreshAfterMutation();
-        }
-        if (queueView != null) {
-            queueView.rebuildChips();
-        }
+        refreshQueueView(queueId);
         requestProjectSave();
     }
 
@@ -1004,7 +1024,7 @@ public class MainView extends BorderPane {
         boolean targetHasPriority = targetItem != null && targetItem.hasActivePlayback();
         List<UUID> previousTracks = queueTrackIds(queueId);
         boolean moved = projectStateEditor.moveWorkspaceTrackToQueue(
-                projectState,
+                session.getState(),
                 workspaceTrackId,
                 queueId,
                 targetQueueTrackId,
@@ -1025,30 +1045,16 @@ public class MainView extends BorderPane {
             trackTileView.dispose();
         }
 
-        WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.get(queueId);
-        QueueView queueView = queueViews.get(queueId);
-        if (workspaceQueueItem != null) {
-            workspaceQueueItem.refreshAfterMutation();
-        }
-        if (queueView != null) {
-            queueView.rebuildChips();
-        }
+        refreshQueueView(queueId);
         acceptQueuePlayback(queueId, findAddedQueueTrack(queueId, previousTracks), transfer);
         refreshWorkspaceOrder();
         requestProjectSave();
     }
 
     private void removeQueueTrack(UUID queueId, UUID queueTrackId) {
-        projectStateEditor.removeQueueTrack(projectState, queueId, queueTrackId);
+        projectStateEditor.removeQueueTrack(session.getState(), queueId, queueTrackId);
 
-        WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.get(queueId);
-        QueueView queueView = queueViews.get(queueId);
-        if (workspaceQueueItem != null) {
-            workspaceQueueItem.refreshAfterMutation();
-        }
-        if (queueView != null) {
-            queueView.rebuildChips();
-        }
+        refreshQueueView(queueId);
         requestProjectSave();
     }
 
@@ -1058,7 +1064,7 @@ public class MainView extends BorderPane {
         boolean sameQueue = Objects.equals(sourceQueueId, targetQueueId);
         boolean targetHasPriority = !sameQueue && targetItem != null && targetItem.hasActivePlayback();
         List<UUID> previousTracks = queueTrackIds(targetQueueId);
-        if (!projectStateEditor.moveQueueTrackToQueue(projectState, sourceQueueId, targetQueueId, queueTrackId, targetQueueTrackId, placeAfter)) {
+        if (!projectStateEditor.moveQueueTrackToQueue(session.getState(), sourceQueueId, targetQueueId, queueTrackId, targetQueueTrackId, placeAfter)) {
             return;
         }
         PlaybackTransfer transfer = sameQueue || targetHasPriority || sourceItem == null
@@ -1081,7 +1087,7 @@ public class MainView extends BorderPane {
         WorkspaceQueueItem targetItem = workspaceQueueItems.get(queueId);
         boolean targetHasPriority = targetItem != null && targetItem.hasActivePlayback();
         List<UUID> previousTracks = queueTrackIds(queueId);
-        if (!projectStateEditor.moveVirtualTileTrackToQueue(projectState, tileId, trackId, queueId,
+        if (!projectStateEditor.moveVirtualTileTrackToQueue(session.getState(), tileId, trackId, queueId,
                 targetQueueTrackId, placeAfter)) return;
         PlaybackTransfer transfer = targetHasPriority || sourceTrack == null ? null : sourceTrack.detachPlayback();
         refreshVirtualTile(tileId);
@@ -1093,7 +1099,7 @@ public class MainView extends BorderPane {
     private void moveQueueTrackToWorkspace(UUID sourceQueueId, UUID queueTrackId, UUID targetWorkspaceItemId, boolean placeAfter) {
         WorkspaceQueueItem sourceItem = workspaceQueueItems.get(sourceQueueId);
         WorkspaceTrack workspaceTrack = projectStateEditor.moveQueueTrackToWorkspace(
-                projectState,
+                session.getState(),
                 sourceQueueId,
                 queueTrackId,
                 appConfig.getWorkspace().getDefaultVolume(),
@@ -1124,7 +1130,7 @@ public class MainView extends BorderPane {
             queueView.dispose();
         }
 
-        projectStateEditor.removeWorkspaceQueue(projectState, queueId);
+        projectStateEditor.removeWorkspaceQueue(session.getState(), queueId);
         refreshWorkspaceOrder();
         refreshWorkspaceTransportButtons();
         requestProjectSave();
@@ -1158,12 +1164,12 @@ public class MainView extends BorderPane {
     }
 
     private void addAudioFilesToWorkspace(List<UUID> audioFileIds, UUID targetWorkspaceItemId, boolean placeAfter) {
-        if (currentRootPath == null || audioFileIds == null || audioFileIds.isEmpty()) {
+        if (session.getRootPath() == null || audioFileIds == null || audioFileIds.isEmpty()) {
             return;
         }
 
         List<WorkspaceTrack> createdTracks = projectStateEditor.addWorkspaceTracks(
-                projectState,
+                session.getState(),
                 audioFileIds,
                 appConfig.getWorkspace().getDefaultVolume(),
                 appConfig.getWorkspace().isDefaultLoop(),
@@ -1187,14 +1193,14 @@ public class MainView extends BorderPane {
             trackTileView.dispose();
         }
 
-        projectStateEditor.removeWorkspaceTrack(projectState, workspaceTrackId);
+        projectStateEditor.removeWorkspaceTrack(session.getState(), workspaceTrackId);
         refreshWorkspaceOrder();
         refreshWorkspaceTransportButtons();
         requestProjectSave();
     }
 
     private void clearWorkspaceTracks() {
-        if (currentRootPath == null || workspaceItemCount() == 0) {
+        if (session.getRootPath() == null || workspaceItemCount() == 0) {
             return;
         }
 
@@ -1212,13 +1218,13 @@ public class MainView extends BorderPane {
         }
 
         clearWorkspace();
-        projectStateEditor.clearWorkspace(projectState);
+        projectStateEditor.clearWorkspace(session.getState());
         refreshWorkspaceOrder();
         requestProjectSave();
     }
 
     private void rebuildStateFile() {
-        if (currentRootPath == null) {
+        if (session.getRootPath() == null) {
             return;
         }
 
@@ -1235,26 +1241,11 @@ public class MainView extends BorderPane {
             return;
         }
 
-        try {
-            waveformService.clearUnderRoot(currentRootPath);
-            refreshWaveformLoadingIndicator();
-            clearWorkspace();
-            ProjectLoadResult loadResult = projectService.rebuildProjectState(currentRootPath);
-            projectState = loadResult.getProjectState();
-            updateMasterVolume(projectState.getMasterVolume());
-            masterVolumeSlider.setValue(masterVolume * 100d);
-            rebuildTree();
-            rebuildWorkspace();
-            requestProjectSave();
-            statusLabel.setText(Texts.format(TextKey.STATUS_REBUILT, currentRootPath));
-        } catch (IOException exception) {
-            LOGGER.error("Failed to rebuild project state for root folder {}", currentRootPath, exception);
-            showError("Rebuild failed", "The project state file could not be rebuilt.", exception);
-        }
+        loadProject(session.getRootPath(), true);
     }
 
     private void moveWorkspaceItem(UUID workspaceItemId, UUID targetWorkspaceItemId, boolean placeAfter) {
-        if (projectStateEditor.moveWorkspaceItem(projectState, workspaceItemId, targetWorkspaceItemId, placeAfter)) {
+        if (projectStateEditor.moveWorkspaceItem(session.getState(), workspaceItemId, targetWorkspaceItemId, placeAfter)) {
             refreshWorkspaceOrder();
             requestProjectSave();
         }
@@ -1272,7 +1263,7 @@ public class MainView extends BorderPane {
     private void createWorkspaceTrackTile(WorkspaceTrack workspaceTrack) {
         AudioFile audioFile = findAudioFileForWorkspace(workspaceTrack.getAudioFileId());
         WorkspaceTrackItem workspaceTrackItem = new WorkspaceTrackItem(
-                currentRootPath,
+                session.getRootPath(),
                 workspaceTrack,
                 audioFile,
                 audioEngine,
@@ -1364,14 +1355,14 @@ public class MainView extends BorderPane {
     }
 
     private void adjustWorkspaceZoom(double deltaY) {
-        if (currentRootPath == null) {
+        if (session.getRootPath() == null) {
             return;
         }
         adjustWorkspaceScale(deltaY > 0d ? 1d : -1d);
     }
 
     private void adjustWorkspaceScale(double direction) {
-        if (currentRootPath == null) {
+        if (session.getRootPath() == null) {
             return;
         }
         double currentScale = currentTileScale();
@@ -1411,21 +1402,21 @@ public class MainView extends BorderPane {
 
     private List<WorkspaceTopLevelItem> collectOrderedWorkspaceItems() {
         List<WorkspaceTopLevelItem> items = new ArrayList<>();
-        for (WorkspaceTrack workspaceTrack : projectState.getWorkspaceTracks()) {
+        for (WorkspaceTrack workspaceTrack : session.getState().getWorkspaceTracks()) {
             items.add(new WorkspaceTopLevelItem(
                     workspaceTrack.getId(),
                     workspaceTrack.getOrder(),
                     trackTileViews.get(workspaceTrack.getId())
             ));
         }
-        for (WorkspaceQueue workspaceQueue : projectState.getWorkspaceQueues()) {
+        for (WorkspaceQueue workspaceQueue : session.getState().getWorkspaceQueues()) {
             items.add(new WorkspaceTopLevelItem(
                     workspaceQueue.getId(),
                     workspaceQueue.getOrder(),
                     queueViews.get(workspaceQueue.getId())
             ));
         }
-        for (WorkspaceVirtualTile tile : projectState.getWorkspaceVirtualTiles()) {
+        for (WorkspaceVirtualTile tile : session.getState().getWorkspaceVirtualTiles()) {
             items.add(new WorkspaceTopLevelItem(tile.getId(), tile.getOrder(), virtualTileViews.get(tile.getId())));
         }
         items.sort(Comparator.comparingInt(WorkspaceTopLevelItem::order));
@@ -1433,35 +1424,35 @@ public class MainView extends BorderPane {
     }
 
     private List<WorkspaceTrack> sortedWorkspaceTracks() {
-        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(projectState.getWorkspaceTracks());
+        List<WorkspaceTrack> workspaceTracks = new ArrayList<>(session.getState().getWorkspaceTracks());
         workspaceTracks.sort(Comparator.comparingInt(WorkspaceTrack::getOrder));
         return workspaceTracks;
     }
 
     private List<WorkspaceQueue> sortedWorkspaceQueues() {
-        List<WorkspaceQueue> workspaceQueues = new ArrayList<>(projectState.getWorkspaceQueues());
+        List<WorkspaceQueue> workspaceQueues = new ArrayList<>(session.getState().getWorkspaceQueues());
         workspaceQueues.sort(Comparator.comparingInt(WorkspaceQueue::getOrder));
         return workspaceQueues;
     }
 
     private List<WorkspaceVirtualTile> sortedWorkspaceVirtualTiles() {
-        List<WorkspaceVirtualTile> tiles = new ArrayList<>(projectState.getWorkspaceVirtualTiles());
+        List<WorkspaceVirtualTile> tiles = new ArrayList<>(session.getState().getWorkspaceVirtualTiles());
         tiles.sort(Comparator.comparingInt(WorkspaceVirtualTile::getOrder));
         return tiles;
     }
 
     private int workspaceItemCount() {
-        return projectState.getWorkspaceTracks().size() + projectState.getWorkspaceQueues().size()
-                + projectState.getWorkspaceVirtualTiles().size();
+        return session.getState().getWorkspaceTracks().size() + session.getState().getWorkspaceQueues().size()
+                + session.getState().getWorkspaceVirtualTiles().size();
     }
 
     private String nextQueueName() {
-        int queueNumber = projectState.getWorkspaceQueues().size() + 1;
+        int queueNumber = session.getState().getWorkspaceQueues().size() + 1;
         return "Queue " + queueNumber;
     }
 
     private AudioFile findAudioFileForWorkspace(UUID audioFileId) {
-        return projectState.getAudioFiles().stream()
+        return session.getState().getAudioFiles().stream()
                 .filter(audioFile -> audioFile.getId().equals(audioFileId))
                 .findFirst()
                 .orElseGet(() -> new AudioFile(audioFileId, "", "Unknown file", true));
@@ -1511,7 +1502,7 @@ public class MainView extends BorderPane {
 
     private void updateMasterVolume(double masterVolume) {
         this.masterVolume = Math.max(0d, Math.min(1d, masterVolume));
-        projectState.setMasterVolume(this.masterVolume);
+        session.getState().setMasterVolume(this.masterVolume);
         masterVolumeValueLabel.setText(Math.round(this.masterVolume * 100d) + "%");
         workspaceTrackItems.values().forEach(item -> item.setMasterVolume(this.masterVolume));
         workspaceQueueItems.values().forEach(item -> item.setMasterVolume(this.masterVolume));
@@ -1579,6 +1570,7 @@ public class MainView extends BorderPane {
     }
 
     private void requestUiRefresh() {
+        if (shuttingDown) return;
         if (!uiRefreshQueued.compareAndSet(false, true)) return;
         Platform.runLater(() -> {
             try {
@@ -1591,15 +1583,6 @@ public class MainView extends BorderPane {
     }
 
     private void refreshWorkspacePlaybackViews() {
-        boolean activePlayback = workspaceTrackItems.values().stream()
-                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING)
-                || workspaceQueueItems.values().stream()
-                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING)
-                || workspaceVirtualTileItems.values().stream()
-                .flatMap(item -> item.getTrackItems().stream())
-                .anyMatch(item -> item.getStatus() == PlaybackStatus.PLAYING);
-        if (!activePlayback && !workspacePlaybackWasActive) return;
-        workspacePlaybackWasActive = activePlayback;
         trackTileViews.values().forEach(TrackTileView::refreshPlayback);
         queueViews.values().forEach(QueueView::refreshPlayback);
         virtualTileViews.values().forEach(VirtualTileView::refreshPlayback);
@@ -1616,56 +1599,72 @@ public class MainView extends BorderPane {
         }
     }
 
+    /**
+     * Debounces on the FX thread before copying mutable project state. Only the final edit pays for a deep
+     * snapshot; submitting it supersedes older waiting writes. The short transition runs only after edits;
+     * unlike a permanent Timeline it cannot keep an idle renderer pulsing. Foreground saves stop it and flush through
+     * the same coordinator, so closing during the delay cannot lose the last edit.
+     */
     private void requestProjectSave() {
-        if (currentRootPath == null) {
-            return;
-        }
-
-        Path rootPath = currentRootPath;
-        ProjectState snapshot = ProjectStateCopySupport.copy(projectState);
-        int generation = saveGeneration.incrementAndGet();
-        statusLabel.setText(Texts.format(TextKey.STATUS_SAVING, rootPath));
-        executorService.submit(() -> {
-            try {
-                if (generation != saveGeneration.get()) {
-                    return;
-                }
-                projectService.saveProject(rootPath, snapshot);
-            } catch (IOException exception) {
-                LOGGER.error("Failed to save project state for root folder {}", rootPath, exception);
-                Platform.runLater(() -> showError("Save failed", "The project state could not be saved.", exception));
-            }
+        session.changed();
+        if (session.getRootPath() == null || !session.isWritable() || shuttingDown || session.isClosing() || session.isLoading()) return;
+        saveDelay.setOnFinished(event -> {
+            if (!shuttingDown && !saving && !session.isClosing()) submitSave(session.snapshot(), () -> { }, false);
         });
+        saveDelay.playFromStart();
     }
 
-    private boolean saveCurrentProjectSynchronously() {
-        if (currentRootPath == null) {
-            return true;
+    private void saveCurrentProject(Runnable completed, boolean leaving) {
+        saveDelay.stop();
+        if (session.getRootPath() == null || leaving && !session.isDirty()) {
+            completed.run();
+            return;
         }
+        saving = true;
+        setControlsDisabled(true);
+        submitSave(session.snapshot(), completed, true);
+    }
 
-        try {
-            saveGeneration.incrementAndGet();
-            projectService.saveProject(currentRootPath, projectState);
-            statusLabel.setText(Texts.format(TextKey.STATUS_SAVED, currentRootPath));
-            return true;
-        } catch (IOException exception) {
-            LOGGER.error("Failed to save project state for root folder {}", currentRootPath, exception);
-            showError("Save failed", "The project state could not be saved.", exception);
-            return false;
-        }
+    private void submitSave(ProjectSessionController.Snapshot snapshot, Runnable completed, boolean foreground) {
+        statusLabel.setText(Texts.format(TextKey.STATUS_SAVING, snapshot.rootPath()));
+        saveCoordinator.submit(snapshot).whenComplete((saved, failure) -> Platform.runLater(() -> {
+            if (shuttingDown) return;
+            if (foreground) { saving = false; setControlsDisabled(false); }
+            if (failure != null) {
+                if (foreground) { session.cancelClose(); session.cancelLoad(); }
+                if (session.matches(snapshot)) {
+                    showError("Save failed", "The project state could not be saved.", asException(failure));
+                }
+                return;
+            }
+            if (Boolean.TRUE.equals(saved)) {
+                boolean latest = session.saved(snapshot);
+                if (latest) statusLabel.setText(Texts.format(TextKey.STATUS_SAVED, snapshot.rootPath()));
+                if (foreground && !latest && session.matches(snapshot)) {
+                    saving = true;
+                    setControlsDisabled(true);
+                    submitSave(session.snapshot(), completed, true);
+                } else completed.run();
+            }
+        }));
     }
 
     private void setControlsDisabled(boolean disabled) {
+        workspaceView.setDisable(disabled);
+        treeView.setDisable(disabled);
+        workspacePlayPauseButton.setDisable(disabled);
+        workspaceStopButton.setDisable(disabled);
+        masterVolumeSlider.setDisable(disabled);
         openFolderButton.setDisable(disabled);
-        rescanButton.setDisable(disabled || currentRootPath == null);
-        saveButton.setDisable(disabled || currentRootPath == null);
-        clearWorkspaceButton.setDisable(disabled || currentRootPath == null);
-        rebuildStateButton.setDisable(disabled || currentRootPath == null);
+        rescanButton.setDisable(disabled || session.getRootPath() == null);
+        saveButton.setDisable(disabled || session.getRootPath() == null);
+        clearWorkspaceButton.setDisable(disabled || session.getRootPath() == null);
+        rebuildStateButton.setDisable(disabled || session.getRootPath() == null);
         refreshWorkspaceScaleAvailability();
     }
 
     private void refreshWorkspaceScaleAvailability() {
-        boolean projectClosed = currentRootPath == null;
+        boolean projectClosed = session.getRootPath() == null;
         workspaceScaleTargetButton.setDisable(projectClosed);
         if (projectClosed && scaleTarget == ScaleTarget.WORKSPACE) {
             scaleTarget = ScaleTarget.INTERFACE;

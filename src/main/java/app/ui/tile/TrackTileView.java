@@ -1,22 +1,23 @@
 package app.ui.tile;
 
+import app.ui.InsertionMarkers;
+import app.ui.TitleScrollAnimation;
+
 import app.config.UiConfig;
 import app.localization.TextKey;
 import app.localization.Texts;
 import app.model.PlaybackStatus;
 import app.ui.UiIcons;
+import app.ui.DurationText;
+import app.ui.UiViewport;
+import app.ui.VolumeSliderSupport;
 import app.ui.waveform.WaveformSeekView;
+import app.ui.waveform.WaveformSubscription;
 import app.ui.workspace.WorkspaceInsertionMarker;
 import app.ui.workspace.WorkspaceItemView;
 import app.ui.workspace.WorkspaceTrackItem;
 import app.waveform.WaveformData;
 import app.waveform.WaveformService;
-import javafx.application.Platform;
-import javafx.animation.Animation;
-import javafx.animation.PauseTransition;
-import javafx.animation.SequentialTransition;
-import javafx.animation.Timeline;
-import javafx.animation.TranslateTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -39,8 +40,6 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
 import javafx.util.Duration;
 
-import java.nio.file.Path;
-import java.util.Objects;
 import java.util.UUID;
 
 public class TrackTileView extends StackPane implements WorkspaceItemView {
@@ -50,7 +49,6 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     private static final Color FINISHED_COLOR = Color.web("#d64545");
     private static final Color READY_COLOR = Color.web("#97a3b6");
     private final WorkspaceTrackItem workspaceTrackItem;
-    private final WaveformService waveformService;
     private final Runnable removeAction;
     private final Runnable persistenceChangeAction;
     private final BorderPane contentPane = new BorderPane();
@@ -85,9 +83,9 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
 
     private double currentScale = 1d;
     private final double baseWaveformHeight;
-    private Path currentWaveformPath;
-    private long waveformRequestGeneration;
-    private SequentialTransition titleAnimation;
+    private final WaveformSubscription waveformSubscription;
+    private final TitleScrollAnimation titleAnimation = new TitleScrollAnimation(
+            titleViewport, titleLabel, titleClip, TitleScrollAnimation.Style.TILE);
     private boolean titleHovered;
 
     public TrackTileView(
@@ -99,24 +97,34 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     ) {
         getStyleClass().add("track-tile");
         this.workspaceTrackItem = workspaceTrackItem;
-        this.waveformService = waveformService;
+        this.waveformSubscription = new WaveformSubscription(waveformService, waveformSeekView::setWaveformData);
         this.removeAction = removeAction;
         this.persistenceChangeAction = persistenceChangeAction;
         this.baseWaveformHeight = uiConfig.getWaveformHeight();
         configureLayout(uiConfig);
         configureActions();
+        workspaceTrackItem.setOnPlaybackChanged(this::refresh);
         refresh();
     }
 
     public void dispose() {
-        waveformRequestGeneration++;
-        currentWaveformPath = null;
-        waveformSeekView.setWaveformData(WaveformData.empty());
+        workspaceTrackItem.setOnPlaybackChanged(null);
+        waveformSeekView.dispose();
+        waveformSubscription.dispose();
         stopTitleAnimation();
     }
 
+    /** The shared scheduler updates progress only; status and queue chips are refreshed by commands/events. */
     public void refreshPlayback() {
-        refresh();
+        if (workspaceTrackItem.getStatus() != PlaybackStatus.PLAYING) { waveformSeekView.setPlaying(false); return; }
+        boolean visible = UiViewport.isVisible(this);
+        waveformSeekView.setPlaying(visible && workspaceTrackItem.getStatus() == PlaybackStatus.PLAYING);
+        if (!visible) { stopTitleAnimation(); return; }
+        if (workspaceTrackItem.getStatus() == PlaybackStatus.PLAYING) {
+            waveformSeekView.setPlaybackPosition(workspaceTrackItem.getCurrentTime(), workspaceTrackItem.getTotalDuration());
+            DurationText.update(currentTimeLabel, waveformSeekView.getDisplayedPosition());
+            DurationText.update(totalTimeLabel, workspaceTrackItem.getTotalDuration());
+        }
     }
 
     public void refreshLocalization() {
@@ -225,15 +233,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
             refreshMuteButton();
         });
 
-        volumeSlider.valueChangingProperty().addListener((observable, oldValue, newValue) -> {
-            if (!newValue) {
-                persistenceChangeAction.run();
-            }
-        });
-        volumeSlider.setOnMouseReleased(event -> persistenceChangeAction.run());
-        volumeSlider.valueProperty().addListener((observable, oldValue, newValue) ->
-                workspaceTrackItem.setVolume(newValue.doubleValue() / 100d)
-        );
+        VolumeSliderSupport.bind(volumeSlider, workspaceTrackItem::setVolume, persistenceChangeAction);
         waveformSeekView.setSeekHandler(position -> {
             workspaceTrackItem.seek(position);
             refresh();
@@ -259,8 +259,8 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         refreshMuteButton();
         statusIndicator.setFill(resolveStatusColor(missing, playbackStatus));
         waveformSeekView.setPlaybackPosition(currentTime, totalTime);
-        currentTimeLabel.setText(formatDuration(waveformSeekView.getDisplayedPosition()));
-        totalTimeLabel.setText(formatDuration(totalTime));
+        DurationText.update(currentTimeLabel, waveformSeekView.getDisplayedPosition());
+        DurationText.update(totalTimeLabel, totalTime);
     }
 
     public UUID getWorkspaceTrackId() {
@@ -279,35 +279,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     }
 
     private void refreshWaveformSource() {
-        Path nextWaveformPath = workspaceTrackItem.getAudioPath().orElse(null);
-        if (Objects.equals(currentWaveformPath, nextWaveformPath)) {
-            return;
-        }
-
-        currentWaveformPath = nextWaveformPath;
-        long requestGeneration = ++waveformRequestGeneration;
-        waveformSeekView.setWaveformData(WaveformData.empty());
-        if (nextWaveformPath == null) {
-            return;
-        }
-
-        waveformService.loadWaveform(nextWaveformPath).thenAccept(waveformData ->
-                Platform.runLater(() -> applyWaveformData(requestGeneration, nextWaveformPath, waveformData))
-        );
-    }
-
-    private void applyWaveformData(long requestGeneration, Path waveformPath, WaveformData waveformData) {
-        if (requestGeneration != waveformRequestGeneration || !Objects.equals(currentWaveformPath, waveformPath)) {
-            return;
-        }
-        waveformSeekView.setWaveformData(waveformData);
-    }
-
-    private String formatDuration(Duration duration) {
-        long totalSeconds = (long) Math.max(duration.toSeconds(), 0d);
-        long minutes = totalSeconds / 60;
-        long seconds = totalSeconds % 60;
-        return String.format("%02d:%02d", minutes, seconds);
+        waveformSubscription.load(workspaceTrackItem.getAudioPath().orElse(null));
     }
 
     private void configureActionButton(Button button) {
@@ -322,34 +294,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     }
 
     private AnchorPane createInsertionMarker(boolean leftSide) {
-        AnchorPane marker = new AnchorPane();
-        marker.setPrefWidth(12d);
-        marker.setMinWidth(12d);
-        marker.setMaxWidth(12d);
-        marker.setVisible(false);
-        marker.setMouseTransparent(true);
-
-        Region vertical = createMarkerSegment(4d, -1d);
-        Region top = createMarkerSegment(10d, 4d);
-        Region bottom = createMarkerSegment(10d, 4d);
-
-        if (leftSide) {
-            AnchorPane.setLeftAnchor(vertical, 0d);
-            AnchorPane.setLeftAnchor(top, 0d);
-            AnchorPane.setLeftAnchor(bottom, 0d);
-        } else {
-            AnchorPane.setRightAnchor(vertical, 0d);
-            AnchorPane.setRightAnchor(top, 0d);
-            AnchorPane.setRightAnchor(bottom, 0d);
-        }
-
-        AnchorPane.setTopAnchor(vertical, 0d);
-        AnchorPane.setBottomAnchor(vertical, 0d);
-        AnchorPane.setTopAnchor(top, 0d);
-        AnchorPane.setBottomAnchor(bottom, 0d);
-
-        marker.getChildren().addAll(vertical, top, bottom);
-        return marker;
+        return InsertionMarkers.create(leftSide, false);
     }
 
     private HBox createMarkerHolder(AnchorPane marker) {
@@ -359,20 +304,6 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         HBox.setHgrow(holder, Priority.NEVER);
         VBox.setVgrow(holder, Priority.ALWAYS);
         return holder;
-    }
-
-    private Region createMarkerSegment(double width, double height) {
-        Region region = new Region();
-        region.getStyleClass().add("insertion-marker");
-        region.setMinWidth(width);
-        region.setPrefWidth(width);
-        region.setMaxWidth(width);
-        if (height > 0d) {
-            region.setMinHeight(height);
-            region.setPrefHeight(height);
-            region.setMaxHeight(height);
-        }
-        return region;
     }
 
     private void refreshMuteButton() {
@@ -418,23 +349,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     }
 
     private void updateInsertionMarkerScale(AnchorPane marker, double scale) {
-        setRegionWidth(marker, 12d * scale);
-        setRegionWidth((Region) marker.getChildren().get(0), 4d * scale);
-        setRegionSize((Region) marker.getChildren().get(1), 10d * scale, 4d * scale);
-        setRegionSize((Region) marker.getChildren().get(2), 10d * scale, 4d * scale);
-    }
-
-    private void setRegionWidth(Region region, double width) {
-        region.setMinWidth(width);
-        region.setPrefWidth(width);
-        region.setMaxWidth(width);
-    }
-
-    private void setRegionSize(Region region, double width, double height) {
-        setRegionWidth(region, width);
-        region.setMinHeight(height);
-        region.setPrefHeight(height);
-        region.setMaxHeight(height);
+        InsertionMarkers.scale(marker, scale, false);
     }
 
     private void setGraphicIfChanged(Labeled control, Node graphic) {
@@ -456,45 +371,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
         };
     }
 
-    private void updateTitleAnimation() {
-        titleClip.setWidth(Math.max(titleViewport.getWidth(), 0d));
-        titleClip.setHeight(Math.max(titleViewport.getHeight(), 22d * currentScale));
+    private void updateTitleAnimation() { titleAnimation.update(titleHovered, 22d * currentScale); }
 
-        double overflow = titleLabel.getLayoutBounds().getWidth() - titleViewport.getWidth();
-        if (!titleHovered || overflow <= 4d) {
-            stopTitleAnimation();
-            titleLabel.setTranslateX(0d);
-            return;
-        }
-
-        if (titleAnimation != null && titleAnimation.getStatus() == Animation.Status.RUNNING) {
-            return;
-        }
-
-        stopTitleAnimation();
-        TranslateTransition moveLeft = new TranslateTransition(Duration.seconds(Math.max(overflow / 35d, 2.5d)), titleLabel);
-        moveLeft.setFromX(0d);
-        moveLeft.setToX(-overflow);
-
-        TranslateTransition moveRight = new TranslateTransition(Duration.seconds(1.2d), titleLabel);
-        moveRight.setFromX(-overflow);
-        moveRight.setToX(0d);
-
-        titleAnimation = new SequentialTransition(
-                new PauseTransition(Duration.seconds(1.0d)),
-                moveLeft,
-                new PauseTransition(Duration.seconds(0.8d)),
-                moveRight,
-                new PauseTransition(Duration.seconds(0.8d))
-        );
-        titleAnimation.setCycleCount(Timeline.INDEFINITE);
-        titleAnimation.playFromStart();
-    }
-
-    private void stopTitleAnimation() {
-        if (titleAnimation != null) {
-            titleAnimation.stop();
-            titleAnimation = null;
-        }
-    }
+    private void stopTitleAnimation() { titleAnimation.stop(); }
 }

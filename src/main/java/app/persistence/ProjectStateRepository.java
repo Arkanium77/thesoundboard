@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 
 public class ProjectStateRepository {
@@ -31,17 +32,41 @@ public class ProjectStateRepository {
 
         try (InputStream inputStream = Files.newInputStream(stateFile)) {
             ProjectState projectState = objectMapper.readValue(inputStream, ProjectState.class);
+            if (projectState == null) throw new IOException("Project state must be a JSON object");
             normalize(projectState);
             return Optional.of(projectState);
         }
     }
 
-    public void save(Path rootPath, ProjectState projectState) throws IOException {
+    /**
+     * Stages JSON beside the project before replacing it, so serialization errors cannot truncate the last save.
+     * The previous readable state is retained as .bak; an unreadable state is preserved in a unique recovery file
+     * instead of destroying evidence needed for recovery. All files remain beside the user-selected library and the
+     * JSON schema is unchanged. Callers must serialize competing saves so an older snapshot cannot win last.
+     */
+    public synchronized void save(Path rootPath, ProjectState projectState) throws IOException {
         Path stateFile = resolveStateFile(rootPath);
         normalize(projectState);
-
-        try (OutputStream outputStream = Files.newOutputStream(stateFile)) {
-            objectMapper.writeValue(outputStream, projectState);
+        Path temporary = Files.createTempFile(rootPath, stateFileName + ".", ".tmp");
+        try {
+            try (OutputStream outputStream = Files.newOutputStream(temporary)) {
+                objectMapper.writeValue(outputStream, projectState);
+            }
+            if (Files.exists(stateFile)) {
+                boolean readable;
+                try {
+                    load(rootPath);
+                    readable = true;
+                } catch (IOException | RuntimeException exception) {
+                    readable = false;
+                }
+                Path backup = readable ? stateFile.resolveSibling(stateFileName + ".bak")
+                        : Files.createTempFile(rootPath, stateFileName + ".recovery-", ".json");
+                Files.copy(stateFile, backup, StandardCopyOption.REPLACE_EXISTING);
+            }
+            AtomicFiles.replace(temporary, stateFile);
+        } finally {
+            Files.deleteIfExists(temporary);
         }
     }
 

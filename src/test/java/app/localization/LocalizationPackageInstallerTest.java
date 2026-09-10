@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
@@ -16,6 +17,35 @@ import java.util.zip.ZipEntry;
 class LocalizationPackageInstallerTest {
     @TempDir
     private Path temporaryDirectory;
+
+    @Test
+    void discoveryKeepsInstalledEditsUntilExplicitUpdate() throws IOException {
+        Path sources = Files.createDirectories(temporaryDirectory.resolve("sources"));
+        LocalizationRepository repository = new LocalizationRepository(temporaryDirectory.resolve("installed"));
+        LocalizationPackageInstaller installer = new LocalizationPackageInstaller(repository);
+        Path archive = sources.resolve("Russian.tsbl");
+        installer.createPackage(Path.of("examples", "localizations", "Russian", "source"), archive);
+        LocalizationDescriptor installed = installer.install(archive);
+        Path strings = installed.directory().resolve(installed.manifest().getStrings());
+        String original = Files.readString(strings);
+        FileTime timestamp = FileTime.fromMillis(1_000_000L);
+        Files.setLastModifiedTime(strings, timestamp);
+        List<LocalizationDescriptor> snapshot = repository.findAll();
+
+        installer.installAvailablePackages(List.of(sources));
+        installer.update(installed);
+        Assertions.assertThat(Files.getLastModifiedTime(strings)).isEqualTo(timestamp);
+        Assertions.assertThat(repository.findAll()).isSameAs(snapshot);
+
+        Files.writeString(strings, "main.save: edited locally");
+        installer.installAvailablePackages(List.of(sources));
+        Assertions.assertThat(strings).content().isEqualTo("main.save: edited locally");
+        installer.update(installed);
+        Assertions.assertThat(strings).content().isEqualTo(original);
+        Assertions.assertThat(repository.findAll()).isNotSameAs(snapshot);
+        installer.delete(repository.findSelected(installed.manifest().getUid(), installed.manifest().getVersion()));
+        Assertions.assertThat(repository.findAll()).hasSize(1);
+    }
 
     @Test
     void exampleLocalizationsCanBePackagedInstalledAndReplaced() throws IOException {

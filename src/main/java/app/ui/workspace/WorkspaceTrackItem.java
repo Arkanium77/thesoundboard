@@ -28,6 +28,7 @@ public class WorkspaceTrackItem {
     private boolean muted;
     private double masterVolume;
     private Duration pendingSeekPosition;
+    private Runnable playbackChanged = () -> { };
 
     public WorkspaceTrackItem(
             Path rootPath,
@@ -59,7 +60,7 @@ public class WorkspaceTrackItem {
         }
 
         Path audioPath = rootPath.resolve(audioFile.getRelativePath());
-        return Files.exists(audioPath) ? Optional.of(audioPath) : Optional.empty();
+        return Optional.of(audioPath);
     }
 
     public boolean isMissing() {
@@ -180,7 +181,9 @@ public class WorkspaceTrackItem {
         if (playingTrack == null) return null;
         pendingSeekPosition = null;
         PlaybackTransfer transfer = new PlaybackTransfer(playingTrack, playingTrack.getStatus(), muted);
+        playingTrack.setOnStatusChanged(null);
         playingTrack = null;
+        playbackChanged.run();
         return transfer;
     }
 
@@ -188,10 +191,12 @@ public class WorkspaceTrackItem {
         if (transfer == null || !transfer.isActive()) return;
         if (playingTrack != null) playingTrack.dispose();
         playingTrack = transfer.playingTrack();
+        bindPlayback();
         pendingSeekPosition = null;
         muted = transfer.muted();
         applyVolume();
         playingTrack.setLoop(workspaceTrack.isLoop());
+        playbackChanged.run();
     }
 
     public void restorePlayback(PlaybackSnapshot snapshot) {
@@ -205,9 +210,17 @@ public class WorkspaceTrackItem {
     public void dispose() {
         pendingSeekPosition = null;
         if (playingTrack != null) {
+            playingTrack.setOnStatusChanged(null);
             playingTrack.dispose();
             playingTrack = null;
         }
+    }
+
+    public void setOnPlaybackChanged(Runnable listener) { playbackChanged = listener == null ? () -> { } : listener; }
+
+    private void bindPlayback() {
+        PlayingTrack expected = playingTrack;
+        expected.setOnStatusChanged(() -> { if (playingTrack == expected) playbackChanged.run(); });
     }
 
     private void applyVolume() {
@@ -233,6 +246,7 @@ public class WorkspaceTrackItem {
 
         try {
             playingTrack = audioEngine.createTrack(audioPath);
+            bindPlayback();
             applyVolume();
             playingTrack.setLoop(workspaceTrack.isLoop());
             return true;

@@ -2,13 +2,14 @@ package app.skin;
 
 import app.persistence.PackageSourceRegistry;
 import app.packages.PackageIdentity;
+import app.packages.PackageInstallation;
+import app.packages.PackageExtraction;
+import app.packages.PackageArchiveWriter;
 import app.packages.PackageSourceDirectories;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -21,9 +22,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
-import java.util.zip.ZipOutputStream;
 
 public class SkinPackageInstaller {
     private static final int MAX_ENTRIES = 512;
@@ -192,6 +190,16 @@ public class SkinPackageInstaller {
     private SkinDescriptor install(Path packageFile, boolean replaceExisting, UUID expectedUid,
                                    boolean rememberSource) throws IOException {
         requirePackageExtension(packageFile);
+        if (!rememberSource) {
+            SkinManifest manifest = readPackageManifest(packageFile);
+            PackageIdentity identity = new PackageIdentity(manifest.getUid(), manifest.getVersion());
+            Path target = repository.getExternalSkinsDirectory().resolve(identity.storageName());
+            Path stored = repository.getExternalSkinsDirectory().resolve("_packages").resolve(identity.storageName() + ".tsbs");
+            if (Files.isDirectory(target) && PackageInstallation.hasSameArchive(packageFile, stored)
+                    && PackageInstallation.matchesDirectory(packageFile, target)) {
+                return repository.loadSkinDirectory(target);
+            }
+        }
         Path skinsDirectory = repository.getExternalSkinsDirectory();
         Path temporaryDirectory = skinsDirectory.resolve(".install-" + UUID.randomUUID());
         Files.createDirectories(temporaryDirectory);
@@ -211,6 +219,10 @@ public class SkinPackageInstaller {
                 throw new SkinAlreadyInstalledException(validatedSkin.manifest());
             }
             if (Files.isDirectory(targetDirectory) && hasSameContent(temporaryDirectory, targetDirectory)) {
+                if (rememberSource) {
+                    Files.deleteIfExists(disabledMarker(identity));
+                    packageSources.remember(skinUid, identity.version(), packageFile);
+                }
                 return repository.findAll().stream()
                         .filter(descriptor -> descriptor.manifest().getUid().equals(skinUid))
                         .filter(descriptor -> descriptor.manifest().getVersion() == identity.version())
@@ -312,26 +324,7 @@ public class SkinPackageInstaller {
         if (normalizedPackageFile.startsWith(normalizedSkinDirectory)) {
             throw new IllegalArgumentException("Save the package outside the skin source folder");
         }
-        Path temporaryPackage = packageFile.resolveSibling(packageFile.getFileName() + ".tmp");
-        Files.createDirectories(packageFile.toAbsolutePath().getParent());
-        try {
-            try (OutputStream outputStream = Files.newOutputStream(temporaryPackage);
-                 ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream);
-                 var paths = Files.walk(skinDirectory)) {
-                for (Path path : paths.filter(Files::isRegularFile).sorted().toList()) {
-                    if (Files.isSymbolicLink(path)) {
-                        continue;
-                    }
-                    String entryName = skinDirectory.relativize(path).toString().replace('\\', '/');
-                    zipOutputStream.putNextEntry(new ZipEntry(entryName));
-                    Files.copy(path, zipOutputStream);
-                    zipOutputStream.closeEntry();
-                }
-            }
-            Files.move(temporaryPackage, packageFile, StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            Files.deleteIfExists(temporaryPackage);
-        }
+        PackageArchiveWriter.write(skinDirectory, packageFile, MAX_ENTRIES, MAX_UNCOMPRESSED_SIZE);
     }
 
     public void delete(SkinDescriptor skin) throws IOException {
@@ -372,121 +365,28 @@ public class SkinPackageInstaller {
 
     private SkinManifest readPackageManifest(Path packageFile) throws IOException {
         requirePackageExtension(packageFile);
-        try (InputStream inputStream = Files.newInputStream(packageFile);
-             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
-            int entryCount = 0;
-            ZipEntry entry;
-            while ((entry = zipInputStream.getNextEntry()) != null) {
-                if (++entryCount > MAX_ENTRIES) {
-                    throw new IllegalArgumentException("The skin package contains too many files");
-                }
-                if (!entry.isDirectory() && MANIFEST_FILE.equals(entry.getName())) {
-                    byte[] manifestBytes = zipInputStream.readNBytes(MAX_MANIFEST_SIZE + 1);
-                    if (manifestBytes.length > MAX_MANIFEST_SIZE) {
-                        throw new IllegalArgumentException("The skin manifest is too large");
-                    }
-                    SkinManifest manifest = mapper.readValue(manifestBytes, SkinManifest.class);
-                    if (manifest.getUid() == null || SkinRepository.DEFAULT_SKIN_UID.equals(manifest.getUid())) {
-                        throw new IllegalArgumentException("The skin package does not contain a valid uid");
-                    }
-                    return manifest;
-                }
-            }
+        byte[] bytes = PackageExtraction.readEntry(packageFile, MANIFEST_FILE, MAX_ENTRIES, MAX_UNCOMPRESSED_SIZE, MAX_MANIFEST_SIZE);
+        SkinManifest manifest = mapper.readValue(bytes, SkinManifest.class);
+        if (manifest == null || manifest.getUid() == null || SkinRepository.DEFAULT_SKIN_UID.equals(manifest.getUid())) {
+            throw new IllegalArgumentException("The package does not contain a valid uid");
         }
-        throw new IllegalArgumentException("The skin package must contain skin.yml at its root");
+        return manifest;
     }
 
     private void replaceInstallation(Path temporaryDirectory, Path targetDirectory, Path packageFile, PackageIdentity identity) throws IOException {
-        Path backupDirectory = targetDirectory.resolveSibling(".backup-" + identity.storageName());
-        Path packagesDirectory = repository.getExternalSkinsDirectory().resolve("_packages");
-        Path storedPackage = packagesDirectory.resolve(identity.storageName() + ".tsbs");
-        Path backupPackage = packagesDirectory.resolve(".backup-" + identity.storageName() + ".tsbs");
-        deleteRecursively(backupDirectory);
-        Files.createDirectories(packagesDirectory);
-        Files.deleteIfExists(backupPackage);
-        boolean existingMoved = false;
-        boolean packageMoved = false;
-        try {
-            if (Files.exists(targetDirectory)) {
-                Files.move(targetDirectory, backupDirectory);
-                existingMoved = true;
-            }
-            if (Files.exists(storedPackage)
-                    && !packageFile.toAbsolutePath().normalize().equals(storedPackage.toAbsolutePath().normalize())) {
-                Files.move(storedPackage, backupPackage);
-                packageMoved = true;
-            }
-            Files.move(temporaryDirectory, targetDirectory);
-            storePackageCopy(packageFile, identity);
-            repository.invalidate();
-        } catch (IOException | RuntimeException exception) {
-            deleteRecursively(targetDirectory);
-            Files.deleteIfExists(storedPackage);
-            if (existingMoved && Files.exists(backupDirectory)) {
-                Files.move(backupDirectory, targetDirectory);
-            }
-            if (packageMoved && Files.exists(backupPackage)) {
-                Files.move(backupPackage, storedPackage);
-            }
-            throw exception;
-        }
-        try {
-            deleteRecursively(backupDirectory);
-            Files.deleteIfExists(backupPackage);
-        } catch (IOException exception) {
-            // The installation is committed; a stale backup is safer than rolling it back inconsistently.
-        }
+        PackageInstallation.replace(temporaryDirectory, targetDirectory, packageFile,
+                repository.getExternalSkinsDirectory().resolve("_packages").resolve(identity.storageName() + ".tsbs"));
+        repository.invalidate();
     }
 
     private void extractPackage(Path packageFile, Path targetDirectory) throws IOException {
-        int entryCount = 0;
-        long extractedSize = 0L;
-        byte[] buffer = new byte[8192];
-        try (InputStream inputStream = Files.newInputStream(packageFile);
-             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
-            ZipEntry entry;
-            while ((entry = zipInputStream.getNextEntry()) != null) {
-                entryCount++;
-                if (entryCount > MAX_ENTRIES) {
-                    throw new IllegalArgumentException("The skin package contains too many files");
-                }
-                Path destination = targetDirectory.resolve(entry.getName()).normalize();
-                if (!destination.startsWith(targetDirectory)) {
-                    throw new IllegalArgumentException("The skin package contains an unsafe path: " + entry.getName());
-                }
-                if (entry.isDirectory()) {
-                    Files.createDirectories(destination);
-                    continue;
-                }
-                Files.createDirectories(destination.getParent());
-                try (OutputStream outputStream = Files.newOutputStream(destination)) {
-                    int read;
-                    while ((read = zipInputStream.read(buffer)) >= 0) {
-                        extractedSize += read;
-                        if (extractedSize > MAX_UNCOMPRESSED_SIZE) {
-                            throw new IllegalArgumentException("The unpacked skin is too large");
-                        }
-                        outputStream.write(buffer, 0, read);
-                    }
-                }
-            }
-        }
-    }
-
-    private void storePackageCopy(Path packageFile, PackageIdentity identity) throws IOException {
-        Path packagesDirectory = repository.getExternalSkinsDirectory().resolve("_packages");
-        Files.createDirectories(packagesDirectory);
-        Path storedPackage = packagesDirectory.resolve(identity.storageName() + ".tsbs");
-        if (!packageFile.toAbsolutePath().normalize().equals(storedPackage.toAbsolutePath().normalize())) {
-            Files.copy(packageFile, storedPackage, StandardCopyOption.REPLACE_EXISTING);
-        }
+        PackageExtraction.extract(packageFile, targetDirectory, MAX_ENTRIES, MAX_UNCOMPRESSED_SIZE);
     }
 
     /**
-     * Compares package contents after extraction instead of comparing ZIP bytes. ZIP metadata such as timestamps and
-     * compression can change the archive hash without changing a skin, while this check must also notice locally
-     * unpacked files that differ from their source. Relative paths and file bytes are therefore the synchronization
-     * identity; an added, removed, or changed resource makes the installation replaceable.
+     * Compares unpacked bytes when ZIP metadata changed: a different archive can still describe identical resources.
+     * Unlike the early archive/stream comparison this runs after validation and preserves locally modified resource
+     * detection. Only equal relative file sets and contents permit retaining the existing installation.
      */
     private boolean hasSameContent(Path extractedPackage, Path installedDirectory) throws IOException {
         List<Path> extractedFiles = relativeFiles(extractedPackage);

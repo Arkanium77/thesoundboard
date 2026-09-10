@@ -99,10 +99,19 @@ public class SkinService {
      * bindings so a same-version content update becomes visible without a manual Update action or another restart.
      */
     public void refreshPackageSources() {
-        new SkinPackageInstaller(repository).installAvailablePackages(packageSourceDirectories.getDirectories());
+        synchronizePackageSources();
         if (activeSkin != null) {
             refreshSelectedSkin();
         }
+    }
+
+    /**
+     * Performs only package I/O so settings can synchronize on a worker. The caller reapplies the selected skin on
+     * the FX thread afterward; CSS, fonts and scene bindings must never be changed by the discovery worker.
+     */
+    public void synchronizePackageSources() {
+        new SkinPackageInstaller(repository).installAvailablePackages(packageSourceDirectories.getDirectories());
+        repository.invalidate();
     }
 
     public List<Path> getPackageSourceDirectories() {
@@ -114,9 +123,17 @@ public class SkinService {
     }
 
     public void addPackageSourceDirectory(Path directory) throws IOException {
+        registerPackageSourceDirectory(directory);
+        if (activeSkin != null) refreshSelectedSkin();
+    }
+
+    /**
+     * Registers and scans a source without touching scene resources, for settings workers. The UI caller must refresh
+     * the selected skin after completion; the synchronous entry point preserves that behavior for existing callers.
+     */
+    public void registerPackageSourceDirectory(Path directory) throws IOException {
         packageSourceDirectories.add(directory);
         new SkinPackageInstaller(repository).installAvailablePackages(directory);
-        if (activeSkin != null) refreshSelectedSkin();
     }
 
     public void removePackageSourceDirectory(Path directory) throws IOException {

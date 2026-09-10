@@ -1,5 +1,8 @@
 package app.ui.queue;
 
+import app.ui.InsertionMarkers;
+import app.ui.TitleScrollAnimation;
+
 import app.config.UiConfig;
 import app.model.AudioFile;
 import app.model.PlaybackStatus;
@@ -7,19 +10,17 @@ import app.model.QueueTrack;
 import app.localization.TextKey;
 import app.localization.Texts;
 import app.ui.UiIcons;
+import app.ui.DurationText;
+import app.ui.UiViewport;
+import app.ui.VolumeSliderSupport;
 import app.ui.drag.DragPayload;
 import app.ui.waveform.WaveformSeekView;
+import app.ui.waveform.WaveformSubscription;
 import app.ui.workspace.WorkspaceInsertionMarker;
 import app.ui.workspace.WorkspaceItemView;
 import app.ui.workspace.WorkspaceQueueItem;
 import app.waveform.WaveformData;
 import app.waveform.WaveformService;
-import javafx.application.Platform;
-import javafx.animation.Animation;
-import javafx.animation.PauseTransition;
-import javafx.animation.SequentialTransition;
-import javafx.animation.Timeline;
-import javafx.animation.TranslateTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -49,7 +50,6 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
 import javafx.util.Duration;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -63,7 +63,6 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private static final Color READY_COLOR = Color.web("#97a3b6");
 
     private final WorkspaceQueueItem workspaceQueueItem;
-    private final WaveformService waveformService;
     private final Runnable removeQueueAction;
     private final Runnable persistenceChangeAction;
     private final QueueAudioDropHandler addAudioFilesAction;
@@ -124,9 +123,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     private boolean insertionAfter;
     private double currentScale = 1d;
     private final double baseWaveformHeight;
-    private Path currentWaveformPath;
-    private long waveformRequestGeneration;
-    private SequentialTransition titleAnimation;
+    private final WaveformSubscription waveformSubscription;
+    private final TitleScrollAnimation titleAnimation = new TitleScrollAnimation(
+            titleViewport, queueNameLabel, titleClip, TitleScrollAnimation.Style.TILE);
 
     public QueueView(
             UiConfig uiConfig,
@@ -143,7 +142,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     ) {
         getStyleClass().add("queue-tile");
         this.workspaceQueueItem = workspaceQueueItem;
-        this.waveformService = waveformService;
+        this.waveformSubscription = new WaveformSubscription(waveformService, waveformSeekView::setWaveformData);
         this.removeQueueAction = removeQueueAction;
         this.persistenceChangeAction = persistenceChangeAction;
         this.addAudioFilesAction = addAudioFilesAction;
@@ -155,24 +154,34 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         this.baseWaveformHeight = uiConfig.getWaveformHeight();
         configureLayout(uiConfig);
         configureActions();
+        workspaceQueueItem.setOnPlaybackChanged(this::refresh);
         rebuildChips();
         refresh();
 
     }
 
     public void dispose() {
+        workspaceQueueItem.setOnPlaybackChanged(null);
+        waveformSeekView.dispose();
         chipContainer.getChildren().stream()
                 .filter(QueueTrackChipView.class::isInstance)
                 .map(QueueTrackChipView.class::cast)
                 .forEach(QueueTrackChipView::dispose);
-        waveformRequestGeneration++;
-        currentWaveformPath = null;
-        waveformSeekView.setWaveformData(WaveformData.empty());
+        waveformSubscription.dispose();
         stopTitleAnimation();
     }
 
+    /** The shared scheduler updates progress only; status and queue chips are refreshed by commands/events. */
     public void refreshPlayback() {
-        refresh();
+        if (workspaceQueueItem.getFocusedStatus() != PlaybackStatus.PLAYING) { waveformSeekView.setPlaying(false); return; }
+        boolean visible = UiViewport.isVisible(this);
+        waveformSeekView.setPlaying(visible && workspaceQueueItem.getFocusedStatus() == PlaybackStatus.PLAYING);
+        if (!visible) { stopTitleAnimation(); return; }
+        if (workspaceQueueItem.getFocusedStatus() == PlaybackStatus.PLAYING) {
+            waveformSeekView.setPlaybackPosition(workspaceQueueItem.getFocusedCurrentTime(), workspaceQueueItem.getFocusedTotalDuration());
+            DurationText.update(currentTimeLabel, waveformSeekView.getDisplayedPosition());
+            DurationText.update(totalTimeLabel, workspaceQueueItem.getFocusedTotalDuration());
+        }
     }
 
     public void updateTileMetrics(double tileWidth, double tileHeight, double tileScale) {
@@ -423,22 +432,8 @@ public class QueueView extends StackPane implements WorkspaceItemView {
             persistenceChangeAction.run();
         });
 
-        volumeSlider.valueChangingProperty().addListener((observable, oldValue, newValue) -> {
-            if (!newValue) {
-                persistenceChangeAction.run();
-            }
-        });
-        volumeSlider.setOnMouseReleased(event -> persistenceChangeAction.run());
-        volumeSlider.valueProperty().addListener((observable, oldValue, newValue) ->
-                workspaceQueueItem.setVolume(newValue.doubleValue() / 100d)
-        );
-        trackVolumeSlider.valueProperty().addListener((observable, oldValue, newValue) ->
-                workspaceQueueItem.setSelectedTrackVolume(newValue.doubleValue() / 100d)
-        );
-        trackVolumeSlider.valueChangingProperty().addListener((observable, oldValue, newValue) -> {
-            if (!newValue) persistenceChangeAction.run();
-        });
-        trackVolumeSlider.setOnMouseReleased(event -> persistenceChangeAction.run());
+        VolumeSliderSupport.bind(volumeSlider, workspaceQueueItem::setVolume, persistenceChangeAction);
+        VolumeSliderSupport.bind(trackVolumeSlider, workspaceQueueItem::setSelectedTrackVolume, persistenceChangeAction);
         waveformSeekView.setSeekHandler(position -> {
             workspaceQueueItem.seek(position);
             refresh();
@@ -522,8 +517,8 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         loopQueueButton.setSelected(workspaceQueueItem.isLoopQueue());
         statusIndicator.setFill(resolveStatusColor(playbackStatus));
         waveformSeekView.setPlaybackPosition(currentTime, totalTime);
-        currentTimeLabel.setText(formatDuration(waveformSeekView.getDisplayedPosition()));
-        totalTimeLabel.setText(formatDuration(totalTime));
+        DurationText.update(currentTimeLabel, waveformSeekView.getDisplayedPosition());
+        DurationText.update(totalTimeLabel, totalTime);
 
         UUID selectedTrackId = workspaceQueueItem.getFocusedTrack().map(QueueTrack::getId).orElse(null);
         UUID activeTrackId = workspaceQueueItem.getActiveTrackId();
@@ -545,13 +540,6 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         }
     }
 
-    private String formatDuration(Duration duration) {
-        long totalSeconds = (long) Math.max(duration.toSeconds(), 0d);
-        long minutes = totalSeconds / 60;
-        long seconds = totalSeconds % 60;
-        return String.format("%02d:%02d", minutes, seconds);
-    }
-
     private Color resolveStatusColor(PlaybackStatus playbackStatus) {
         return switch (playbackStatus) {
             case PLAYING -> PLAYING_COLOR;
@@ -562,47 +550,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     }
 
     private AnchorPane createInsertionMarker(boolean leftSide) {
-        AnchorPane marker = new AnchorPane();
-        marker.setPrefWidth(12d);
-        marker.setMinWidth(12d);
-        marker.setMaxWidth(12d);
-        marker.setVisible(false);
-        marker.setMouseTransparent(true);
-
-        Region vertical = createMarkerSegment(4d, -1d);
-        Region top = createMarkerSegment(10d, 4d);
-        Region bottom = createMarkerSegment(10d, 4d);
-
-        if (leftSide) {
-            AnchorPane.setLeftAnchor(vertical, 0d);
-            AnchorPane.setLeftAnchor(top, 0d);
-            AnchorPane.setLeftAnchor(bottom, 0d);
-        } else {
-            AnchorPane.setRightAnchor(vertical, 0d);
-            AnchorPane.setRightAnchor(top, 0d);
-            AnchorPane.setRightAnchor(bottom, 0d);
-        }
-
-        AnchorPane.setTopAnchor(vertical, 0d);
-        AnchorPane.setBottomAnchor(vertical, 0d);
-        AnchorPane.setTopAnchor(top, 0d);
-        AnchorPane.setBottomAnchor(bottom, 0d);
-        marker.getChildren().addAll(vertical, top, bottom);
-        return marker;
-    }
-
-    private Region createMarkerSegment(double width, double height) {
-        Region region = new Region();
-        region.getStyleClass().add("insertion-marker");
-        region.setMinWidth(width);
-        region.setPrefWidth(width);
-        region.setMaxWidth(width);
-        if (height > 0d) {
-            region.setMinHeight(height);
-            region.setPrefHeight(height);
-            region.setMaxHeight(height);
-        }
-        return region;
+        return InsertionMarkers.create(leftSide, false);
     }
 
     private HBox createMarkerHolder(AnchorPane marker) {
@@ -731,28 +679,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     }
 
     private void refreshWaveformSource() {
-        Path nextWaveformPath = workspaceQueueItem.getSelectedAudioPath().orElse(null);
-        if (Objects.equals(currentWaveformPath, nextWaveformPath)) {
-            return;
-        }
-
-        currentWaveformPath = nextWaveformPath;
-        long requestGeneration = ++waveformRequestGeneration;
-        waveformSeekView.setWaveformData(WaveformData.empty());
-        if (nextWaveformPath == null) {
-            return;
-        }
-
-        waveformService.loadWaveform(nextWaveformPath).thenAccept(waveformData ->
-                Platform.runLater(() -> applyWaveformData(requestGeneration, nextWaveformPath, waveformData))
-        );
-    }
-
-    private void applyWaveformData(long requestGeneration, Path waveformPath, WaveformData waveformData) {
-        if (requestGeneration != waveformRequestGeneration || !Objects.equals(currentWaveformPath, waveformPath)) {
-            return;
-        }
-        waveformSeekView.setWaveformData(waveformData);
+        waveformSubscription.load(workspaceQueueItem.getSelectedAudioPath().orElse(null));
     }
 
     private void startEditingQueueName() {
@@ -863,23 +790,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
     }
 
     private void updateInsertionMarkerScale(AnchorPane marker, double scale) {
-        setRegionWidth(marker, 12d * scale);
-        setRegionWidth((Region) marker.getChildren().get(0), 4d * scale);
-        setRegionSize((Region) marker.getChildren().get(1), 10d * scale, 4d * scale);
-        setRegionSize((Region) marker.getChildren().get(2), 10d * scale, 4d * scale);
-    }
-
-    private void setRegionWidth(Region region, double width) {
-        region.setMinWidth(width);
-        region.setPrefWidth(width);
-        region.setMaxWidth(width);
-    }
-
-    private void setRegionSize(Region region, double width, double height) {
-        setRegionWidth(region, width);
-        region.setMinHeight(height);
-        region.setPrefHeight(height);
-        region.setMaxHeight(height);
+        InsertionMarkers.scale(marker, scale, false);
     }
 
     private String buttonStyle(double fontSize, double verticalPadding, double horizontalPadding) {
@@ -888,47 +799,9 @@ public class QueueView extends StackPane implements WorkspaceItemView {
                 + verticalPadding + " " + horizontalPadding + ";";
     }
 
-    private void updateTitleAnimation() {
-        titleClip.setWidth(Math.max(titleViewport.getWidth(), 0d));
-        titleClip.setHeight(Math.max(titleViewport.getHeight(), 22d * currentScale));
+    private void updateTitleAnimation() { titleAnimation.update(titleHovered && !editingQueueName, 22d * currentScale); }
 
-        double overflow = queueNameLabel.getLayoutBounds().getWidth() - titleViewport.getWidth();
-        if (editingQueueName || !titleHovered || overflow <= 4d) {
-            stopTitleAnimation();
-            queueNameLabel.setTranslateX(0d);
-            return;
-        }
-
-        if (titleAnimation != null && titleAnimation.getStatus() == Animation.Status.RUNNING) {
-            return;
-        }
-
-        stopTitleAnimation();
-        TranslateTransition moveLeft = new TranslateTransition(Duration.seconds(Math.max(overflow / 35d, 2.5d)), queueNameLabel);
-        moveLeft.setFromX(0d);
-        moveLeft.setToX(-overflow);
-
-        TranslateTransition moveRight = new TranslateTransition(Duration.seconds(1.2d), queueNameLabel);
-        moveRight.setFromX(-overflow);
-        moveRight.setToX(0d);
-
-        titleAnimation = new SequentialTransition(
-                new PauseTransition(Duration.seconds(1.0d)),
-                moveLeft,
-                new PauseTransition(Duration.seconds(0.8d)),
-                moveRight,
-                new PauseTransition(Duration.seconds(0.8d))
-        );
-        titleAnimation.setCycleCount(Timeline.INDEFINITE);
-        titleAnimation.playFromStart();
-    }
-
-    private void stopTitleAnimation() {
-        if (titleAnimation != null) {
-            titleAnimation.stop();
-            titleAnimation = null;
-        }
-    }
+    private void stopTitleAnimation() { titleAnimation.stop(); }
 
     @FunctionalInterface
     public interface QueueAudioDropHandler {

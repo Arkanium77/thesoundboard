@@ -21,6 +21,67 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 class WorkspaceQueueItemTest {
     @Test
+    void refreshesIndexedSelectionAndOrderAfterMutationAndShuffle() {
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue", 0, 1d, false);
+        QueueTrack first = new QueueTrack(UUID.randomUUID(), UUID.randomUUID(), 0, false);
+        QueueTrack second = new QueueTrack(UUID.randomUUID(), UUID.randomUUID(), 1, false);
+        queue.setTracks(List.of(first, second));
+        WorkspaceQueueItem item = new WorkspaceQueueItem(Path.of("."), queue, List.of(), path -> null, 1d, exception -> { });
+        Assertions.assertThat(item.getSelectedTrack()).contains(first);
+        first.setOrder(1);
+        second.setOrder(0);
+        queue.setSelectedTrackId(second.getId());
+        item.refreshAfterMutation();
+        Assertions.assertThat(item.getTracks()).containsExactly(second, first);
+        Assertions.assertThat(item.getSelectedTrack()).contains(second);
+        item.setShuffleEnabled(true);
+        Assertions.assertThat(item.getTracks()).containsExactlyInAnyOrder(first, second);
+        item.setShuffleEnabled(false);
+        Assertions.assertThat(item.getTracks()).containsExactly(second, first);
+        queue.setTracks(List.of(first));
+        item.refreshAfterMutation();
+        Assertions.assertThat(item.getSelectedTrack()).contains(first);
+        Assertions.assertThat(item.getFocusedTrack()).contains(first);
+    }
+
+    @Test
+    void completionAdvancesWithoutPollingAndOldOwnerCallbacksAreIgnored() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("queue-events-");
+        Files.writeString(root.resolve("one.mp3"), "audio");
+        UUID audioId = UUID.randomUUID();
+        AudioFile audio = new AudioFile(audioId, "one.mp3", "one.mp3", false);
+        WorkspaceQueue source = new WorkspaceQueue(UUID.randomUUID(), "Source", 0, 1d, false);
+        QueueTrack sourceTrack = new QueueTrack(UUID.randomUUID(), audioId, 0, false);
+        source.setTracks(List.of(sourceTrack));
+        WorkspaceQueue target = new WorkspaceQueue(UUID.randomUUID(), "Target", 1, 1d, false);
+        QueueTrack first = new QueueTrack(UUID.randomUUID(), audioId, 0, false);
+        QueueTrack second = new QueueTrack(UUID.randomUUID(), audioId, 1, false);
+        target.setTracks(List.of(first, second));
+        List<FakePlayingTrack> players = new ArrayList<>();
+        AudioEngine engine = path -> { FakePlayingTrack player = new FakePlayingTrack(); players.add(player); return player; };
+        WorkspaceQueueItem oldOwner = new WorkspaceQueueItem(root, source, List.of(audio), engine, 1d, exception -> { });
+        WorkspaceQueueItem newOwner = new WorkspaceQueueItem(root, target, List.of(audio), engine, 1d, exception -> { });
+        AtomicInteger selections = new AtomicInteger();
+        newOwner.setOnSelectionChanged(selections::incrementAndGet);
+        oldOwner.togglePlayPause();
+        FakePlayingTrack transferred = players.getFirst();
+        Runnable oldCallback = transferred.statusChanged;
+        newOwner.acceptPlayback(first.getId(), oldOwner.detachPlayback(sourceTrack.getId()));
+        transferred.finish();
+        Assertions.assertThat(target.getSelectedTrackId()).isEqualTo(second.getId());
+        Assertions.assertThat(players).hasSize(2);
+        Assertions.assertThat(selections.get()).isEqualTo(1);
+        oldCallback.run();
+        transferred.finish();
+        Assertions.assertThat(players).hasSize(2);
+        Assertions.assertThat(source.getSelectedTrackId()).isEqualTo(sourceTrack.getId());
+        Assertions.assertThat(target.getSelectedTrackId()).isEqualTo(second.getId());
+        newOwner.dispose();
+        players.getLast().finish();
+        Assertions.assertThat(players).hasSize(2);
+    }
+
+    @Test
     void loopsBackToFirstTrackWhenQueueLoopIsEnabled() throws IOException {
         Path rootPath = TestDirectorySupport.createTempDirectory("workspace-queue-item-");
         Files.writeString(rootPath.resolve("one.mp3"), "audio");
@@ -61,7 +122,7 @@ class WorkspaceQueueItemTest {
         );
 
         workspaceQueueItem.playSelectedTrack(secondQueueTrackId);
-        createdTracks.getFirst().playbackStatus = PlaybackStatus.FINISHED;
+        createdTracks.getFirst().finish();
 
         PlaybackStatus playbackStatus = workspaceQueueItem.getStatus();
 
@@ -297,7 +358,14 @@ class WorkspaceQueueItemTest {
     }
 
     private static final class FakePlayingTrack implements PlayingTrack {
+        private Runnable statusChanged = () -> { };
         private int playCalls;
+
+        @Override
+        public void setOnStatusChanged(Runnable listener) { statusChanged = listener == null ? () -> { } : listener; }
+
+        private void finish() { playbackStatus = PlaybackStatus.FINISHED; statusChanged.run(); }
+
         private PlaybackStatus playbackStatus = PlaybackStatus.READY;
         private double volume;
         private Duration currentTime = Duration.ZERO;
