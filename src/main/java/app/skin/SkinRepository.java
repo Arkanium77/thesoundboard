@@ -1,5 +1,6 @@
 package app.skin;
 
+import app.packages.PackageInstallation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
@@ -30,13 +31,15 @@ public class SkinRepository {
 
     SkinRepository(Path externalSkinsDirectory) {
         this.externalSkinsDirectory = externalSkinsDirectory;
+        PackageInstallation.recover(externalSkinsDirectory);
     }
 
     /**
      * Returns cached, already validated descriptors until an installer mutation invalidates them. Parsing every YAML
      * manifest and validating its resources on each settings navigation blocked the JavaFX thread and also allocated a
      * fresh parser graph for every skin. Installed package directories are mutated only through the installer, which
-     * preserves the invariant that every successful replacement or deletion invalidates this snapshot.
+     * preserves the invariant that every successful replacement or deletion invalidates this snapshot. Staging and
+     * rollback directories are excluded so an interrupted replacement cannot expose a backup as a second skin.
      */
     public synchronized List<SkinDescriptor> findAll() {
         if (cachedSkins != null) return cachedSkins;
@@ -103,7 +106,7 @@ public class SkinRepository {
         }
         try (Stream<Path> directories = Files.list(externalSkinsDirectory)) {
             return directories
-                    .filter(Files::isDirectory)
+                    .filter(PackageInstallation::isInstallationDirectory)
                     .map(this::loadExternalSkin)
                     .flatMap(Optional::stream)
                     .toList();

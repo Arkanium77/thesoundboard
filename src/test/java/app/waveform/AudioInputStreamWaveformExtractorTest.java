@@ -10,9 +10,21 @@ import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.file.Path;
 
 class AudioInputStreamWaveformExtractorTest {
+    @Test
+    void honoursCancellationBeforeOpeningAudio() {
+        try {
+            Thread.currentThread().interrupt();
+            Assertions.assertThatThrownBy(() -> new AudioInputStreamWaveformExtractor(32).extract(Path.of("missing.wav")))
+                    .isInstanceOf(InterruptedIOException.class);
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     @Test
     void extractsNormalizedWaveformFromWavFile() throws IOException {
         Path tempDirectory = TestDirectorySupport.createTempDirectory("waveform-extractor-");

@@ -16,30 +16,32 @@ public class JavaFxPlayingTrack implements PlayingTrack {
     private long commandGeneration;
     private long pendingStartGeneration;
     private boolean disposed;
+    private Runnable statusChanged = () -> { };
     private PlaybackStatus playbackStatus = PlaybackStatus.READY;
 
     public JavaFxPlayingTrack(MediaPlayer mediaPlayer) {
         this.mediaPlayer = mediaPlayer;
         this.mediaPlayer.setOnReady(this::handleReady);
         this.mediaPlayer.setOnPlaying(this::handlePlaying);
-        this.mediaPlayer.setOnPaused(() -> playbackStatus = PlaybackStatus.PAUSED);
+        this.mediaPlayer.setOnPaused(() -> updateStatus(PlaybackStatus.PAUSED));
         this.mediaPlayer.setOnStopped(() -> {
             if (!finished) {
-                playbackStatus = PlaybackStatus.STOPPED;
+                updateStatus(PlaybackStatus.STOPPED);
             }
         });
         this.mediaPlayer.setOnEndOfMedia(() -> {
+            if (disposed) return;
             if (loop) {
-                playbackStatus = PlaybackStatus.PLAYING;
+                updateStatus(PlaybackStatus.PLAYING);
                 return;
             }
 
             finished = true;
-            playbackStatus = PlaybackStatus.FINISHED;
             mediaPlayer.stop();
             mediaPlayer.seek(Duration.ZERO);
+            updateStatus(PlaybackStatus.FINISHED);
         });
-        this.mediaPlayer.setOnError(() -> playbackStatus = PlaybackStatus.ERROR);
+        this.mediaPlayer.setOnError(() -> updateStatus(PlaybackStatus.ERROR));
     }
 
     @Override
@@ -58,6 +60,7 @@ public class JavaFxPlayingTrack implements PlayingTrack {
 
     @Override
     public void pause() {
+        if (mediaPlayer.getStatus() == MediaPlayer.Status.UNKNOWN) { playWhenReady = false; return; }
         mediaPlayer.pause();
     }
 
@@ -135,6 +138,7 @@ public class JavaFxPlayingTrack implements PlayingTrack {
     @Override
     public void dispose() {
         disposed = true;
+        statusChanged = () -> { };
         commandGeneration++;
         pendingReadySeek = null;
         pendingStartSeek = null;
@@ -152,7 +156,9 @@ public class JavaFxPlayingTrack implements PlayingTrack {
      * clock again while transitioning from STOPPED to PLAYING, so {@link #handlePlaying()} owns that final seek.
      */
     private void handleReady() {
-        playbackStatus = PlaybackStatus.READY;
+        if (disposed) return;
+        updateStatus(PlaybackStatus.READY);
+        if (disposed) return;
         if (pendingReadySeek != null) {
             Duration seekPosition = pendingReadySeek;
             pendingReadySeek = null;
@@ -173,8 +179,10 @@ public class JavaFxPlayingTrack implements PlayingTrack {
      * an older deferred command from overriding a newer seek or Stop.
      */
     private void handlePlaying() {
+        if (disposed) return;
         finished = false;
-        playbackStatus = PlaybackStatus.PLAYING;
+        updateStatus(PlaybackStatus.PLAYING);
+        if (disposed) return;
         if (pendingStartSeek == null) return;
 
         Duration seekPosition = pendingStartSeek;
@@ -202,6 +210,17 @@ public class JavaFxPlayingTrack implements PlayingTrack {
             if (disposed || generation != commandGeneration) return;
             mediaPlayer.seek(position);
         });
+    }
+
+    @Override
+    public void setOnStatusChanged(Runnable listener) {
+        statusChanged = listener == null ? () -> { } : listener;
+    }
+
+    private void updateStatus(PlaybackStatus status) {
+        if (disposed || playbackStatus == status) return;
+        playbackStatus = status;
+        statusChanged.run();
     }
 
     private Duration normalizePosition(Duration position) {

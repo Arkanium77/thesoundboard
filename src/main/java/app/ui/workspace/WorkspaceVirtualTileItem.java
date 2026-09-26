@@ -2,6 +2,7 @@ package app.ui.workspace;
 
 import app.audio.AudioEngine;
 import app.model.AudioFile;
+import app.project.AudioFileIndex;
 import app.model.VirtualTileTrack;
 import app.model.WorkspaceVirtualTile;
 
@@ -17,13 +18,18 @@ import java.util.function.Consumer;
 public class WorkspaceVirtualTileItem {
     private final Path rootPath;
     private final WorkspaceVirtualTile tile;
-    private final List<AudioFile> audioFiles;
+    private final AudioFileIndex audioFiles;
     private final AudioEngine audioEngine;
     private final Consumer<Exception> errorHandler;
     private final Map<UUID, WorkspaceTrackItem> trackItems = new LinkedHashMap<>();
     private double masterVolume;
 
     public WorkspaceVirtualTileItem(Path rootPath, WorkspaceVirtualTile tile, List<AudioFile> audioFiles,
+                                    AudioEngine audioEngine, double masterVolume, Consumer<Exception> errorHandler) {
+        this(rootPath, tile, new AudioFileIndex(audioFiles), audioEngine, masterVolume, errorHandler);
+    }
+
+    public WorkspaceVirtualTileItem(Path rootPath, WorkspaceVirtualTile tile, AudioFileIndex audioFiles,
                                     AudioEngine audioEngine, double masterVolume, Consumer<Exception> errorHandler) {
         this.rootPath = rootPath;
         this.tile = tile;
@@ -59,8 +65,7 @@ public class WorkspaceVirtualTileItem {
     public void dispose() { new ArrayList<>(trackItems.values()).forEach(WorkspaceTrackItem::dispose); trackItems.clear(); }
 
     private WorkspaceTrackItem createTrackItem(VirtualTileTrack track) {
-        AudioFile audioFile = audioFiles.stream().filter(file -> file.getId().equals(track.getAudioFileId()))
-                .findFirst().orElseGet(() -> new AudioFile(track.getAudioFileId(), "", "Unknown file", true));
+        AudioFile audioFile = audioFiles.findOrMissing(track.getAudioFileId());
         return new WorkspaceTrackItem(rootPath, track, audioFile, audioEngine, masterVolume, errorHandler);
     }
 }

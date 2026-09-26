@@ -33,5 +33,11 @@ public interface PlayingTrack {
 
     PlaybackStatus getStatus();
 
+    /**
+     * Reports backend state changes on the UI thread, including FINISHED and ERROR. Ownership transfers replace this
+     * single listener; dispose/detach clear it. Queue progression must not depend on a UI getter being polled.
+     */
+    default void setOnStatusChanged(Runnable listener) { }
+
     void dispose();
 }

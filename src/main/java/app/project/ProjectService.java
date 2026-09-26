@@ -57,6 +57,13 @@ public class ProjectService {
         return new ProjectLoadResult(rootPath, synchronizedState, scannedAudioFiles, null);
     }
 
+    /** Reuses a finished scan with a detached live revision. It performs no I/O and preserves edits made while the
+     * asynchronous scanner was reading; rebuilding from an empty state deliberately bypasses this merge. */
+    public ProjectLoadResult synchronizeLoadedState(ProjectLoadResult scanned, ProjectState latest) {
+        return new ProjectLoadResult(scanned.getRootPath(), projectStateSynchronizer.synchronize(latest,
+                scanned.getScannedAudioFiles()), scanned.getScannedAudioFiles(), null);
+    }
+
     public void saveProject(Path rootPath, ProjectState projectState) throws IOException {
         projectStateRepository.save(rootPath, projectState);
     }

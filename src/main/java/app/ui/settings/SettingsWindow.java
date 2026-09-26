@@ -1,7 +1,6 @@
 package app.ui.settings;
 
 import app.AppRestarter;
-import app.localization.LocalizationAlreadyInstalledException;
 import app.localization.LocalizationDescriptor;
 import app.localization.LocalizationPackageInstaller;
 import app.localization.LocalizationService;
@@ -9,14 +8,9 @@ import app.localization.TextKey;
 import app.localization.Texts;
 import app.project.LastProjectPreferences;
 import app.skin.SkinDescriptor;
-import app.skin.SkinAlreadyInstalledException;
 import app.skin.SkinPackageInstaller;
-import app.skin.SkinManifest;
 import app.skin.SkinService;
-import app.ui.EmojiText;
 import app.ui.UiIcons;
-import app.waveform.WaveformDisplaySettings;
-import app.waveform.WaveformDisplayMode;
 import app.waveform.WaveformPreferences;
 import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
@@ -26,18 +20,13 @@ import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonBase;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.CheckBox;
-import javafx.scene.control.ComboBox;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
-import javafx.scene.control.RadioButton;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.layout.BorderPane;
@@ -55,11 +44,13 @@ import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.function.Consumer;
+import java.util.function.BooleanSupplier;
+import java.util.concurrent.Callable;
+import javafx.scene.Cursor;
 
 public class SettingsWindow {
     private static final PseudoClass WINDOW_INACTIVE = PseudoClass.getPseudoClass("window-inactive");
@@ -68,29 +59,31 @@ public class SettingsWindow {
     private final SkinPackageInstaller skinPackageInstaller;
     private final LocalizationService localizationService;
     private final LocalizationPackageInstaller localizationPackageInstaller;
-    private final LastProjectPreferences lastProjectPreferences;
-    private final WaveformPreferences waveformPreferences;
     private final Runnable localizationChanged;
     private final AppRestarter appRestarter = new AppRestarter();
     private final Stage stage = new Stage();
     private final BorderPane content = new BorderPane();
     private final ListView<SettingsSection> sections = new ListView<>();
-    private final Set<String> pendingDeletionPackages = new LinkedHashSet<>();
-    private final Set<String> selectedSkinPackages = new LinkedHashSet<>();
-    private boolean skinSelectionMode;
-    private Node skinsPage;
+    private final SettingsOperationRunner operations = new SettingsOperationRunner(this::setPackageBusy);
+    private final Consumer<BooleanSupplier> prepareRestart;
+    private volatile PackageCatalog packageCatalog;
+    private final GeneralSettingsPage generalPage;
+    private final SkinSettingsPage skinPage;
+    private final LocalizationSettingsPage localizationPage;
 
     public SettingsWindow(Stage owner, SkinService skinService, LocalizationService localizationService,
                           LastProjectPreferences lastProjectPreferences, WaveformPreferences waveformPreferences,
-                          Runnable localizationChanged) {
+                          Runnable localizationChanged, Consumer<BooleanSupplier> prepareRestart) {
         this.owner = owner;
+        this.prepareRestart = prepareRestart;
         this.skinService = skinService;
         this.skinPackageInstaller = new SkinPackageInstaller(skinService.getRepository());
         this.localizationService = localizationService;
-        this.lastProjectPreferences = lastProjectPreferences;
-        this.waveformPreferences = waveformPreferences;
         this.localizationChanged = localizationChanged;
         this.localizationPackageInstaller = new LocalizationPackageInstaller(localizationService.getRepository());
+        generalPage = new GeneralSettingsPage(localizationService, lastProjectPreferences, waveformPreferences);
+        skinPage = new SkinSettingsPage(this, stage, localizationService, skinService, skinPackageInstaller);
+        localizationPage = new LocalizationSettingsPage(this, stage, localizationService, localizationPackageInstaller);
         configureStage();
     }
 
@@ -126,6 +119,7 @@ public class SettingsWindow {
         Scene scene = new Scene(splitPane, 640d, 440d);
         skinService.apply(scene, splitPane);
 
+        stage.setOnCloseRequest(event -> { if (isPackageOperationRunning()) event.consume(); });
         stage.initOwner(owner);
         stage.initModality(Modality.NONE);
         stage.setTitle(localizationService.text(TextKey.SETTINGS_TITLE));
@@ -138,231 +132,63 @@ public class SettingsWindow {
         }
     }
 
-    private void showGeneral() {
-        Label title = new Label(localizationService.text(TextKey.SETTINGS_GENERAL));
-        title.getStyleClass().add("settings-title");
-        CheckBox restoreSession = new CheckBox(localizationService.text(TextKey.SETTINGS_RESTORE_SESSION));
-        restoreSession.setSelected(lastProjectPreferences.isRestoreOnStart());
-        restoreSession.selectedProperty().addListener((observable, oldValue, selected) ->
-                lastProjectPreferences.setRestoreOnStart(selected)
-        );
-        Label waveformModeLabel = new Label(localizationService.text(TextKey.SETTINGS_WAVEFORM_MODE));
-        ComboBox<WaveformModeOption> waveformMode = new ComboBox<>();
-        waveformMode.getItems().addAll(
-                new WaveformModeOption(WaveformDisplayMode.PEAK_LINEAR,
-                        localizationService.text(TextKey.SETTINGS_WAVEFORM_MODE_PEAK_LINEAR)),
-                new WaveformModeOption(WaveformDisplayMode.RMS_LINEAR,
-                        localizationService.text(TextKey.SETTINGS_WAVEFORM_MODE_RMS_LINEAR)),
-                new WaveformModeOption(WaveformDisplayMode.RMS_DB,
-                        localizationService.text(TextKey.SETTINGS_WAVEFORM_MODE_RMS_DB))
-        );
-        waveformMode.getSelectionModel().select(waveformMode.getItems().stream()
-                .filter(option -> option.mode() == WaveformDisplaySettings.getMode())
-                .findFirst()
-                .orElse(waveformMode.getItems().get(1)));
-        waveformMode.valueProperty().addListener((observable, oldValue, selected) -> {
-            if (selected == null) return;
-            WaveformDisplaySettings.setMode(selected.mode());
-            waveformPreferences.saveMode(selected.mode());
-        });
-        VBox waveformModeBox = new VBox(6d, waveformModeLabel, waveformMode);
-        VBox body = new VBox(16d, title, restoreSession, waveformModeBox);
-        body.setPadding(new Insets(16d));
-        content.setCenter(body);
+    @FunctionalInterface
+    interface PackageOperation {
+        void run() throws IOException;
     }
 
-    private void showSkins() {
-        if (skinsPage != null) {
-            content.setCenter(skinsPage);
-            return;
-        }
-        HBox header = createPackageSectionHeader(TextKey.SETTINGS_SKINS, this::refreshSkins,
-                () -> showPackageSourceDirectories(true));
-        Button selectionButton = new Button(localizationService.text(skinSelectionMode
-                ? TextKey.SETTINGS_FINISH_SELECTION : TextKey.SETTINGS_SELECT_PACKAGES));
-        selectionButton.setOnAction(event -> {
-            skinSelectionMode = !skinSelectionMode;
-            if (!skinSelectionMode) selectedSkinPackages.clear();
-            rebuildSkins();
-        });
-        header.getChildren().add(header.getChildren().size() - 2, selectionButton);
-        VBox skinList = new VBox(8d);
-        ToggleGroup toggleGroup = new ToggleGroup();
-        UUID selectedSkinUid = skinService.getSelectedSkinUid();
-        int selectedSkinVersion = skinService.getSelectedSkinVersion();
-        List<SkinDescriptor> skins = skinService.getAvailableSkins();
-        Button updateSelectedButton = new Button(localizationService.text(TextKey.SETTINGS_UPDATE_SELECTED));
-        Button deleteSelectedButton = new Button(localizationService.text(TextKey.SETTINGS_DELETE_SELECTED));
-        selectedSkinPackages.retainAll(skins.stream().map(this::packageKey).toList());
-        for (SkinDescriptor skin : skins) {
-            ButtonBase skinButton = skinSelectionMode ? new CheckBox() : new RadioButton();
-            String skinDisplayName = skin.manifest().getName();
-            if (skins.stream().filter(candidate -> candidate.manifest().getUid()
-                    .equals(skin.manifest().getUid())).count() > 1) {
-                skinDisplayName += " (v" + skin.manifest().getVersion() + ")";
-            }
-            HBox skinName = new HBox(EmojiText.create(skinDisplayName));
-            skinName.setPadding(new Insets(0d, 0d, 0d, 8d));
-            skinButton.setGraphic(skinName);
-            skinButton.setAccessibleText(skin.manifest().getName());
-            if (skinSelectionMode) {
-                CheckBox skinCheckBox = (CheckBox) skinButton;
-                skinCheckBox.setSelected(selectedSkinPackages.contains(packageKey(skin)));
-                skinCheckBox.setDisable(!canBulkDeleteSkin(skin));
-                skinCheckBox.setOnAction(event -> {
-                    if (skinCheckBox.isSelected()) selectedSkinPackages.add(packageKey(skin));
-                    else selectedSkinPackages.remove(packageKey(skin));
-                    refreshBulkSkinActionButtons(skins, updateSelectedButton, deleteSelectedButton);
-                });
-            } else {
-                RadioButton skinRadioButton = (RadioButton) skinButton;
-                skinRadioButton.setToggleGroup(toggleGroup);
-                skinRadioButton.setSelected(skin.manifest().getUid().equals(selectedSkinUid)
-                        && skin.manifest().getVersion() == selectedSkinVersion);
-                skinRadioButton.setOnAction(event -> selectSkin(skin));
-            }
-            skinButton.getStyleClass().add("package-choice");
-            skinButton.setMaxWidth(Double.MAX_VALUE);
-            HBox.setHgrow(skinButton, Priority.ALWAYS);
-            Button exportButton = new Button(localizationService.text(TextKey.SETTINGS_EXPORT));
-            exportButton.setDisable(skin.isBuiltIn());
-            exportButton.setOnAction(event -> exportSkin(skin));
-            Button deleteButton = new Button(localizationService.text(TextKey.SETTINGS_DELETE));
-            boolean activeSkin = skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid())
-                    && skin.manifest().getVersion() == skinService.getActiveSkin().manifest().getVersion();
-            boolean pendingDeletion = pendingDeletionPackages.contains(packageKey(skin));
-            List<Path> skinSources = skinPackageInstaller.findSources(skin);
-            Button updateButton = new Button(localizationService.text(TextKey.SETTINGS_UPDATE_INSTALLED));
-            updateButton.setDisable(pendingDeletion || skinSources.isEmpty());
-            updateButton.setOnAction(event -> updateInstalledSkin(skin));
-            deleteButton.setText(pendingDeletion
-                    ? localizationService.text(TextKey.SETTINGS_PENDING)
-                    : localizationService.text(TextKey.SETTINGS_DELETE));
-            deleteButton.setDisable(skin.isBuiltIn() || pendingDeletion || activeSkin && skinSources.size() < 2);
-            if (activeSkin && !skin.isBuiltIn()) {
-                deleteButton.setTooltip(new Tooltip(localizationService.text(TextKey.SETTINGS_SELECT_OTHER_SKIN)));
-            }
-            deleteButton.setOnAction(event -> requestSkinDeletion(skin, skinSources));
-            updateButton.setVisible(!skinSelectionMode);
-            updateButton.setManaged(!skinSelectionMode);
-            exportButton.setVisible(!skinSelectionMode);
-            exportButton.setManaged(!skinSelectionMode);
-            deleteButton.setVisible(!skinSelectionMode);
-            deleteButton.setManaged(!skinSelectionMode);
-            HBox skinRow = new HBox(8d, skinButton, updateButton, exportButton, deleteButton);
-            skinRow.setAlignment(Pos.CENTER_LEFT);
-            skinRow.setPadding(new Insets(0d, 6d, 0d, 6d));
-            skinList.getChildren().add(skinRow);
-        }
-
-        ScrollPane scrollPane = new ScrollPane(skinList);
-        scrollPane.setFitToWidth(true);
-        VBox.setVgrow(scrollPane, Priority.ALWAYS);
-        Button installButton = new Button(localizationService.text(TextKey.SETTINGS_INSTALL_SKIN));
-        installButton.setOnAction(event -> installSkin());
-        Button createPackageButton = new Button(localizationService.text(TextKey.SETTINGS_CREATE_PACKAGE));
-        createPackageButton.setOnAction(event -> createSkinPackage());
-        updateSelectedButton.setOnAction(event -> updateSelectedSkins(skins));
-        deleteSelectedButton.setTooltip(new Tooltip(
-                localizationService.text(TextKey.SETTINGS_BULK_DELETE_ORPHANS_ONLY)
-        ));
-        deleteSelectedButton.setOnAction(event -> deleteSelectedSkins(skins));
-        refreshBulkSkinActionButtons(skins, updateSelectedButton, deleteSelectedButton);
-        HBox packageActions = skinSelectionMode
-                ? new HBox(8d, updateSelectedButton, deleteSelectedButton)
-                : new HBox(8d, installButton, createPackageButton);
-        VBox body = new VBox(12d, header, scrollPane, packageActions);
-        body.setPadding(new Insets(16d));
-        skinsPage = body;
-        content.setCenter(skinsPage);
-    }
-
-    private void rebuildSkins() {
-        skinsPage = null;
-        showSkins();
+    public boolean isPackageOperationRunning() {
+        return operations.isRunning();
     }
 
     /**
-     * Keeps package discovery behind an explicit refresh action. Source synchronization reads and hashes every package
-     * and may replace installed content, so running it from {@link #showSkins()} made ordinary navigation, selection,
-     * and list rebuilding block the JavaFX thread. Startup and source-folder mutations still synchronize automatically;
-     * this method preserves the refresh button as the deliberate in-session rescan boundary.
+     * Serializes explicit rescans by disabling package controls while work is running. A non-daemon worker and close
+     * guards prevent normal exit from abandoning a filesystem replacement halfway through. Dialogs and scene updates
+     * remain on the FX thread, including failure recovery; a failed scan always re-enables the controls.
      */
-    private void refreshSkins() {
-        skinService.refreshPackageSources();
-        rebuildSkins();
+    void runPackageRefresh(PackageOperation operation, Runnable completed) {
+        runPackageOperation(() -> { operation.run(); return null; }, ignored -> completed.run());
     }
 
-    private void showLocalization() {
-        localizationService.refreshPackageSources();
-        HBox header = createPackageSectionHeader(TextKey.SETTINGS_LOCALIZATION, this::showLocalization,
-                () -> showPackageSourceDirectories(false));
-        VBox localizationList = new VBox(8d);
-        ToggleGroup toggleGroup = new ToggleGroup();
-        UUID selectedUid = localizationService.getSelectedUid();
-        int selectedVersion = localizationService.getSelectedVersion();
-        List<LocalizationDescriptor> localizations = localizationService.getAvailable();
-        for (LocalizationDescriptor localization : localizations) {
-            String localizationName = localization.builtIn()
-                    ? localizationService.text(TextKey.LOCALIZATION_ENGLISH)
-                    : localization.manifest().getName();
-            if (localizations.stream().filter(candidate -> candidate.manifest().getUid()
-                    .equals(localization.manifest().getUid())).count() > 1) {
-                localizationName += " (v" + localization.manifest().getVersion() + ")";
-            }
-            RadioButton localizationButton = new RadioButton();
-            HBox localizedName = new HBox(EmojiText.create(localizationName));
-            localizedName.setPadding(new Insets(0d, 0d, 0d, 8d));
-            localizationButton.setGraphic(localizedName);
-            localizationButton.setAccessibleText(localizationName);
-            localizationButton.setToggleGroup(toggleGroup);
-            localizationButton.setSelected(localization.manifest().getUid().equals(selectedUid)
-                    && localization.manifest().getVersion() == selectedVersion);
-            localizationButton.setOnAction(event -> selectLocalization(localization));
-            localizationButton.getStyleClass().add("package-choice");
-            localizationButton.setMaxWidth(Double.MAX_VALUE);
-            HBox.setHgrow(localizationButton, Priority.ALWAYS);
-            Button exportButton = new Button(localizationService.text(TextKey.SETTINGS_EXPORT));
-            exportButton.setDisable(localization.builtIn());
-            exportButton.setOnAction(event -> exportLocalization(localization));
-            Button updateInstalledButton = new Button(localizationService.text(TextKey.SETTINGS_UPDATE_INSTALLED));
-            updateInstalledButton.setDisable(!localizationPackageInstaller.canUpdate(localization));
-            updateInstalledButton.setOnAction(event -> updateInstalledLocalization(localization));
-            Button deleteButton = new Button(localizationService.text(TextKey.SETTINGS_DELETE));
-            List<Path> localizationSources = localizationPackageInstaller.findSources(localization);
-            boolean selectedLocalization = localization.manifest().getUid().equals(selectedUid)
-                    && localization.manifest().getVersion() == selectedVersion;
-            deleteButton.setDisable(localization.builtIn()
-                    || selectedLocalization && localizationSources.size() < 2);
-            deleteButton.setOnAction(event -> requestLocalizationDeletion(localization, localizationSources));
-            HBox row = new HBox(8d, localizationButton, updateInstalledButton, exportButton, deleteButton);
-            row.setAlignment(Pos.CENTER_LEFT);
-            row.setPadding(new Insets(0d, 6d, 0d, 6d));
-            localizationList.getChildren().add(row);
+    <T> void runPackageOperation(Callable<T> operation, Consumer<T> completed) {
+        runPackageOperation(operation, completed, failure -> showOperationError(
+                "Package Operation Failed", "The package operation could not be completed", new IOException(failure)));
+    }
+
+    <T> void runPackageOperation(Callable<T> operation, Consumer<T> completed, Consumer<Throwable> failed) {
+        operations.run(() -> {
+            T result = operation.call();
+            packageCatalog = readPackageCatalog();
+            return result;
+        }, completed, failed);
+    }
+
+    private void setPackageBusy(boolean busy) {
+        content.setDisable(busy);
+        sections.setDisable(busy);
+        stage.getScene().setCursor(busy ? Cursor.WAIT : Cursor.DEFAULT);
+    }
+
+    /** Package rows and selection toggles only read this immutable snapshot. Inspecting source ZIPs on each FX
+     * render can be as slow as installation on a network folder; workers refresh availability after each operation.
+     * Installers still validate sources immediately before mutation, since files may change after this snapshot. */
+    private PackageCatalog readPackageCatalog() {
+        Map<String, List<Path>> skins = new LinkedHashMap<>();
+        for (SkinDescriptor skin : skinService.getAvailableSkins()) skins.put(packageKey(skin), skinPackageInstaller.findSources(skin));
+        Map<String, List<Path>> localizations = new LinkedHashMap<>();
+        for (LocalizationDescriptor localization : localizationService.getAvailable()) {
+            localizations.put(packageKey(localization), localizationPackageInstaller.findSources(localization));
         }
-        ScrollPane scrollPane = new ScrollPane(localizationList);
-        scrollPane.setFitToWidth(true);
-        VBox.setVgrow(scrollPane, Priority.ALWAYS);
-        Button installButton = new Button(localizationService.text(TextKey.LOCALIZATION_INSTALL));
-        installButton.setOnAction(event -> installLocalization());
-        Button createButton = new Button(localizationService.text(TextKey.LOCALIZATION_CREATE_PACKAGE));
-        createButton.setOnAction(event -> createLocalizationPackage());
-        Button exportStringsButton = new Button(localizationService.text(TextKey.LOCALIZATION_EXPORT_STRINGS));
-        exportStringsButton.setOnAction(event -> exportEnglishStrings());
-        Button updateButton = new Button(localizationService.text(TextKey.LOCALIZATION_UPDATE));
-        updateButton.setOnAction(event -> updateLocalization());
-        HBox actions = new HBox(8d, installButton, createButton, updateButton, exportStringsButton);
-        VBox body = new VBox(12d, header, scrollPane, actions);
-        body.setPadding(new Insets(16d));
-        content.setCenter(body);
+        return new PackageCatalog(Map.copyOf(skins), Map.copyOf(localizations));
     }
 
-    private void selectLocalization(LocalizationDescriptor localization) {
-        if (!localizationService.select(localization.manifest().getUid(), localization.manifest().getVersion())) return;
-        refreshLocalization();
+    record PackageCatalog(Map<String, List<Path>> skins, Map<String, List<Path>> localizations) { }
+
+    String packageKey(LocalizationDescriptor localization) {
+        return localization.manifest().getUid() + ":" + localization.manifest().getVersion();
     }
 
-    private HBox createPackageSectionHeader(TextKey titleKey, Runnable refreshAction, Runnable sourcesAction) {
+    HBox createPackageSectionHeader(TextKey titleKey, Runnable refreshAction, Runnable sourcesAction) {
         Label title = new Label(localizationService.text(titleKey));
         title.getStyleClass().add("settings-title");
         Region spacer = new Region();
@@ -382,286 +208,16 @@ public class SettingsWindow {
         return header;
     }
 
-    private void installLocalization() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle(localizationService.text(TextKey.LOCALIZATION_INSTALL_TITLE));
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("The Soundboard localizations (*.tsbl)", "*.tsbl"));
-        setInitialPackageDirectory(chooser, localizationService.getPackageSourceDirectories());
-        List<File> selectedFiles = chooser.showOpenMultipleDialog(stage);
-        if (selectedFiles == null) return;
-        selectedFiles.forEach(this::installLocalization);
-    }
-
-    private void installLocalization(File selected) {
-        try {
-            localizationPackageInstaller.install(selected.toPath());
-            showLocalization();
-        } catch (LocalizationAlreadyInstalledException exception) {
-            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION,
-                    localizationService.text(TextKey.LOCALIZATION_REPLACE_QUESTION),
-                    ButtonType.CANCEL, ButtonType.OK);
-            confirmation.initOwner(stage);
-            styleDialog(confirmation, "settings-confirmation-dialog");
-            if (confirmation.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK) {
-                try {
-                    LocalizationDescriptor replacement = localizationPackageInstaller.install(selected.toPath(), true);
-                    if (isSelected(replacement)) {
-                        localizationService.reloadSelected();
-                        refreshLocalization();
-                    } else {
-                        showLocalization();
-                    }
-                } catch (IOException | IllegalArgumentException replacementException) {
-                    showOperationError("Localization Replacement Failed", "The localization could not be replaced", replacementException);
-                }
-            }
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Localization Installation Failed", "The localization could not be installed", exception);
-        }
-    }
-
-    private void updateInstalledLocalization(LocalizationDescriptor localization) {
-        try {
-            LocalizationDescriptor replacement = localizationPackageInstaller.update(localization);
-            if (isSelected(replacement)) {
-                localizationService.reloadSelected();
-                refreshLocalization();
-            } else {
-                showLocalization();
-            }
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError(
-                    "Localization Replacement Failed",
-                    "The localization could not be updated from its original package",
-                    exception
-            );
-        }
-    }
-
-    private void refreshLocalization() {
+    void refreshLocalization() {
         Texts.configure(localizationService);
-        skinsPage = null;
+        skinPage.invalidate();
         stage.setTitle(localizationService.text(TextKey.SETTINGS_TITLE));
         sections.refresh();
         showLocalization();
         localizationChanged.run();
     }
 
-    private void exportLocalization(LocalizationDescriptor localization) {
-        File target = chooseLocalizationTarget(localizationService.text(TextKey.LOCALIZATION_EXPORT_TITLE), localization.manifest().getName() + ".tsbl");
-        if (target == null) return;
-        try {
-            localizationPackageInstaller.export(localization, target.toPath());
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Localization Export Failed", "The localization could not be exported", exception);
-        }
-    }
-
-    private void deleteLocalization(LocalizationDescriptor localization) {
-        try {
-            localizationPackageInstaller.delete(localization);
-            showLocalization();
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Localization Deletion Failed", "The localization could not be deleted", exception);
-        }
-    }
-
-    private void deleteLocalizationFromSource(LocalizationDescriptor localization, Path source,
-                                              boolean deleteInstalled) throws IOException {
-        localizationPackageInstaller.deleteSourceFile(localization, source);
-        if (deleteInstalled) {
-            localizationPackageInstaller.delete(localization);
-        }
-        localizationService.refreshPackageSources();
-        showLocalization();
-    }
-
-    private void createLocalizationPackage() {
-        DirectoryChooser chooser = new DirectoryChooser();
-        chooser.setTitle(localizationService.text(TextKey.LOCALIZATION_SELECT_FOLDER));
-        File source = chooser.showDialog(stage);
-        if (source == null) return;
-        File target = chooseLocalizationTarget(localizationService.text(TextKey.LOCALIZATION_CREATE_TITLE), source.getName() + ".tsbl");
-        if (target == null) return;
-        try {
-            localizationPackageInstaller.createPackage(source.toPath(), target.toPath());
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Localization Packaging Failed", "The folder could not be packaged", exception);
-        }
-    }
-
-    private void exportEnglishStrings() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle(localizationService.text(TextKey.LOCALIZATION_EXPORT_STRINGS_TITLE));
-        chooser.setInitialFileName("strings.yml");
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("YAML files (*.yml)", "*.yml"));
-        File target = chooser.showSaveDialog(stage);
-        if (target == null) return;
-        try {
-            localizationPackageInstaller.exportEnglishStrings(target.toPath());
-        } catch (IOException exception) {
-            showOperationError("String Export Failed", "English strings could not be exported", exception);
-        }
-    }
-
-    private void updateLocalization() {
-        ButtonType folderButton = new ButtonType(
-                localizationService.text(TextKey.LOCALIZATION_UPDATE_FOLDER),
-                ButtonBar.ButtonData.OTHER
-        );
-        ButtonType packageButton = new ButtonType(
-                localizationService.text(TextKey.LOCALIZATION_UPDATE_PACKAGE),
-                ButtonBar.ButtonData.OTHER
-        );
-        ButtonType cancelButton = new ButtonType(
-                localizationService.text(TextKey.DIALOG_CANCEL),
-                ButtonBar.ButtonData.CANCEL_CLOSE
-        );
-        Alert choice = new Alert(
-                Alert.AlertType.CONFIRMATION,
-                localizationService.text(TextKey.LOCALIZATION_UPDATE_PROMPT),
-                folderButton,
-                packageButton,
-                cancelButton
-        );
-        choice.initOwner(stage);
-        styleDialog(choice, "settings-confirmation-dialog");
-        choice.setTitle(localizationService.text(TextKey.LOCALIZATION_UPDATE_TITLE));
-        choice.setHeaderText(localizationService.text(TextKey.LOCALIZATION_UPDATE_TITLE));
-        ButtonType selected = choice.showAndWait().orElse(cancelButton);
-        if (selected == folderButton) {
-            updateLocalizationFolder();
-        } else if (selected == packageButton) {
-            updateLocalizationPackage();
-        }
-    }
-
-    private void updateLocalizationFolder() {
-        DirectoryChooser chooser = new DirectoryChooser();
-        chooser.setTitle(localizationService.text(TextKey.LOCALIZATION_SELECT_FOLDER));
-        File source = chooser.showDialog(stage);
-        if (source == null) return;
-        try {
-            showLocalizationUpdated(localizationPackageInstaller.updateSource(source.toPath()));
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Localization Update Failed", "The source folder could not be updated", exception);
-        }
-    }
-
-    private void updateLocalizationPackage() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle(localizationService.text(TextKey.LOCALIZATION_UPDATE_TITLE));
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("The Soundboard localizations (*.tsbl)", "*.tsbl"));
-        File packageFile = chooser.showOpenDialog(stage);
-        if (packageFile == null) return;
-        try {
-            showLocalizationUpdated(localizationPackageInstaller.updatePackage(packageFile.toPath()));
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Localization Update Failed", "The package could not be updated", exception);
-        }
-    }
-
-    private void showLocalizationUpdated(int addedStrings) {
-        Alert alert = new Alert(
-                Alert.AlertType.INFORMATION,
-                localizationService.format(TextKey.LOCALIZATION_UPDATE_COMPLETE, addedStrings),
-                ButtonType.OK
-        );
-        alert.initOwner(stage);
-        styleDialog(alert, "settings-information-dialog");
-        alert.setTitle(localizationService.text(TextKey.LOCALIZATION_UPDATE_TITLE));
-        alert.setHeaderText(localizationService.text(TextKey.LOCALIZATION_UPDATE_TITLE));
-        alert.showAndWait();
-    }
-
-    private File chooseLocalizationTarget(String title, String initialName) {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle(title);
-        chooser.setInitialFileName(initialName);
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("The Soundboard localizations (*.tsbl)", "*.tsbl"));
-        return chooser.showSaveDialog(stage);
-    }
-
-    private void selectSkin(SkinDescriptor skin) {
-        boolean skinChanged = skinService.selectSkin(skin.manifest().getUid(), skin.manifest().getVersion());
-        rebuildSkins();
-        if (!skinChanged) {
-            return;
-        }
-        showRestartPromptIfRequired(skin);
-    }
-
-    private void installSkin() {
-        FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle(localizationService.text(TextKey.DIALOG_INSTALL_SKIN_TITLE));
-        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("The Soundboard skins (*.tsbs)", "*.tsbs"));
-        setInitialPackageDirectory(fileChooser, skinService.getPackageSourceDirectories());
-        List<File> selectedFiles = fileChooser.showOpenMultipleDialog(stage);
-        if (selectedFiles == null) {
-            return;
-        }
-        selectedFiles.forEach(this::installSkin);
-    }
-
-    private void installSkin(File selectedFile) {
-        try {
-            SkinDescriptor installedSkin = skinPackageInstaller.install(selectedFile.toPath());
-            showInstallationCompleted(installedSkin, false);
-        } catch (SkinAlreadyInstalledException exception) {
-            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION,
-                    "This skin version is already installed. Only its installed copy will be replaced.",
-                    ButtonType.CANCEL, ButtonType.OK);
-            confirmation.initOwner(stage);
-            styleDialog(confirmation, "settings-confirmation-dialog");
-            confirmation.setTitle(localizationService.text(TextKey.DIALOG_REPLACE_SKIN_TITLE));
-            confirmation.setHeaderText("Replace '" + exception.getSkin().getName() + "'?");
-            if (confirmation.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK) {
-                try {
-                    if (skinService.wasLoadedThisSession(
-                            exception.getSkin().getUid(), exception.getSkin().getVersion())) {
-                        SkinManifest replacement = skinPackageInstaller.scheduleReplacement(selectedFile.toPath());
-                        rebuildSkins();
-                        showPendingOperationRestartPrompt("Skin '" + replacement.getName()
-                                + "' will be replaced before UI resources are loaded again.");
-                    } else {
-                        showInstallationCompleted(skinPackageInstaller.install(selectedFile.toPath(), true), true);
-                    }
-                } catch (IOException | IllegalArgumentException replacementException) {
-                    showOperationError("Skin Replacement Failed", "The skin could not be replaced", replacementException);
-                }
-            }
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Skin Installation Failed", "The selected .tsbs package could not be installed", exception);
-        }
-    }
-
-    private void requestSkinDeletion(SkinDescriptor skin, List<Path> sources) {
-        if (sources.isEmpty()) {
-            deleteSkin(skin, true);
-        } else if (sources.size() == 1) {
-            showSingleSourceChoice(sources.getFirst(), () -> deleteSkin(skin, false),
-                    source -> deleteSkinFromSource(skin, source, true));
-        } else {
-            showPackageSources(skin.manifest().getName(), sources,
-                    source -> deleteSkinFromSource(skin, source, false), () -> deleteSkin(skin, true),
-                    !isActive(skin));
-        }
-    }
-
-    private void requestLocalizationDeletion(LocalizationDescriptor localization, List<Path> sources) {
-        if (sources.isEmpty()) {
-            deleteLocalization(localization);
-        } else if (sources.size() == 1) {
-            showSingleSourceChoice(sources.getFirst(), () -> deleteLocalization(localization),
-                    source -> deleteLocalizationFromSource(localization, source, true));
-        } else {
-            showPackageSources(localization.manifest().getName(), sources,
-                    source -> deleteLocalizationFromSource(localization, source, false),
-                    () -> deleteLocalization(localization), !isSelected(localization));
-        }
-    }
-
-    private void showSingleSourceChoice(Path source, Runnable installedDeletion, PackageSourceDeletion sourceDeletion) {
+    void showSingleSourceChoice(Path source, Runnable installedDeletion, PackageSourceDeletion sourceDeletion) {
         ButtonType deleteInstalled = new ButtonType(localizationService.text(TextKey.SETTINGS_DELETE),
                 ButtonBar.ButtonData.OK_DONE);
         ButtonType deleteSource = new ButtonType(localizationService.text(TextKey.SETTINGS_DELETE_SOURCE),
@@ -696,7 +252,7 @@ public class SettingsWindow {
         }
     }
 
-    private void showPackageSources(String packageName, List<Path> sources,
+    void showPackageSources(String packageName, List<Path> sources,
                                     PackageSourceDeletion sourceDeletion, Runnable installedDeletion,
                                     boolean allowInstalledDeletion) {
         Stage dialog = new Stage();
@@ -783,12 +339,12 @@ public class SettingsWindow {
                 && confirmPermanentSourceDeletion(source);
     }
 
-    private boolean isProtectedSource(Path source) {
+    boolean isProtectedSource(Path source) {
         return skinPackageInstaller.isProtectedSource(source)
                 || localizationPackageInstaller.isProtectedSource(source);
     }
 
-    private void showPackageSourceDirectories(boolean skins) {
+    void showPackageSourceDirectories(boolean skins) {
         Stage dialog = new Stage();
         dialog.initOwner(stage);
         dialog.initModality(Modality.WINDOW_MODAL);
@@ -796,6 +352,8 @@ public class SettingsWindow {
         dialog.getIcons().setAll(stage.getIcons());
         BorderPane dialogContent = new BorderPane();
         dialogContent.getStyleClass().add("package-source-dialog");
+        dialogContent.disableProperty().bind(content.disableProperty());
+        dialog.setOnCloseRequest(event -> { if (isPackageOperationRunning()) event.consume(); });
         dialogContent.setPadding(new Insets(16d));
         refreshPackageSourceDirectoryDialog(dialog, dialogContent, skins);
         Scene scene = new Scene(dialogContent, 540d, 300d);
@@ -831,25 +389,24 @@ public class SettingsWindow {
             path.setMinWidth(Region.USE_PREF_SIZE);
             HBox pathRow = new HBox(path);
             configurePackageSourceRow(pathRow, index);
-            Button removeButton = new Button("×");
+            Button removeButton = new Button("Г—");
             removeButton.setDisable(bundled);
             removeButton.setMinWidth(36d);
             removeButton.setAccessibleText(localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS_REMOVE));
             removeButton.setTooltip(new Tooltip(localizationService.text(TextKey.SETTINGS_SOURCE_FOLDERS_REMOVE)));
-            removeButton.setOnAction(event -> {
-                try {
-                    if (skins) {
-                        skinService.removePackageSourceDirectory(directory);
-                        skinService.refreshPackageSources();
-                    } else {
-                        localizationService.removePackageSourceDirectory(directory);
-                        localizationService.refreshPackageSources();
-                    }
-                    refreshPackageSourceDirectoryDialog(dialog, dialogContent, skins);
-                } catch (IOException exception) {
-                    showOperationError("Folder Unlink Failed", "The source folder could not be unlinked", exception);
+            removeButton.setOnAction(event -> runPackageRefresh(() -> {
+                if (skins) {
+                    skinService.removePackageSourceDirectory(directory);
+                    skinService.synchronizePackageSources();
+                } else {
+                    localizationService.removePackageSourceDirectory(directory);
+                    localizationService.refreshPackageSources();
                 }
-            });
+            }, () -> {
+                if (skins) skinService.refreshSelectedSkin();
+                else localizationService.reloadSelected();
+                refreshPackageSourceDirectoryDialog(dialog, dialogContent, skins);
+            }));
             HBox actionRow = new HBox(removeButton);
             configurePackageSourceRow(actionRow, index);
             actionRow.setAlignment(Pos.CENTER);
@@ -880,16 +437,14 @@ public class SettingsWindow {
             setInitialPackageDirectory(chooser, directories);
             File selected = chooser.showDialog(dialog);
             if (selected == null) return;
-            try {
-                    if (skins) {
-                        skinService.addPackageSourceDirectory(selected.toPath());
-                    } else {
-                        localizationService.addPackageSourceDirectory(selected.toPath());
-                    }
+            runPackageRefresh(() -> {
+                if (skins) skinService.registerPackageSourceDirectory(selected.toPath());
+                else localizationService.addPackageSourceDirectory(selected.toPath());
+            }, () -> {
+                if (skins) skinService.refreshSelectedSkin();
+                else localizationService.reloadSelected();
                 refreshPackageSourceDirectoryDialog(dialog, dialogContent, skins);
-            } catch (IOException exception) {
-                showOperationError("Folder Addition Failed", "The source folder could not be saved", exception);
-            }
+            });
         });
         HBox actions = new HBox(addButton);
         actions.setPadding(new Insets(12d, 0d, 0d, 0d));
@@ -906,294 +461,19 @@ public class SettingsWindow {
         row.setMaxHeight(44d);
     }
 
-    private void setInitialPackageDirectory(FileChooser chooser, List<Path> directories) {
+    void setInitialPackageDirectory(FileChooser chooser, List<Path> directories) {
         directories.stream().filter(Files::isDirectory).findFirst()
                 .map(Path::toFile)
                 .ifPresent(chooser::setInitialDirectory);
     }
 
-    private void setInitialPackageDirectory(DirectoryChooser chooser, List<Path> directories) {
+    void setInitialPackageDirectory(DirectoryChooser chooser, List<Path> directories) {
         directories.stream().filter(Files::isDirectory).findFirst()
                 .map(Path::toFile)
                 .ifPresent(chooser::setInitialDirectory);
     }
 
-    private void updateInstalledSkin(SkinDescriptor skin) {
-        try {
-            if (skinService.wasLoadedThisSession(skin.manifest().getUid(), skin.manifest().getVersion())) {
-                SkinManifest replacement = skinPackageInstaller.scheduleUpdate(skin);
-                rebuildSkins();
-                showPendingOperationRestartPrompt("Skin '" + replacement.getName()
-                        + "' will be replaced before UI resources are loaded again.");
-                return;
-            }
-            showInstallationCompleted(skinPackageInstaller.update(skin), true);
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError(
-                    "Skin Replacement Failed",
-                    "The skin could not be updated from its original package",
-                    exception
-            );
-        }
-    }
-
-    private List<SkinDescriptor> selectedSkins(List<SkinDescriptor> skins) {
-        return skins.stream().filter(skin -> selectedSkinPackages.contains(packageKey(skin))).toList();
-    }
-
-    private void refreshBulkSkinActionButtons(List<SkinDescriptor> skins, Button updateButton, Button deleteButton) {
-        List<SkinDescriptor> selected = selectedSkins(skins);
-        updateButton.setDisable(selected.stream().noneMatch(skinPackageInstaller::canUpdate));
-        deleteButton.setDisable(selected.stream().noneMatch(this::canBulkDeleteSkin));
-    }
-
-    private boolean canBulkDeleteSkin(SkinDescriptor skin) {
-        if (skin.isBuiltIn() || isActive(skin) || pendingDeletionPackages.contains(packageKey(skin))) return false;
-        List<Path> sources = skinPackageInstaller.findSources(skin);
-        return sources.isEmpty() || sources.size() == 1 && !isProtectedSource(sources.getFirst());
-    }
-
-    /**
-     * Updates every eligible selection without repeating completion dialogs. Source-backed updates are unambiguous,
-     * while loaded resources retain the existing restart-safe scheduling invariant; failures are accumulated so one
-     * broken package does not prevent independent selected packages from updating.
-     */
-    private void updateSelectedSkins(List<SkinDescriptor> skins) {
-        List<SkinDescriptor> selected = selectedSkins(skins).stream()
-                .filter(skinPackageInstaller::canUpdate)
-                .toList();
-        int updated = 0;
-        int scheduled = 0;
-        List<String> failed = new ArrayList<>();
-        for (SkinDescriptor skin : selected) {
-            try {
-                if (skinService.wasLoadedThisSession(skin.manifest().getUid(), skin.manifest().getVersion())) {
-                    skinPackageInstaller.scheduleUpdate(skin);
-                    scheduled++;
-                } else {
-                    skinPackageInstaller.update(skin);
-                    updated++;
-                }
-                selectedSkinPackages.remove(packageKey(skin));
-            } catch (IOException | IllegalArgumentException exception) {
-                failed.add(skin.manifest().getName() + ": " + exception.getMessage());
-            }
-        }
-        rebuildSkins();
-        if (!failed.isEmpty()) {
-            showOperationError("Skin Update Failed", "Some selected skins could not be updated",
-                    new IllegalArgumentException(String.join("\n", failed)));
-        } else if (scheduled > 0) {
-            showPendingOperationRestartPrompt(updated + " skin(s) updated; " + scheduled
-                    + " loaded skin(s) will be updated on restart.");
-        }
-    }
-
-    /**
-     * Bulk deletion accepts orphaned copies and packages with exactly one unprotected source. The latter is as
-     * unambiguous as the single-item dialog, but deleting external files remains irreversible, so the batch requires
-     * a second confirmation listing every affected source. Multiple and protected sources stay ineligible; future
-     * changes must not infer a source or bypass bundled-package protection merely because selection mode is active.
-     */
-    private void deleteSelectedSkins(List<SkinDescriptor> skins) {
-        List<BulkSkinDeletion> deletable = selectedSkins(skins).stream()
-                .filter(this::canBulkDeleteSkin)
-                .map(skin -> new BulkSkinDeletion(skin, skinPackageInstaller.findSources(skin).stream().findFirst().orElse(null)))
-                .toList();
-        if (deletable.isEmpty()) return;
-        long sourceCount = deletable.stream().filter(target -> target.source() != null).count();
-        Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION,
-                "Delete " + deletable.size() + " selected skin(s)?"
-                        + (sourceCount == 0 ? " Source files will not be changed."
-                        : " " + sourceCount + " single-source package file(s) will also be deleted."),
-                ButtonType.CANCEL, ButtonType.OK);
-        confirmation.initOwner(stage);
-        styleDialog(confirmation, "settings-confirmation-dialog");
-        confirmation.setTitle(localizationService.text(TextKey.DIALOG_DELETE_SKIN_TITLE));
-        confirmation.setHeaderText(localizationService.text(TextKey.SETTINGS_DELETE_SELECTED));
-        if (confirmation.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return;
-
-        List<Path> sourcesToDelete = deletable.stream().map(BulkSkinDeletion::source)
-                .filter(source -> source != null).toList();
-        if (!sourcesToDelete.isEmpty() && !confirmBulkSourceDeletion(sourcesToDelete)) return;
-
-        boolean scheduled = false;
-        List<String> failed = new ArrayList<>();
-        for (BulkSkinDeletion target : deletable) {
-            SkinDescriptor skin = target.skin();
-            try {
-                if (target.source() != null) skinPackageInstaller.deleteSourceFile(skin, target.source());
-                skinPackageInstaller.delete(skin);
-                selectedSkinPackages.remove(packageKey(skin));
-            } catch (IOException exception) {
-                try {
-                    skinPackageInstaller.scheduleDeletion(skin);
-                    pendingDeletionPackages.add(packageKey(skin));
-                    selectedSkinPackages.remove(packageKey(skin));
-                    scheduled = true;
-                } catch (IOException | IllegalArgumentException schedulingException) {
-                    failed.add(skin.manifest().getName() + ": " + schedulingException.getMessage());
-                }
-            } catch (IllegalArgumentException exception) {
-                failed.add(skin.manifest().getName() + ": " + exception.getMessage());
-            }
-        }
-        skinService.refreshPackageSources();
-        rebuildSkins();
-        if (!failed.isEmpty()) {
-            showOperationError("Skin Deletion Failed", "Some selected skins could not be deleted",
-                    new IllegalArgumentException(String.join("\n", failed)));
-        } else if (scheduled) {
-            showPendingOperationRestartPrompt("Some selected skins are in use by UI resources and will be deleted on restart.");
-        }
-    }
-
-    private boolean confirmBulkSourceDeletion(List<Path> sources) {
-        Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION,
-                "Permanently delete these source package files? This cannot be undone.\n\n"
-                        + String.join("\n", sources.stream().map(Path::toString).toList()),
-                ButtonType.CANCEL, ButtonType.OK);
-        confirmation.initOwner(stage);
-        styleDialog(confirmation, "settings-confirmation-dialog");
-        confirmation.setTitle(localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE));
-        confirmation.setHeaderText(localizationService.text(TextKey.SETTINGS_DELETE_SOURCE));
-        return confirmation.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK;
-    }
-
-    private void exportSkin(SkinDescriptor skin) {
-        FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle(localizationService.text(TextKey.DIALOG_EXPORT_SKIN_TITLE));
-        fileChooser.setInitialFileName(skin.manifest().getName() + ".tsbs");
-        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("The Soundboard skins (*.tsbs)", "*.tsbs"));
-        File targetFile = fileChooser.showSaveDialog(stage);
-        if (targetFile == null) {
-            return;
-        }
-        try {
-            skinPackageInstaller.export(skin, targetFile.toPath());
-            Alert alert = new Alert(Alert.AlertType.INFORMATION,
-                    "Skin package saved to " + targetFile.getAbsolutePath(), ButtonType.OK);
-            alert.initOwner(stage);
-            styleDialog(alert, "settings-information-dialog");
-            alert.setTitle("Skin Exported");
-            alert.setHeaderText("Export completed");
-            alert.showAndWait();
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Skin Export Failed", "The skin could not be packed for export", exception);
-        }
-    }
-
-    private void createSkinPackage() {
-        DirectoryChooser directoryChooser = new DirectoryChooser();
-        directoryChooser.setTitle(localizationService.text(TextKey.DIALOG_SELECT_SKIN_FOLDER));
-        File selectedDirectory = directoryChooser.showDialog(stage);
-        if (selectedDirectory == null) {
-            return;
-        }
-
-        Path skinDirectory = selectedDirectory.toPath();
-        FileChooser fileChooser = new FileChooser();
-        fileChooser.setTitle(localizationService.text(TextKey.DIALOG_CREATE_SKIN_TITLE));
-        fileChooser.setInitialFileName(selectedDirectory.getName() + ".tsbs");
-        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("The Soundboard skins (*.tsbs)", "*.tsbs"));
-        File targetFile = fileChooser.showSaveDialog(stage);
-        if (targetFile == null) {
-            return;
-        }
-
-        try {
-            skinPackageInstaller.createPackage(skinDirectory, targetFile.toPath());
-            Alert alert = new Alert(Alert.AlertType.INFORMATION,
-                    "Skin package saved to " + targetFile.getAbsolutePath(), ButtonType.OK);
-            alert.initOwner(stage);
-            styleDialog(alert, "settings-information-dialog");
-            alert.setTitle("Skin Package Created");
-            alert.setHeaderText("Packaging completed");
-            alert.showAndWait();
-        } catch (IOException | IllegalArgumentException exception) {
-            showOperationError("Skin Packaging Failed", "The selected folder could not be packed", exception);
-        }
-    }
-
-    private void deleteSkin(SkinDescriptor skin, boolean requireConfirmation) {
-        if (skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid())
-                && skin.manifest().getVersion() == skinService.getActiveSkin().manifest().getVersion()) {
-            showOperationError(
-                    "Skin Deletion Blocked",
-                    "Select another skin before deleting the active skin",
-                    new IllegalArgumentException("The active skin may still have fonts and images loaded")
-            );
-            return;
-        }
-        if (requireConfirmation) {
-            Alert confirmation = new Alert(Alert.AlertType.CONFIRMATION,
-                    "The installed files and stored package copy will be deleted.", ButtonType.CANCEL, ButtonType.OK);
-            confirmation.initOwner(stage);
-            styleDialog(confirmation, "settings-confirmation-dialog");
-            confirmation.setTitle(localizationService.text(TextKey.DIALOG_DELETE_SKIN_TITLE));
-            confirmation.setHeaderText("Delete '" + skin.manifest().getName() + "'?");
-            if (confirmation.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
-                return;
-            }
-        }
-        try {
-            skinPackageInstaller.delete(skin);
-            rebuildSkins();
-            Alert alert = new Alert(Alert.AlertType.INFORMATION,
-                    "The skin has been removed.",
-                    ButtonType.OK);
-            alert.initOwner(stage);
-            styleDialog(alert, "settings-information-dialog");
-            alert.setTitle("Skin Deleted");
-            alert.setHeaderText("Deletion completed");
-            alert.showAndWait();
-        } catch (IOException exception) {
-            try {
-                skinPackageInstaller.scheduleDeletion(skin);
-                pendingDeletionPackages.add(packageKey(skin));
-                rebuildSkins();
-                showPendingOperationRestartPrompt("Skin '" + skin.manifest().getName()
-                        + "' could not be released immediately and will be deleted on restart.");
-            } catch (IOException | IllegalArgumentException schedulingException) {
-                showOperationError("Skin Deletion Failed", "The skin could not be deleted", schedulingException);
-            }
-        } catch (IllegalArgumentException exception) {
-            showOperationError("Skin Deletion Failed", "The skin could not be deleted", exception);
-        }
-    }
-
-    private void deleteSkinFromSource(SkinDescriptor skin, Path source, boolean deleteInstalled) throws IOException {
-        skinPackageInstaller.deleteSourceFile(skin, source);
-        if (deleteInstalled) {
-            deleteSkin(skin, false);
-            return;
-        }
-        skinService.refreshPackageSources();
-        rebuildSkins();
-    }
-
-    private void showInstallationCompleted(SkinDescriptor installedSkin, boolean replaced) {
-        rebuildSkins();
-        boolean selectedSkinReplaced = replaced
-                && installedSkin.manifest().getUid().equals(skinService.getSelectedSkinUid())
-                && installedSkin.manifest().getVersion() == skinService.getSelectedSkinVersion();
-        if (selectedSkinReplaced) {
-            skinService.refreshSelectedSkin();
-            if (showRestartPromptIfRequired(installedSkin)) {
-                return;
-            }
-        }
-        Alert alert = new Alert(Alert.AlertType.INFORMATION,
-                "Skin '" + installedSkin.manifest().getName() + "' is now available in the list.",
-                ButtonType.OK);
-        alert.initOwner(stage);
-        styleDialog(alert, "settings-information-dialog");
-        alert.setTitle(replaced ? "Skin Replaced" : "Skin Installed");
-        alert.setHeaderText(replaced ? "Replacement completed" : "Installation completed");
-        alert.showAndWait();
-    }
-
-    private boolean showRestartPromptIfRequired(SkinDescriptor skin) {
+    boolean showRestartPromptIfRequired(SkinDescriptor skin) {
         List<String> changedSettings = skinService.getRestartRequiredChanges(
                 skin.manifest().getUid(), skin.manifest().getVersion());
         if (changedSettings.isEmpty()) {
@@ -1208,16 +488,20 @@ public class SettingsWindow {
         alert.setHeaderText(localizationService.text(TextKey.DIALOG_RESTART_SKIN_HEADER));
         alert.setContentText("Changed: " + String.join(", ", changedSettings) + ".");
         if (alert.showAndWait().orElse(laterButton) == restartButton) {
-            try {
-                appRestarter.restart();
-            } catch (IOException | IllegalStateException exception) {
-                showOperationError("Restart Failed", "The Soundboard could not be restarted automatically", exception);
-            }
+            prepareRestart.accept(() -> {
+                try {
+                    appRestarter.restart();
+                    return true;
+                } catch (IOException | IllegalStateException exception) {
+                    showOperationError("Restart Failed", "The Soundboard could not be restarted automatically", exception);
+                    return false;
+                }
+            });
         }
         return true;
     }
 
-    private void showPendingOperationRestartPrompt(String message) {
+    void showPendingOperationRestartPrompt(String message) {
         ButtonType restartButton = new ButtonType(localizationService.text(TextKey.DIALOG_RESTART_NOW), ButtonBar.ButtonData.OK_DONE);
         ButtonType laterButton = new ButtonType(localizationService.text(TextKey.DIALOG_LATER), ButtonBar.ButtonData.CANCEL_CLOSE);
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION, message, laterButton, restartButton);
@@ -1226,15 +510,19 @@ public class SettingsWindow {
         alert.setTitle(localizationService.text(TextKey.DIALOG_RESTART_TITLE));
         alert.setHeaderText(localizationService.text(TextKey.DIALOG_RESTART_SAFE_HEADER));
         if (alert.showAndWait().orElse(laterButton) == restartButton) {
-            try {
-                appRestarter.restart();
-            } catch (IOException | IllegalStateException exception) {
-                showOperationError("Restart Failed", "The Soundboard could not be restarted automatically", exception);
-            }
+            prepareRestart.accept(() -> {
+                try {
+                    appRestarter.restart();
+                    return true;
+                } catch (IOException | IllegalStateException exception) {
+                    showOperationError("Restart Failed", "The Soundboard could not be restarted automatically", exception);
+                    return false;
+                }
+            });
         }
     }
 
-    private void showOperationError(String title, String header, Exception exception) {
+    void showOperationError(String title, String header, Exception exception) {
         Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
         alert.initOwner(stage);
         styleDialog(alert, "settings-error-dialog");
@@ -1243,23 +531,13 @@ public class SettingsWindow {
         alert.showAndWait();
     }
 
-    private void styleDialog(Alert alert, String styleClass) {
+    void styleDialog(Alert alert, String styleClass) {
         skinService.apply(alert.getDialogPane());
         alert.getDialogPane().getStyleClass().add("settings-dialog");
         alert.getDialogPane().getStyleClass().add(styleClass);
     }
 
-    private boolean isSelected(LocalizationDescriptor localization) {
-        return localization.manifest().getUid().equals(localizationService.getSelectedUid())
-                && localization.manifest().getVersion() == localizationService.getSelectedVersion();
-    }
-
-    private boolean isActive(SkinDescriptor skin) {
-        return skin.manifest().getUid().equals(skinService.getActiveSkin().manifest().getUid())
-                && skin.manifest().getVersion() == skinService.getActiveSkin().manifest().getVersion();
-    }
-
-    private String packageKey(SkinDescriptor skin) {
+    String packageKey(SkinDescriptor skin) {
         return skin.manifest().getUid() + ":" + skin.manifest().getVersion();
     }
 
@@ -1271,14 +549,16 @@ public class SettingsWindow {
     }
 
     @FunctionalInterface
-    private interface PackageSourceDeletion {
+    interface PackageSourceDeletion {
         void delete(Path source) throws IOException;
     }
 
-    private record WaveformModeOption(WaveformDisplayMode mode, String label) {
-        @Override public String toString() { return label; }
-    }
-
-    private record BulkSkinDeletion(SkinDescriptor skin, Path source) {
-    }
+    void showPage(Node page) { content.setCenter(page); }
+    PackageCatalog packageCatalog() { return packageCatalog; }
+    private void showGeneral() { showPage(generalPage.build()); }
+    private void showSkins() { skinPage.showSkins(); }
+    private void rebuildSkins() { skinPage.rebuildSkins(); }
+    private void refreshSkins() { skinPage.refreshSkins(); }
+    private void showLocalization() { localizationPage.showLocalization(); }
+    private void refreshLocalizations() { localizationPage.refreshLocalizations(); }
 }

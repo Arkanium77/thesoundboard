@@ -1,5 +1,6 @@
 package app.localization;
 
+import app.packages.PackageInstallation;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
@@ -19,6 +20,7 @@ public class LocalizationRepository {
     public static final UUID ENGLISH_UID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory()).findAndRegisterModules();
     private final Path directory;
+    private List<LocalizationDescriptor> cachedLocalizations;
 
     public LocalizationRepository() {
         this(Path.of(System.getProperty("user.home"), ".thesoundboard", "localizations"));
@@ -26,20 +28,32 @@ public class LocalizationRepository {
 
     LocalizationRepository(Path directory) {
         this.directory = directory;
+        PackageInstallation.recover(directory);
     }
 
-    public List<LocalizationDescriptor> findAll() {
+    /**
+     * Keeps parsed catalogs stable between mutations, matching the skin repository. Installers and explicit source
+     * refreshes invalidate this snapshot; ordinary list rendering must not parse every translation file repeatedly.
+     * Staging and rollback directories are excluded so incomplete transactions never appear as installed catalogs.
+     */
+    public synchronized List<LocalizationDescriptor> findAll() {
+        if (cachedLocalizations != null) return cachedLocalizations;
         List<LocalizationDescriptor> result = new ArrayList<>();
         result.add(english());
         if (Files.isDirectory(directory)) {
             try (var directories = Files.list(directory)) {
-                directories.filter(Files::isDirectory).map(this::load).flatMap(Optional::stream).forEach(result::add);
+                directories.filter(PackageInstallation::isInstallationDirectory).map(this::load).flatMap(Optional::stream).forEach(result::add);
             } catch (IOException exception) {
                 // Built-in English remains available.
             }
         }
         result.sort(Comparator.comparing(item -> item.manifest().getName(), String.CASE_INSENSITIVE_ORDER));
-        return List.copyOf(result);
+        cachedLocalizations = List.copyOf(result);
+        return cachedLocalizations;
+    }
+
+    synchronized void invalidate() {
+        cachedLocalizations = null;
     }
 
     public LocalizationDescriptor findSelected(UUID uid) {

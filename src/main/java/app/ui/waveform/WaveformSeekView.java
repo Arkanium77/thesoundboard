@@ -1,5 +1,7 @@
 package app.ui.waveform;
 
+import app.ui.UiViewport;
+
 import app.waveform.WaveformData;
 import app.waveform.WaveformDisplayMode;
 import app.waveform.WaveformDisplaySettings;
@@ -32,8 +34,6 @@ public class WaveformSeekView extends Region {
     private static final int PLACEHOLDER_BAR_COUNT = 48;
     private static final double BAR_GAP = 1d;
     private static final double MIN_BAR_WIDTH = 2d;
-    private static final double SEEK_SETTLE_THRESHOLD_MILLIS = 750d;
-    private static final long SEEK_SETTLE_TIMEOUT_NANOS = 1_500_000_000L;
     private static final double MID_AMPLITUDE_POSITION = 0.72d;
     private static final double ADAPTIVE_DECIBEL_FLOOR = -72d;
     private static final double ADAPTIVE_DISPLAY_EXPONENT = 1.35d;
@@ -224,15 +224,13 @@ public class WaveformSeekView extends Region {
     private WaveformData waveformData = WaveformData.empty();
     private Consumer<Duration> seekHandler = duration -> {
     };
-    private double totalMillis = 1d;
-    private double playerTotalMillis;
-    private double waveformTotalMillis;
-    private double currentMillis;
-    private boolean dragging;
-    private double dragMillis;
-    private Double pendingSeekMillis;
-    private long pendingSeekDeadlineNanos;
+    private final WaveformSeekState seekState = new WaveformSeekState(System::nanoTime);
     private boolean playing;
+    private boolean disposed;
+    private boolean animationRunning;
+    private WaveformData cachedWaveformData;
+    private WaveformDisplayMode cachedDisplayMode;
+    private double[] cachedAmplitudes = new double[0];
     private long lastAnimationFrame;
     private double animationPhase;
     private final AnimationTimer animationTimer = new AnimationTimer() {
@@ -262,7 +260,7 @@ public class WaveformSeekView extends Region {
         idleLowAmplitudeColor.addListener((observable, oldValue, newValue) -> redraw());
         idleMidAmplitudeColor.addListener((observable, oldValue, newValue) -> redraw());
         idleHighAmplitudeColor.addListener((observable, oldValue, newValue) -> redraw());
-        rendering.addListener((observable, oldValue, newValue) -> updateAnimation());
+        rendering.addListener((observable, oldValue, newValue) -> { updateAnimation(); redraw(); });
         fireLowColor.addListener((observable, oldValue, newValue) -> redraw());
         fireMidColor.addListener((observable, oldValue, newValue) -> redraw());
         fireHighColor.addListener((observable, oldValue, newValue) -> redraw());
@@ -278,10 +276,21 @@ public class WaveformSeekView extends Region {
         setOnMouseReleased(this::handleMouseReleased);
     }
 
+    /** Detaches the shared display-mode listener immediately; weak listeners alone accumulate until a mode change.
+     * Stopping the timer before detaching also prevents a removed FIRE canvas from retaining its view graph. */
+    public void dispose() {
+        setPlaying(false);
+        disposed = true;
+        WaveformDisplaySettings.modeProperty().removeListener(weakDisplayModeListener);
+        seekHandler = position -> { };
+        setWaveformData(WaveformData.empty());
+        cachedWaveformData = null;
+        cachedAmplitudes = new double[0];
+    }
+
     public void setWaveformData(WaveformData waveformData) {
         this.waveformData = waveformData == null ? WaveformData.empty() : waveformData;
-        waveformTotalMillis = Math.max(this.waveformData.getDuration().toMillis(), 0d);
-        totalMillis = Math.max(Math.max(playerTotalMillis, waveformTotalMillis), 1d);
+        seekState.setWaveformDuration(this.waveformData.getDuration().toMillis());
         redraw();
     }
 
@@ -291,23 +300,9 @@ public class WaveformSeekView extends Region {
      * GPU. Pending seeks still force the transition redraw so this optimization must never hide seek settlement.
      */
     public void setPlaybackPosition(Duration currentTime, Duration totalTime) {
-        playerTotalMillis = Math.max(totalTime == null ? 0d : totalTime.toMillis(), 0d);
-        double nextTotalMillis = Math.max(Math.max(playerTotalMillis, waveformTotalMillis), 1d);
-        double nextCurrentMillis = Math.max(currentTime == null ? 0d : currentTime.toMillis(), 0d);
-        boolean changed = Double.compare(totalMillis, nextTotalMillis) != 0
-                || Double.compare(currentMillis, nextCurrentMillis) != 0;
-        totalMillis = nextTotalMillis;
-        currentMillis = nextCurrentMillis;
-
-        if (pendingSeekMillis != null) {
-            if (Math.abs(currentMillis - pendingSeekMillis) <= SEEK_SETTLE_THRESHOLD_MILLIS
-                    || System.nanoTime() >= pendingSeekDeadlineNanos) {
-                pendingSeekMillis = null;
-                changed = true;
-            }
-        }
-
-        if (changed) redraw();
+        updateAnimation();
+        if (seekState.updatePlayback(currentTime == null ? 0d : currentTime.toMillis(),
+                totalTime == null ? 0d : totalTime.toMillis(), getWidth())) redraw();
     }
 
     public void setSeekHandler(Consumer<Duration> seekHandler) {
@@ -323,6 +318,7 @@ public class WaveformSeekView extends Region {
      * the played part of the waveform so future audio remains a stable navigation reference.
      */
     public void setPlaying(boolean playing) {
+        if (disposed) return;
         // Polling views repeatedly report the same state; restarting or stopping the timer would redraw static canvases.
         if (this.playing == playing) return;
         this.playing = playing;
@@ -330,7 +326,9 @@ public class WaveformSeekView extends Region {
     }
 
     private void updateAnimation() {
-        boolean animate = playing && rendering.get() == WaveformRendering.FIRE && getScene() != null;
+        boolean animate = playing && rendering.get() == WaveformRendering.FIRE && isInViewport();
+        if (animate == animationRunning) return;
+        animationRunning = animate;
         if (animate) {
             animationTimer.start();
         } else {
@@ -340,14 +338,23 @@ public class WaveformSeekView extends Region {
         }
     }
 
+    /**
+     * Scene membership alone includes scrolled-out canvases. Shared playback polling re-evaluates the
+     * viewport so invisible FIRE views release their timers and resume on return without affecting audio playback.
+     */
+    private boolean isInViewport() { return UiViewport.isVisible(this); }
+
     public Duration getDisplayedPosition() {
-        return Duration.millis(resolveDisplayedMillis());
+        return Duration.millis(seekState.displayedMillis());
     }
 
     @Override
     protected void layoutChildren() {
-        canvas.setWidth(snapSizeX(getWidth()));
-        canvas.setHeight(snapSizeY(getHeight()));
+        double width = snapSizeX(getWidth());
+        double height = snapSizeY(getHeight());
+        if (canvas.getWidth() == width && canvas.getHeight() == height) return;
+        canvas.setWidth(width);
+        canvas.setHeight(height);
         redraw();
     }
 
@@ -361,54 +368,33 @@ public class WaveformSeekView extends Region {
     }
 
     private void handleMousePressed(MouseEvent event) {
-        if (isDisabled() || playerTotalMillis <= 0d && waveformTotalMillis <= 0d) {
+        if (isDisabled() || !seekState.canSeek()) {
             return;
         }
 
-        dragging = true;
-        dragMillis = toMillis(event.getX());
+        seekState.beginDrag(event.getX(), getWidth());
         redraw();
         event.consume();
     }
 
     private void handleMouseDragged(MouseEvent event) {
-        if (!dragging || isDisabled()) {
+        if (!seekState.isDragging() || isDisabled()) {
             return;
         }
 
-        dragMillis = toMillis(event.getX());
+        seekState.dragTo(event.getX(), getWidth());
         redraw();
         event.consume();
     }
 
     private void handleMouseReleased(MouseEvent event) {
-        if (!dragging || isDisabled()) {
+        if (!seekState.isDragging() || isDisabled()) {
             return;
         }
 
-        dragMillis = toMillis(event.getX());
-        dragging = false;
-        pendingSeekMillis = dragMillis;
-        pendingSeekDeadlineNanos = System.nanoTime() + SEEK_SETTLE_TIMEOUT_NANOS;
-        seekHandler.accept(Duration.millis(dragMillis));
+        seekHandler.accept(Duration.millis(seekState.release(event.getX(), getWidth())));
         redraw();
         event.consume();
-    }
-
-    private double toMillis(double x) {
-        double width = Math.max(getWidth(), 1d);
-        double clampedX = Math.max(0d, Math.min(width, x));
-        return clampedX / width * totalMillis;
-    }
-
-    private double resolveDisplayedMillis() {
-        if (dragging) {
-            return dragMillis;
-        }
-        if (pendingSeekMillis != null) {
-            return pendingSeekMillis;
-        }
-        return currentMillis;
     }
 
     /**
@@ -430,15 +416,9 @@ public class WaveformSeekView extends Region {
         }
 
         int barCount = resolveBarCount(width);
-        double[] amplitudes = new double[barCount];
-        for (int index = 0; index < barCount; index++) {
-            amplitudes[index] = resolveAmplitude(index, barCount);
-        }
-        if (WaveformDisplaySettings.getMode() == WaveformDisplayMode.RMS_DB && !waveformData.isEmpty()) {
-            amplitudes = toDecibelDisplay(amplitudes);
-        }
+        double[] amplitudes = displayAmplitudes(barCount);
         double barWidth = Math.max(MIN_BAR_WIDTH, (width - (barCount - 1d) * BAR_GAP) / barCount);
-        double progressX = totalMillis <= 0d ? 0d : Math.max(0d, Math.min(width, resolveDisplayedMillis() / totalMillis * width));
+        double progressX = seekState.totalMillis() <= 0d ? 0d : Math.max(0d, Math.min(width, seekState.displayedMillis() / seekState.totalMillis() * width));
         double centerY = height / 2d;
         double maxBarHeight = Math.max(4d, height - 2d);
 
@@ -475,6 +455,24 @@ public class WaveformSeekView extends Region {
 
         graphicsContext.setFill(isDisabled() ? disabledBarColor.get() : playheadColor.get());
         graphicsContext.fillRoundRect(Math.max(0d, progressX - 1d), 0d, 2d, height, 2d, 2d);
+    }
+
+    /**
+     * Progress and FIRE phase do not change sampled amplitudes. Cache their reduction and dB conversion until the
+     * envelope, display mode or bar count changes; otherwise every animation frame repeats identical array work.
+     */
+    private double[] displayAmplitudes(int barCount) {
+        WaveformDisplayMode mode = WaveformDisplaySettings.getMode();
+        if (cachedWaveformData == waveformData && cachedDisplayMode == mode && cachedAmplitudes.length == barCount) {
+            return cachedAmplitudes;
+        }
+        double[] amplitudes = new double[barCount];
+        for (int index = 0; index < barCount; index++) amplitudes[index] = resolveAmplitude(index, barCount);
+        if (mode == WaveformDisplayMode.RMS_DB && !waveformData.isEmpty()) amplitudes = toDecibelDisplay(amplitudes);
+        cachedWaveformData = waveformData;
+        cachedDisplayMode = mode;
+        cachedAmplitudes = amplitudes;
+        return amplitudes;
     }
 
     private int resolveBarCount(double width) {

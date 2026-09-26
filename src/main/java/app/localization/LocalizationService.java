@@ -59,6 +59,7 @@ public class LocalizationService {
     public List<LocalizationDescriptor> getAvailable() { return repository.findAll(); }
     public void refreshPackageSources() {
         new LocalizationPackageInstaller(repository).installAvailablePackages(packageSourceDirectories.getDirectories());
+        repository.invalidate();
     }
     public List<Path> getPackageSourceDirectories() { return packageSourceDirectories.getDirectories(); }
     public List<Path> getBundledPackageSourceDirectories() { return packageSourceDirectories.getBundledDirectories(); }

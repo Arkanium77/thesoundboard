@@ -1,15 +1,15 @@
 package app.ui.queue;
 
+import app.ui.InsertionMarkers;
+import app.ui.VolumeSliderSupport;
+import app.ui.TitleScrollAnimation;
+
 import app.model.AudioFile;
 import app.model.PlaybackStatus;
 import app.model.QueueTrack;
 import app.localization.TextKey;
 import app.localization.Texts;
 import app.ui.workspace.WorkspaceInsertionMarker;
-import javafx.animation.Animation;
-import javafx.animation.PauseTransition;
-import javafx.animation.SequentialTransition;
-import javafx.animation.TranslateTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.ContextMenu;
@@ -27,7 +27,6 @@ import javafx.scene.layout.VBox;
 import javafx.css.PseudoClass;
 import javafx.scene.input.MouseButton;
 import javafx.scene.shape.Rectangle;
-import javafx.util.Duration;
 
 import java.util.function.Consumer;
 
@@ -48,7 +47,8 @@ public class QueueTrackChipView extends StackPane {
     private boolean lastSelected;
     private boolean lastActiveTrack;
     private PlaybackStatus lastPlaybackStatus;
-    private SequentialTransition titleAnimation;
+    private final TitleScrollAnimation titleAnimation = new TitleScrollAnimation(
+            titleViewport, titleLabel, titleClip, TitleScrollAnimation.Style.CHIP);
     private boolean titleHovered;
 
     public QueueTrackChipView(
@@ -97,9 +97,7 @@ public class QueueTrackChipView extends StackPane {
         MenuItem removeItem = new MenuItem(Texts.text(TextKey.QUEUE_REMOVE_TRACK));
         removeItem.setOnAction(event -> removeAction.accept(queueTrack));
         Slider volume = new Slider(0d, 100d, queueTrack.getVolume() * 100d);
-        volume.valueProperty().addListener((observable, oldValue, newValue) ->
-                volumeAction.accept(newValue.doubleValue() / 100d));
-        volume.setOnMouseReleased(event -> persistenceChangeAction.run());
+        VolumeSliderSupport.bind(volume, volumeAction::accept, persistenceChangeAction);
         VBox volumeBox = new VBox(4d, new Label(Texts.text(TextKey.QUEUE_TRACK_VOLUME)), volume);
         volumeBox.setPadding(new Insets(6d));
         CustomMenuItem volumeItem = new CustomMenuItem(volumeBox, false);
@@ -170,67 +168,11 @@ public class QueueTrackChipView extends StackPane {
     }
 
     private void updateInsertionMarkerScale(AnchorPane marker, double scale) {
-        setRegionWidth(marker, 8d * scale);
-        setRegionWidth((Region) marker.getChildren().get(0), 3d * scale);
-        setRegionSize((Region) marker.getChildren().get(1), 7d * scale, 3d * scale);
-        setRegionSize((Region) marker.getChildren().get(2), 7d * scale, 3d * scale);
-    }
-
-    private void setRegionWidth(Region region, double width) {
-        region.setMinWidth(width);
-        region.setPrefWidth(width);
-        region.setMaxWidth(width);
-    }
-
-    private void setRegionSize(Region region, double width, double height) {
-        setRegionWidth(region, width);
-        region.setMinHeight(height);
-        region.setPrefHeight(height);
-        region.setMaxHeight(height);
+        InsertionMarkers.scale(marker, scale, true);
     }
 
     private AnchorPane createInsertionMarker(boolean leftSide) {
-        AnchorPane marker = new AnchorPane();
-        marker.setPrefWidth(8d);
-        marker.setMinWidth(8d);
-        marker.setMaxWidth(8d);
-        marker.setVisible(false);
-        marker.setMouseTransparent(true);
-
-        Region vertical = createMarkerSegment(3d, -1d);
-        Region top = createMarkerSegment(7d, 3d);
-        Region bottom = createMarkerSegment(7d, 3d);
-
-        if (leftSide) {
-            AnchorPane.setLeftAnchor(vertical, 0d);
-            AnchorPane.setLeftAnchor(top, 0d);
-            AnchorPane.setLeftAnchor(bottom, 0d);
-        } else {
-            AnchorPane.setRightAnchor(vertical, 0d);
-            AnchorPane.setRightAnchor(top, 0d);
-            AnchorPane.setRightAnchor(bottom, 0d);
-        }
-
-        AnchorPane.setTopAnchor(vertical, 0d);
-        AnchorPane.setBottomAnchor(vertical, 0d);
-        AnchorPane.setTopAnchor(top, 0d);
-        AnchorPane.setBottomAnchor(bottom, 0d);
-        marker.getChildren().addAll(vertical, top, bottom);
-        return marker;
-    }
-
-    private Region createMarkerSegment(double width, double height) {
-        Region region = new Region();
-        region.getStyleClass().add("insertion-marker");
-        region.setMinWidth(width);
-        region.setPrefWidth(width);
-        region.setMaxWidth(width);
-        if (height > 0d) {
-            region.setMinHeight(height);
-            region.setPrefHeight(height);
-            region.setMaxHeight(height);
-        }
-        return region;
+        return InsertionMarkers.create(leftSide, true);
     }
 
     private HBox createMarkerHolder(AnchorPane marker) {
@@ -247,42 +189,7 @@ public class QueueTrackChipView extends StackPane {
         return spacer;
     }
 
-    private void updateTitleAnimation() {
-        titleClip.setWidth(Math.max(titleViewport.getWidth(), 0d));
-        titleClip.setHeight(Math.max(titleViewport.getHeight(), 14d * currentScale));
+    private void updateTitleAnimation() { titleAnimation.update(titleHovered, 14d * currentScale); }
 
-        double viewportWidth = titleViewport.getWidth();
-        double labelWidth = titleLabel.getLayoutBounds().getWidth();
-        if (!titleHovered || viewportWidth <= 0d || labelWidth <= viewportWidth) {
-            stopTitleAnimation();
-            titleLabel.setTranslateX(0d);
-            return;
-        }
-
-        double travelDistance = labelWidth - viewportWidth + 12d;
-        if (titleAnimation != null && titleAnimation.getStatus() == Animation.Status.RUNNING) {
-            titleAnimation.stop();
-        }
-
-        TranslateTransition forward = new TranslateTransition(Duration.seconds(Math.max(travelDistance / 28d, 2.4d)), titleLabel);
-        forward.setFromX(0d);
-        forward.setToX(-travelDistance);
-
-        PauseTransition pauseAtEnd = new PauseTransition(Duration.seconds(0.7d));
-        TranslateTransition backward = new TranslateTransition(Duration.seconds(0.01d), titleLabel);
-        backward.setFromX(-travelDistance);
-        backward.setToX(0d);
-        PauseTransition pauseAtStart = new PauseTransition(Duration.seconds(1.0d));
-
-        titleAnimation = new SequentialTransition(pauseAtStart, forward, pauseAtEnd, backward);
-        titleAnimation.setCycleCount(Animation.INDEFINITE);
-        titleAnimation.playFromStart();
-    }
-
-    private void stopTitleAnimation() {
-        if (titleAnimation != null) {
-            titleAnimation.stop();
-            titleAnimation = null;
-        }
-    }
+    private void stopTitleAnimation() { titleAnimation.stop(); }
 }

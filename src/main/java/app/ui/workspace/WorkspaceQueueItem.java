@@ -3,6 +3,7 @@ package app.ui.workspace;
 import app.audio.AudioEngine;
 import app.audio.PlayingTrack;
 import app.model.AudioFile;
+import app.project.AudioFileIndex;
 import app.model.PlaybackStatus;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
@@ -32,8 +33,11 @@ public class WorkspaceQueueItem {
     private final WorkspaceQueue workspaceQueue;
     private final AudioEngine audioEngine;
     private final Consumer<Exception> errorHandler;
-    private final Map<UUID, AudioFile> audioFilesById = new LinkedHashMap<>();
+    private final AudioFileIndex audioFilesById;
 
+    private List<QueueTrack> orderedTracks;
+    private final Map<UUID, QueueTrack> tracksById = new LinkedHashMap<>();
+    private final Map<UUID, Integer> positionsById = new LinkedHashMap<>();
     private PlayingTrack playingTrack;
     private UUID playingQueueTrackId;
     private UUID focusedQueueTrackId;
@@ -42,11 +46,24 @@ public class WorkspaceQueueItem {
     private boolean trackCreationFailed;
     private boolean finishedHandled;
     private double masterVolume;
+    private Runnable playbackChanged = () -> { };
+    private Runnable selectionChanged = () -> { };
 
     public WorkspaceQueueItem(
             Path rootPath,
             WorkspaceQueue workspaceQueue,
             List<AudioFile> audioFiles,
+            AudioEngine audioEngine,
+            double masterVolume,
+            Consumer<Exception> errorHandler
+    ) {
+        this(rootPath, workspaceQueue, new AudioFileIndex(audioFiles), audioEngine, masterVolume, errorHandler);
+    }
+
+    public WorkspaceQueueItem(
+            Path rootPath,
+            WorkspaceQueue workspaceQueue,
+            AudioFileIndex audioFiles,
             AudioEngine audioEngine,
             double masterVolume,
             Consumer<Exception> errorHandler
@@ -57,9 +74,7 @@ public class WorkspaceQueueItem {
         this.masterVolume = masterVolume;
         this.errorHandler = errorHandler;
 
-        for (AudioFile audioFile : audioFiles) {
-            audioFilesById.put(audioFile.getId(), audioFile);
-        }
+        this.audioFilesById = audioFiles;
 
         refreshAfterMutation();
     }
@@ -68,7 +83,14 @@ public class WorkspaceQueueItem {
         return workspaceQueue;
     }
 
-    public List<QueueTrack> getTracks() {
+    /**
+     * Reuses a sorted snapshot and UUID index until a structural mutation. Playback polling must not allocate and
+     * sort the queue on every status/selection lookup. External model edits must call refreshAfterMutation; shuffle
+     * changes invalidate here as well, preserving independent author and playback ordering.
+     */
+    public List<QueueTrack> getTracks() { return orderedTracks; }
+
+    private void rebuildTrackIndex() {
         List<QueueTrack> queueTracks = new ArrayList<>(workspaceQueue.getTracks());
         if (workspaceQueue.isShuffleEnabled()) {
             ensureShuffleOrder();
@@ -78,20 +100,23 @@ public class WorkspaceQueueItem {
         } else {
             queueTracks.sort(Comparator.comparingInt(QueueTrack::getOrder));
         }
-        return queueTracks;
+        orderedTracks = List.copyOf(queueTracks);
+        tracksById.clear();
+        positionsById.clear();
+        for (int index = 0; index < queueTracks.size(); index++) {
+            QueueTrack track = queueTracks.get(index);
+            tracksById.put(track.getId(), track);
+            positionsById.put(track.getId(), index);
+        }
     }
 
     public Optional<QueueTrack> getSelectedTrack() {
-        ensureSelectedTrack();
         UUID selectedTrackId = workspaceQueue.getSelectedTrackId();
-        return getTracks().stream()
-                .filter(track -> track.getId().equals(selectedTrackId))
-                .findFirst();
+        return Optional.ofNullable(tracksById.get(selectedTrackId));
     }
 
     public Optional<QueueTrack> getFocusedTrack() {
-        ensureFocusedTrack();
-        return getTracks().stream().filter(track -> track.getId().equals(focusedQueueTrackId)).findFirst();
+        return Optional.ofNullable(tracksById.get(focusedQueueTrackId));
     }
 
     public UUID getActiveTrackId() {
@@ -114,7 +139,7 @@ public class WorkspaceQueueItem {
         }
 
         Path audioPath = rootPath.resolve(audioFile.getRelativePath());
-        return Files.exists(audioPath) ? Optional.of(audioPath) : Optional.empty();
+        return Optional.of(audioPath);
     }
 
     public List<Path> getAudioPaths() {
@@ -126,15 +151,12 @@ public class WorkspaceQueueItem {
             }
 
             Path audioPath = rootPath.resolve(audioFile.getRelativePath());
-            if (Files.exists(audioPath)) {
-                audioPaths.add(audioPath);
-            }
+            audioPaths.add(audioPath);
         }
         return audioPaths;
     }
 
     public PlaybackStatus getStatus() {
-        refreshPlaybackState();
 
         if (trackCreationFailed) {
             return PlaybackStatus.ERROR;
@@ -143,7 +165,6 @@ public class WorkspaceQueueItem {
     }
 
     public PlaybackStatus getFocusedStatus() {
-        refreshPlaybackState();
         return focusedQueueTrackId != null && focusedQueueTrackId.equals(playingQueueTrackId) && playingTrack != null
                 ? playingTrack.getStatus() : PlaybackStatus.READY;
     }
@@ -172,12 +193,10 @@ public class WorkspaceQueueItem {
     }
 
     public Duration getCurrentTime() {
-        refreshPlaybackState();
         return playingTrack == null ? Duration.ZERO : playingTrack.getCurrentTime();
     }
 
     public Duration getTotalDuration() {
-        refreshPlaybackState();
         return playingTrack == null ? Duration.ZERO : playingTrack.getTotalDuration();
     }
 
@@ -188,6 +207,7 @@ public class WorkspaceQueueItem {
         }
 
         workspaceQueue.setSelectedTrackId(selectedTrack.getId());
+        selectionChanged.run();
 
         if (!ensurePlayingTrack(selectedTrack)) {
             return;
@@ -212,7 +232,6 @@ public class WorkspaceQueueItem {
     }
 
     public boolean pauseIfPlaying() {
-        refreshPlaybackState();
         if (playingTrack == null || playingTrack.getStatus() != PlaybackStatus.PLAYING) {
             return false;
         }
@@ -223,7 +242,6 @@ public class WorkspaceQueueItem {
     }
 
     public boolean resumeIfPaused() {
-        refreshPlaybackState();
         if (playingTrack == null || playingTrack.getStatus() != PlaybackStatus.PAUSED) {
             return false;
         }
@@ -242,7 +260,7 @@ public class WorkspaceQueueItem {
     }
 
     public void selectTrack(UUID queueTrackId) {
-        if (queueTrackId != null && getTracks().stream().anyMatch(track -> track.getId().equals(queueTrackId))) {
+        if (queueTrackId != null && tracksById.containsKey(queueTrackId)) {
             focusedQueueTrackId = queueTrackId;
         }
     }
@@ -315,6 +333,10 @@ public class WorkspaceQueueItem {
         if (shuffleEnabled) {
             reshuffleTracks();
         }
+        rebuildTrackIndex();
+        ensureSelectedTrack();
+        ensureFocusedTrack();
+        playbackChanged.run();
     }
 
     /**
@@ -341,24 +363,23 @@ public class WorkspaceQueueItem {
     }
 
     public PlaybackSnapshot snapshotPlayback(UUID queueTrackId) {
-        refreshPlaybackState();
         if (playingTrack == null || !queueTrackId.equals(playingQueueTrackId)) return PlaybackSnapshot.stopped();
         return new PlaybackSnapshot(playingTrack.getStatus(), playingTrack.getCurrentTime(), false);
     }
 
     public boolean hasActivePlayback() {
-        refreshPlaybackState();
         if (playingTrack == null) return false;
         PlaybackStatus status = playingTrack.getStatus();
         return status == PlaybackStatus.PLAYING || status == PlaybackStatus.PAUSED;
     }
 
     public PlaybackTransfer detachPlayback(UUID queueTrackId) {
-        refreshPlaybackState();
         if (playingTrack == null || !queueTrackId.equals(playingQueueTrackId)) return null;
         PlaybackTransfer transfer = new PlaybackTransfer(playingTrack, playingTrack.getStatus(), false);
+        playingTrack.setOnStatusChanged(null);
         playingTrack = null;
         playingQueueTrackId = null;
+        playbackChanged.run();
         return transfer;
     }
 
@@ -370,11 +391,13 @@ public class WorkspaceQueueItem {
         disposeCurrentTrack();
         playingTrack = transfer.playingTrack();
         playingQueueTrackId = queueTrackId;
+        bindPlayback();
         workspaceQueue.setSelectedTrackId(queueTrackId);
         focusedQueueTrackId = queueTrackId;
         finishedHandled = false;
         applyVolume();
         playingTrack.setLoop(track.isLoop());
+        playbackChanged.run();
     }
 
     public void restorePlayback(UUID queueTrackId, PlaybackSnapshot snapshot) {
@@ -386,10 +409,12 @@ public class WorkspaceQueueItem {
     }
 
     public void refreshAfterMutation() {
+        orderedTracks = null;
         normalizeAuthorOrder();
         if (workspaceQueue.isShuffleEnabled()) {
             ensureShuffleOrder();
         }
+        rebuildTrackIndex();
         List<QueueTrack> queueTracks = getTracks();
         workspaceQueue.setTracks(queueTracks);
         ensureSelectedTrack();
@@ -410,7 +435,24 @@ public class WorkspaceQueueItem {
         disposeCurrentTrack();
     }
 
-    private void refreshPlaybackState() {
+    public void setOnPlaybackChanged(Runnable listener) { playbackChanged = listener == null ? () -> { } : listener; }
+    public void setOnSelectionChanged(Runnable listener) { selectionChanged = listener == null ? () -> { } : listener; }
+
+    /**
+     * Captures the player identity so queued callbacks from a removed/transferred player cannot advance this queue.
+     * The backend event drives progression even when no view is visible. finishedHandled guards duplicate completion;
+     * ordinary getters only read the resulting state and never create players or generate shuffle order.
+     */
+    private void bindPlayback() {
+        PlayingTrack expected = playingTrack;
+        expected.setOnStatusChanged(() -> {
+            if (playingTrack != expected) return;
+            handlePlaybackState();
+            playbackChanged.run();
+        });
+    }
+
+    private void handlePlaybackState() {
         ensureSelectedTrack();
         if (finishedHandled || playingTrack == null) {
             return;
@@ -464,6 +506,7 @@ public class WorkspaceQueueItem {
 
         workspaceQueue.setSelectedTrackId(queueTrackId);
         focusedQueueTrackId = queueTrackId;
+        selectionChanged.run();
         QueueTrack queueTrack = getSelectedTrack().orElse(null);
         if (queueTrack == null) {
             return;
@@ -503,18 +546,12 @@ public class WorkspaceQueueItem {
     }
 
     private int indexOf(List<QueueTrack> queueTracks, UUID queueTrackId) {
-        for (int index = 0; index < queueTracks.size(); index++) {
-            if (queueTracks.get(index).getId().equals(queueTrackId)) {
-                return index;
-            }
-        }
-        return -1;
+        return positionsById.getOrDefault(queueTrackId, -1);
     }
 
     private void ensureSelectedTrack() {
         if (workspaceQueue.getSelectedTrackId() != null) {
-            boolean exists = getTracks().stream()
-                    .anyMatch(track -> track.getId().equals(workspaceQueue.getSelectedTrackId()));
+            boolean exists = tracksById.containsKey(workspaceQueue.getSelectedTrackId());
             if (exists) {
                 return;
             }
@@ -525,8 +562,7 @@ public class WorkspaceQueueItem {
     }
 
     private void ensureFocusedTrack() {
-        if (focusedQueueTrackId != null
-                && getTracks().stream().anyMatch(track -> track.getId().equals(focusedQueueTrackId))) return;
+        if (focusedQueueTrackId != null && tracksById.containsKey(focusedQueueTrackId)) return;
         focusedQueueTrackId = workspaceQueue.getSelectedTrackId();
         if (focusedQueueTrackId == null && !getTracks().isEmpty()) focusedQueueTrackId = getTracks().getFirst().getId();
     }
@@ -554,6 +590,7 @@ public class WorkspaceQueueItem {
         try {
             playingTrack = audioEngine.createTrack(audioPath);
             playingQueueTrackId = queueTrack.getId();
+            bindPlayback();
             applyVolume();
             playingTrack.setLoop(queueTrack.isLoop());
             return true;
@@ -567,6 +604,7 @@ public class WorkspaceQueueItem {
 
     private void disposeCurrentTrack() {
         if (playingTrack != null) {
+            playingTrack.setOnStatusChanged(null);
             playingTrack.dispose();
             playingTrack = null;
         }

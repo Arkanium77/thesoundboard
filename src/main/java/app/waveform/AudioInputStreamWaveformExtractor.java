@@ -8,9 +8,8 @@ import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.UnsupportedAudioFileException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 
 public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
     private static final int PCM_SAMPLE_SIZE_BITS = 16;
@@ -24,6 +23,7 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
 
     @Override
     public WaveformData extract(Path audioPath) throws IOException {
+        checkInterrupted();
         try (AudioInputStream encodedStream = AudioSystem.getAudioInputStream(audioPath.toFile())) {
             AudioFormat pcmFormat = toPcmFormat(encodedStream.getFormat());
             long totalFrames = resolveTotalFrames(audioPath, encodedStream.getFormat(), encodedStream.getFrameLength());
@@ -55,6 +55,7 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
 
         int bytesRead;
         while ((bytesRead = pcmStream.read(buffer)) >= 0) {
+            checkInterrupted();
             int usableBytes = bytesRead - bytesRead % frameSize;
             for (int offset = 0; offset < usableBytes; offset += frameSize) {
                 double amplitude = decodeFrameAmplitude(buffer, offset, pcmFormat.getChannels());
@@ -74,66 +75,30 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
     }
 
     /**
-     * Builds the same paired peak/RMS envelopes when the decoder cannot report a duration. Small fixed chunks bound
-     * memory; the second reduction takes the maximum of chunk peaks and RMS of chunk RMS levels. This preserves the
-     * semantics of both modes instead of letting the fallback decoder path produce a different-looking waveform.
+     * Reduces unknown-length audio with bounded primitive buckets. When storage fills, adjacent buckets merge and
+     * their frame span doubles; weighted energy sums preserve RMS and maxima preserve peaks, including a short final
+     * bucket. This intentionally trades temporal detail for a fixed memory budget on arbitrarily long recordings.
+     * Cancellation is checked between PCM blocks in both extraction paths so project switches release decoder workers.
      */
     private WaveformData extractChunkedResolution(AudioInputStream pcmStream, AudioFormat pcmFormat) throws IOException {
-        List<Double> chunkLevels = new ArrayList<>();
-        List<Double> chunkPeaks = new ArrayList<>();
+        WaveformAccumulator accumulator = new WaveformAccumulator(resolution, CHUNK_FRAME_COUNT);
         int frameSize = pcmFormat.getFrameSize();
         byte[] buffer = new byte[Math.max(frameSize * 1024, 4096)];
-        int chunkFrameIndex = 0;
-        long totalFrameCount = 0L;
-        double chunkSquaredAmplitudeSum = 0d;
-        double chunkPeak = 0d;
-
+        long totalFrames = 0L;
         int bytesRead;
         while ((bytesRead = pcmStream.read(buffer)) >= 0) {
+            checkInterrupted();
             int usableBytes = bytesRead - bytesRead % frameSize;
-            totalFrameCount += usableBytes / frameSize;
+            totalFrames += usableBytes / frameSize;
             for (int offset = 0; offset < usableBytes; offset += frameSize) {
-                double amplitude = decodeFrameAmplitude(buffer, offset, pcmFormat.getChannels());
-                chunkSquaredAmplitudeSum += amplitude * amplitude;
-                chunkPeak = Math.max(chunkPeak, amplitude);
-                chunkFrameIndex++;
-                if (chunkFrameIndex >= CHUNK_FRAME_COUNT) {
-                    chunkLevels.add(Math.sqrt(chunkSquaredAmplitudeSum / chunkFrameIndex));
-                    chunkPeaks.add(chunkPeak);
-                    chunkSquaredAmplitudeSum = 0d;
-                    chunkPeak = 0d;
-                    chunkFrameIndex = 0;
-                }
+                accumulator.add(decodeFrameAmplitude(buffer, offset, pcmFormat.getChannels()));
             }
         }
+        return accumulator.finish(durationOf(totalFrames, pcmFormat));
+    }
 
-        if (chunkFrameIndex > 0 || chunkLevels.isEmpty()) {
-            chunkLevels.add(chunkFrameIndex == 0 ? 0d : Math.sqrt(chunkSquaredAmplitudeSum / chunkFrameIndex));
-            chunkPeaks.add(chunkPeak);
-        }
-
-        double[] peaks = new double[resolution];
-        double[] levels = new double[resolution];
-        for (int index = 0; index < resolution; index++) {
-            int startIndex = (int) Math.floor((double) index * chunkLevels.size() / resolution);
-            int endIndex = (int) Math.floor((double) (index + 1) * chunkLevels.size() / resolution);
-            if (endIndex <= startIndex) {
-                endIndex = Math.min(startIndex + 1, chunkLevels.size());
-            }
-
-            double squaredLevelSum = 0d;
-            double peak = 0d;
-            for (int chunkIndex = startIndex; chunkIndex < endIndex; chunkIndex++) {
-                double level = chunkLevels.get(chunkIndex);
-                squaredLevelSum += level * level;
-                peak = Math.max(peak, chunkPeaks.get(chunkIndex));
-            }
-            int chunkCount = Math.max(endIndex - startIndex, 1);
-            peaks[index] = peak;
-            levels[index] = Math.sqrt(squaredLevelSum / chunkCount);
-        }
-
-        return new WaveformData(normalize(peaks), normalize(levels), durationOf(totalFrameCount, pcmFormat));
+    private void checkInterrupted() throws InterruptedIOException {
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Waveform extraction cancelled");
     }
 
     private AudioFormat toPcmFormat(AudioFormat sourceFormat) {

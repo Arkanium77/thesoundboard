@@ -17,6 +17,53 @@ import java.util.UUID;
 
 class ProjectStateRepositoryTest {
     @Test
+    void retainsPreviousSaveAndPreservesUnreadableOriginal() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("project-backup-");
+        ProjectStateRepository repository = new ProjectStateRepository("state.json");
+        ProjectState state = new ProjectState(2);
+        state.setMasterVolume(0.2d);
+        repository.save(root, state);
+        String previous = Files.readString(root.resolve("state.json"));
+        state.setMasterVolume(0.8d);
+        repository.save(root, state);
+        Assertions.assertThat(root.resolve("state.json.bak")).content().isEqualTo(previous);
+
+        Files.writeString(root.resolve("state.json"), "broken JSON");
+        repository.save(root, state);
+        try (var files = Files.list(root)) {
+            List<Path> recovery = files.filter(path -> path.getFileName().toString().startsWith("state.json.recovery-")).toList();
+            Assertions.assertThat(recovery).hasSize(1);
+            Assertions.assertThat(recovery.getFirst()).content().isEqualTo("broken JSON");
+        }
+        Assertions.assertThat(root.resolve("state.json.bak")).content().isEqualTo(previous);
+        Assertions.assertThat(repository.load(root).orElseThrow().getMasterVolume()).isEqualTo(0.8d);
+    }
+
+    @Test
+    void serializationFailureCannotTruncateExistingState() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("project-write-failure-");
+        ProjectStateRepository repository = new ProjectStateRepository("state.json");
+        repository.save(root, new ProjectState(2));
+        String original = Files.readString(root.resolve("state.json"));
+        ProjectState invalid = new ProjectState(2) {
+            @Override
+            public int getSchemaVersion() {
+                throw new IllegalStateException("Simulated serialization failure");
+            }
+        };
+        Assertions.assertThatThrownBy(() -> repository.save(root, invalid)).isInstanceOf(IOException.class);
+        Assertions.assertThat(root.resolve("state.json")).content().isEqualTo(original);
+    }
+
+    @Test
+    void rejectsJsonNullAsUnreadableState() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("project-null-");
+        Files.writeString(root.resolve("state.json"), "null");
+        Assertions.assertThatThrownBy(() -> new ProjectStateRepository("state.json").load(root))
+                .isInstanceOf(IOException.class);
+    }
+
+    @Test
     void savesAndLoadsProjectState() throws IOException {
         ProjectStateRepository repository = new ProjectStateRepository(".soundboard-project.json");
         Path tempDir = TestDirectorySupport.createTempDirectory("project-state-repository-");

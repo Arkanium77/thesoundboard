@@ -23,6 +23,7 @@ import app.waveform.WaveformService;
 import app.waveform.WaveformDisplaySettings;
 import app.waveform.WaveformPreferences;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.beans.property.DoubleProperty;
 import javafx.beans.property.SimpleDoubleProperty;
 import javafx.scene.Scene;
@@ -83,6 +84,7 @@ public class SoundboardApplication extends Application {
         stage.setTitle(localizationService.text(TextKey.APP_TITLE));
         applyStageMinimumSize(stage, appConfig);
         stage.setScene(scene);
+        stage.setOnCloseRequest(event -> { event.consume(); mainView.prepareClose(() -> { stage.hide(); Platform.exit(); }); });
         stage.show();
         boolean applicationRestart = getParameters().getRaw().contains(AppRestarter.RESTORE_SESSION_ARGUMENT);
         mainView.restoreLastProject(applicationRestart);
