@@ -34,8 +34,6 @@ public class WaveformSeekView extends Region {
     private static final int PLACEHOLDER_BAR_COUNT = 48;
     private static final double BAR_GAP = 1d;
     private static final double MIN_BAR_WIDTH = 2d;
-    private static final double SEEK_SETTLE_THRESHOLD_MILLIS = 750d;
-    private static final long SEEK_SETTLE_TIMEOUT_NANOS = 1_500_000_000L;
     private static final double MID_AMPLITUDE_POSITION = 0.72d;
     private static final double ADAPTIVE_DECIBEL_FLOOR = -72d;
     private static final double ADAPTIVE_DISPLAY_EXPONENT = 1.35d;
@@ -226,14 +224,7 @@ public class WaveformSeekView extends Region {
     private WaveformData waveformData = WaveformData.empty();
     private Consumer<Duration> seekHandler = duration -> {
     };
-    private double totalMillis = 1d;
-    private double playerTotalMillis;
-    private double waveformTotalMillis;
-    private double currentMillis;
-    private boolean dragging;
-    private double dragMillis;
-    private Double pendingSeekMillis;
-    private long pendingSeekDeadlineNanos;
+    private final WaveformSeekState seekState = new WaveformSeekState(System::nanoTime);
     private boolean playing;
     private boolean disposed;
     private boolean animationRunning;
@@ -299,8 +290,7 @@ public class WaveformSeekView extends Region {
 
     public void setWaveformData(WaveformData waveformData) {
         this.waveformData = waveformData == null ? WaveformData.empty() : waveformData;
-        waveformTotalMillis = Math.max(this.waveformData.getDuration().toMillis(), 0d);
-        totalMillis = Math.max(Math.max(playerTotalMillis, waveformTotalMillis), 1d);
+        seekState.setWaveformDuration(this.waveformData.getDuration().toMillis());
         redraw();
     }
 
@@ -311,24 +301,8 @@ public class WaveformSeekView extends Region {
      */
     public void setPlaybackPosition(Duration currentTime, Duration totalTime) {
         updateAnimation();
-        playerTotalMillis = Math.max(totalTime == null ? 0d : totalTime.toMillis(), 0d);
-        double nextTotalMillis = Math.max(Math.max(playerTotalMillis, waveformTotalMillis), 1d);
-        double nextCurrentMillis = Math.max(currentTime == null ? 0d : currentTime.toMillis(), 0d);
-        boolean changed = Double.compare(totalMillis, nextTotalMillis) != 0
-                || (long) (currentMillis / totalMillis * getWidth())
-                != (long) (nextCurrentMillis / nextTotalMillis * getWidth());
-        totalMillis = nextTotalMillis;
-        currentMillis = nextCurrentMillis;
-
-        if (pendingSeekMillis != null) {
-            if (Math.abs(currentMillis - pendingSeekMillis) <= SEEK_SETTLE_THRESHOLD_MILLIS
-                    || System.nanoTime() >= pendingSeekDeadlineNanos) {
-                pendingSeekMillis = null;
-                changed = true;
-            }
-        }
-
-        if (changed) redraw();
+        if (seekState.updatePlayback(currentTime == null ? 0d : currentTime.toMillis(),
+                totalTime == null ? 0d : totalTime.toMillis(), getWidth())) redraw();
     }
 
     public void setSeekHandler(Consumer<Duration> seekHandler) {
@@ -371,7 +345,7 @@ public class WaveformSeekView extends Region {
     private boolean isInViewport() { return UiViewport.isVisible(this); }
 
     public Duration getDisplayedPosition() {
-        return Duration.millis(resolveDisplayedMillis());
+        return Duration.millis(seekState.displayedMillis());
     }
 
     @Override
@@ -394,54 +368,33 @@ public class WaveformSeekView extends Region {
     }
 
     private void handleMousePressed(MouseEvent event) {
-        if (isDisabled() || playerTotalMillis <= 0d && waveformTotalMillis <= 0d) {
+        if (isDisabled() || !seekState.canSeek()) {
             return;
         }
 
-        dragging = true;
-        dragMillis = toMillis(event.getX());
+        seekState.beginDrag(event.getX(), getWidth());
         redraw();
         event.consume();
     }
 
     private void handleMouseDragged(MouseEvent event) {
-        if (!dragging || isDisabled()) {
+        if (!seekState.isDragging() || isDisabled()) {
             return;
         }
 
-        dragMillis = toMillis(event.getX());
+        seekState.dragTo(event.getX(), getWidth());
         redraw();
         event.consume();
     }
 
     private void handleMouseReleased(MouseEvent event) {
-        if (!dragging || isDisabled()) {
+        if (!seekState.isDragging() || isDisabled()) {
             return;
         }
 
-        dragMillis = toMillis(event.getX());
-        dragging = false;
-        pendingSeekMillis = dragMillis;
-        pendingSeekDeadlineNanos = System.nanoTime() + SEEK_SETTLE_TIMEOUT_NANOS;
-        seekHandler.accept(Duration.millis(dragMillis));
+        seekHandler.accept(Duration.millis(seekState.release(event.getX(), getWidth())));
         redraw();
         event.consume();
-    }
-
-    private double toMillis(double x) {
-        double width = Math.max(getWidth(), 1d);
-        double clampedX = Math.max(0d, Math.min(width, x));
-        return clampedX / width * totalMillis;
-    }
-
-    private double resolveDisplayedMillis() {
-        if (dragging) {
-            return dragMillis;
-        }
-        if (pendingSeekMillis != null) {
-            return pendingSeekMillis;
-        }
-        return currentMillis;
     }
 
     /**
@@ -465,7 +418,7 @@ public class WaveformSeekView extends Region {
         int barCount = resolveBarCount(width);
         double[] amplitudes = displayAmplitudes(barCount);
         double barWidth = Math.max(MIN_BAR_WIDTH, (width - (barCount - 1d) * BAR_GAP) / barCount);
-        double progressX = totalMillis <= 0d ? 0d : Math.max(0d, Math.min(width, resolveDisplayedMillis() / totalMillis * width));
+        double progressX = seekState.totalMillis() <= 0d ? 0d : Math.max(0d, Math.min(width, seekState.displayedMillis() / seekState.totalMillis() * width));
         double centerY = height / 2d;
         double maxBarHeight = Math.max(4d, height - 2d);
 

@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "team.isaz"
-version = "1.1.0"
+version = "1.2.0"
 val applicationVersion = version.toString()
 
 java {

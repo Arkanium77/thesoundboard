@@ -2,6 +2,21 @@
     -fx-background-color: -fx-background;
 }
 
+/* ScrollPane receives mouse focus from presses on any workspace card. Modena's :focused ring then resembles a
+   stuck drop outline. Retain focus/keyboard scrolling, but show the ring only for keyboard-visible focus.
+   These rules belong to the shared stylesheet so built-in and imported skins use the same interaction policy. */
+.workspace-scroll:focused {
+    -fx-background-color: -fx-box-border, -fx-background;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 0;
+}
+
+.workspace-scroll:focused:focus-visible {
+    -fx-background-color: -fx-faint-focus-color, -fx-focus-color, -fx-background;
+    -fx-background-insets: -1.4, -0.3, 1;
+    -fx-background-radius: 2, 0, 0;
+}
+
 .status-bar {
     -fx-background-color: -fx-background;
 }

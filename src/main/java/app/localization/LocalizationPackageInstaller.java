@@ -2,6 +2,7 @@ package app.localization;
 
 import app.persistence.PackageSourceRegistry;
 import app.packages.PackageIdentity;
+import app.packages.PackageDiscovery;
 import app.packages.PackageInstallation;
 import app.packages.PackageExtraction;
 import app.packages.PackageArchiveWriter;
@@ -94,40 +95,25 @@ public class LocalizationPackageInstaller {
 
     public void installAvailablePackages(List<Path> sourceDirectories) {
         Map<String, List<Path>> discoveredSources = new LinkedHashMap<>();
-        for (Path sourceDirectory : sourceDirectories) {
-            if (!Files.isDirectory(sourceDirectory)) {
-                continue;
-            }
-            try (var packages = Files.list(sourceDirectory)) {
-                for (Path packageFile : packages
-                        .filter(Files::isRegularFile)
-                        .filter(this::hasPackageExtension)
-                        .sorted()
-                        .toList()) {
-                    try {
-                        LocalizationManifest manifest = readPackageManifest(packageFile);
-                        UUID localizationUid = manifest.getUid();
-                        PackageIdentity identity = new PackageIdentity(localizationUid, manifest.getVersion());
-                        if (Files.exists(repository.getDirectory().resolve(identity.storageName()))) {
-                            addDiscoveredSource(discoveredSources, identity, packageFile);
-                        } else if (isDisabled(identity)) {
-                            addDiscoveredSource(discoveredSources, identity, packageFile);
-                        } else {
-                            LocalizationDescriptor installed = install(packageFile, false, null, false);
-                            addDiscoveredSource(discoveredSources, identity(installed), packageFile);
-                        }
-                    } catch (LocalizationAlreadyInstalledException exception) {
-                        LocalizationManifest manifest = exception.getLocalization();
-                        addDiscoveredSource(discoveredSources,
-                                new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
-                    } catch (IOException | IllegalArgumentException exception) {
-                        // Invalid or unreadable packages remain absent from the localization list.
-                    }
+        PackageDiscovery.visit(sourceDirectories, this::hasPackageExtension, packageFile -> {
+            try {
+                LocalizationManifest manifest = readPackageManifest(packageFile);
+                UUID localizationUid = manifest.getUid();
+                PackageIdentity identity = new PackageIdentity(localizationUid, manifest.getVersion());
+                if (Files.exists(repository.getDirectory().resolve(identity.storageName()))) {
+                    PackageDiscovery.addSource(discoveredSources, identity, packageFile);
+                } else if (isDisabled(identity)) {
+                    PackageDiscovery.addSource(discoveredSources, identity, packageFile);
+                } else {
+                    LocalizationDescriptor installed = install(packageFile, false, null, false);
+                    PackageDiscovery.addSource(discoveredSources, identity(installed), packageFile);
                 }
-            } catch (IOException | SecurityException exception) {
-                // Other package source directories remain available when one cannot be read.
+            } catch (LocalizationAlreadyInstalledException exception) {
+                LocalizationManifest manifest = exception.getLocalization();
+                PackageDiscovery.addSource(discoveredSources,
+                        new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
             }
-        }
+        });
         packageSources.synchronizeVersionedDiscovered(discoveredSources);
     }
 
@@ -139,31 +125,21 @@ public class LocalizationPackageInstaller {
     public void installAvailablePackages(Path sourceDirectory) {
         if (!Files.isDirectory(sourceDirectory)) return;
         Map<String, List<Path>> discoveredSources = new LinkedHashMap<>();
-        try (var packages = Files.list(sourceDirectory)) {
-            for (Path packageFile : packages
-                    .filter(Files::isRegularFile)
-                    .filter(this::hasPackageExtension)
-                    .sorted()
-                    .toList()) {
-                try {
-                    LocalizationManifest manifest = readPackageManifest(packageFile);
-                    PackageIdentity identity = new PackageIdentity(manifest.getUid(), manifest.getVersion());
-                    addDiscoveredSource(discoveredSources, identity, packageFile);
-                    Path target = repository.getDirectory().resolve(identity.storageName());
-                    if (!Files.exists(target) && !isDisabled(identity)) {
-                        install(packageFile, false, null, false);
-                    }
-                } catch (LocalizationAlreadyInstalledException exception) {
-                    LocalizationManifest manifest = exception.getLocalization();
-                    addDiscoveredSource(discoveredSources,
-                            new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
-                } catch (IOException | IllegalArgumentException exception) {
-                    // Invalid packages do not prevent the remaining files in the added directory from being discovered.
+        if (!PackageDiscovery.visit(sourceDirectory, this::hasPackageExtension, packageFile -> {
+            try {
+                LocalizationManifest manifest = readPackageManifest(packageFile);
+                PackageIdentity identity = new PackageIdentity(manifest.getUid(), manifest.getVersion());
+                PackageDiscovery.addSource(discoveredSources, identity, packageFile);
+                Path target = repository.getDirectory().resolve(identity.storageName());
+                if (!Files.exists(target) && !isDisabled(identity)) {
+                    install(packageFile, false, null, false);
                 }
+            } catch (LocalizationAlreadyInstalledException exception) {
+                LocalizationManifest manifest = exception.getLocalization();
+                PackageDiscovery.addSource(discoveredSources,
+                        new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
             }
-        } catch (IOException | SecurityException exception) {
-            return;
-        }
+        })) return;
         packageSources.mergeVersionedDiscovered(discoveredSources);
     }
 
@@ -324,9 +300,7 @@ public class LocalizationPackageInstaller {
         return file != null && file.getFileName().toString().toLowerCase().endsWith(".tsbl");
     }
 
-    private void addDiscoveredSource(Map<String, List<Path>> discoveredSources, PackageIdentity identity, Path source) {
-        discoveredSources.computeIfAbsent(identity.storageName(), ignored -> new ArrayList<>()).add(source);
-    }
+
 
     private PackageIdentity identity(LocalizationDescriptor localization) {
         return new PackageIdentity(localization.manifest().getUid(), localization.manifest().getVersion());

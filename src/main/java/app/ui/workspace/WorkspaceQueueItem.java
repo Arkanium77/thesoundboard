@@ -3,6 +3,7 @@ package app.ui.workspace;
 import app.audio.AudioEngine;
 import app.audio.PlayingTrack;
 import app.model.AudioFile;
+import app.project.AudioFileIndex;
 import app.model.PlaybackStatus;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
@@ -32,7 +33,7 @@ public class WorkspaceQueueItem {
     private final WorkspaceQueue workspaceQueue;
     private final AudioEngine audioEngine;
     private final Consumer<Exception> errorHandler;
-    private final Map<UUID, AudioFile> audioFilesById = new LinkedHashMap<>();
+    private final AudioFileIndex audioFilesById;
 
     private List<QueueTrack> orderedTracks;
     private final Map<UUID, QueueTrack> tracksById = new LinkedHashMap<>();
@@ -56,15 +57,24 @@ public class WorkspaceQueueItem {
             double masterVolume,
             Consumer<Exception> errorHandler
     ) {
+        this(rootPath, workspaceQueue, new AudioFileIndex(audioFiles), audioEngine, masterVolume, errorHandler);
+    }
+
+    public WorkspaceQueueItem(
+            Path rootPath,
+            WorkspaceQueue workspaceQueue,
+            AudioFileIndex audioFiles,
+            AudioEngine audioEngine,
+            double masterVolume,
+            Consumer<Exception> errorHandler
+    ) {
         this.rootPath = rootPath;
         this.workspaceQueue = workspaceQueue;
         this.audioEngine = audioEngine;
         this.masterVolume = masterVolume;
         this.errorHandler = errorHandler;
 
-        for (AudioFile audioFile : audioFiles) {
-            audioFilesById.put(audioFile.getId(), audioFile);
-        }
+        this.audioFilesById = audioFiles;
 
         refreshAfterMutation();
     }

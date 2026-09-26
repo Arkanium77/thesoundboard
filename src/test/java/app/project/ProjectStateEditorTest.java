@@ -167,7 +167,9 @@ class ProjectStateEditorTest {
 
         ProjectStateEditor editor = new ProjectStateEditor();
 
-        boolean moved = editor.moveWorkspaceTrackToQueue(projectState, workspaceTrackId, workspaceQueue.getId(), queueTrackId, false);
+        TrackMoveResult result = editor.moveWorkspaceTrackToQueue(projectState, workspaceTrackId, workspaceQueue.getId(), queueTrackId, false);
+        Assertions.assertThat(result.trackId()).isEqualTo(workspaceQueue.getTracks().getFirst().getId());
+        boolean moved = result.moved();
 
         Assertions.assertThat(moved).isTrue();
         Assertions.assertThat(projectState.getWorkspaceTracks()).isEmpty();
@@ -207,7 +209,6 @@ class ProjectStateEditorTest {
                 projectState,
                 workspaceQueue.getId(),
                 queueTrackId,
-                0.65d,
                 workspaceTrackId,
                 false
         );
@@ -254,7 +255,7 @@ class ProjectStateEditorTest {
                 sourceQueueTrackId,
                 targetQueueTrackId,
                 false
-        );
+        ).moved();
 
         Assertions.assertThat(moved).isTrue();
         Assertions.assertThat(projectState.getWorkspaceQueues().get(0).getTracks()).isEmpty();

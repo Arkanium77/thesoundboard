@@ -11,10 +11,13 @@ import app.ui.tile.VirtualTileView;
 import app.ui.workspace.WorkspaceInsertionMarker;
 import app.ui.workspace.WorkspaceItemView;
 import javafx.animation.AnimationTimer;
+import javafx.application.Platform;
+import javafx.event.EventHandler;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.Scene;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
@@ -34,6 +37,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Keeps workspace insertion feedback separate from keyboard focus. ScrollPane may legitimately receive mouse focus
+ * through any card; the shared core stylesheet uses focus-visible to show its viewport ring only for keyboard
+ * navigation. Do not disable focus or consume card presses to hide that ring: scrolling keys and child controls
+ * must retain their normal event routing, including nested queue and virtual-tile drag gestures.
+ */
 public class WorkspaceView extends BorderPane {
     private static final double AUTO_SCROLL_EDGE = 64d;
     private static final double AUTO_SCROLL_MAX_SPEED = 640d;
@@ -57,6 +66,18 @@ public class WorkspaceView extends BorderPane {
     private boolean insertionAfter;
     private double dragPointerSceneY = Double.NaN;
     private long lastAutoScrollFrame;
+    private boolean dragFeedbackActive;
+    private long dragFeedbackGeneration;
+    private final EventHandler<DragEvent> sceneDragDone = event -> {
+        if (dragFeedbackActive || isWorkspaceDragSource(event.getGestureSource())) finishDragFeedback();
+    };
+    private final EventHandler<DragEvent> sceneDragDropped = event -> {
+        if (!dragFeedbackActive && !isWorkspaceDragSource(event.getGestureSource())) return;
+        long generation = dragFeedbackGeneration;
+        Platform.runLater(() -> {
+            if (generation == dragFeedbackGeneration) finishDragFeedback();
+        });
+    };
     private final AnimationTimer dragAutoScroll = new AnimationTimer() {
         @Override
         public void handle(long now) {
@@ -101,6 +122,7 @@ public class WorkspaceView extends BorderPane {
         setCenter(new StackPane(background, scrollPane));
         addEventFilter(ContextMenuEvent.CONTEXT_MENU_REQUESTED, event -> hideContextMenu());
         configureContainerDragAndDrop();
+        sceneProperty().addListener((observable, previous, current) -> bindDragCompletion(previous, current));
         configureContextMenu();
         updateEmptyState();
     }
@@ -177,16 +199,26 @@ public class WorkspaceView extends BorderPane {
 
     private void configureContainerDragAndDrop() {
         addEventFilter(DragEvent.DRAG_OVER, event -> {
-            if (!isSupportedPayload(event.getDragboard().getString())) return;
+            String payload = event.getDragboard().getString();
+            updateNestedDragFeedback(event.getTarget(), payload);
+            if (!isSupportedPayload(payload)) return;
+            if (!dragFeedbackActive) {
+                dragFeedbackActive = true;
+                dragFeedbackGeneration++;
+            }
             dragPointerSceneY = event.getSceneY();
             dragAutoScroll.start();
         });
-        addEventFilter(DragEvent.DRAG_DROPPED, event -> stopDragAutoScroll());
-        addEventFilter(DragEvent.DRAG_DONE, event -> stopDragAutoScroll());
+        addEventFilter(DragEvent.DRAG_DROPPED, event -> {
+            stopDragAutoScroll();
+            updateNestedDragFeedback(event.getTarget(), event.getDragboard().getString());
+        });
+        addEventFilter(DragEvent.DRAG_DONE, event -> finishDragFeedback());
         addEventFilter(DragEvent.DRAG_EXITED, event -> {
             Bounds bounds = localToScene(getBoundsInLocal());
             if (bounds == null || !bounds.contains(event.getSceneX(), event.getSceneY())) {
                 stopDragAutoScroll();
+                clearInsertionMarker();
             } else {
                 dragPointerSceneY = event.getSceneY();
             }
@@ -194,6 +226,10 @@ public class WorkspaceView extends BorderPane {
 
         contentPane.setOnDragOver(event -> {
             String payload = event.getDragboard().getString();
+            if (isNestedTrackTarget(event.getTarget(), payload)) {
+                event.consume();
+                return;
+            }
             if (!isSupportedPayload(payload)) {
                 return;
             }
@@ -216,6 +252,11 @@ public class WorkspaceView extends BorderPane {
 
         contentPane.setOnDragDropped(event -> {
             String payload = event.getDragboard().getString();
+            if (isNestedTrackTarget(event.getTarget(), payload)) {
+                event.setDropCompleted(false);
+                event.consume();
+                return;
+            }
             boolean completed = handleWorkspaceDrop(
                     payload,
                     insertionTargetView == null ? null : insertionTargetView.getWorkspaceItemId(),
@@ -227,6 +268,10 @@ public class WorkspaceView extends BorderPane {
         });
 
         setOnDragOver(event -> {
+            if (isNestedTrackTarget(event.getTarget(), event.getDragboard().getString())) {
+                event.consume();
+                return;
+            }
             if (!isSupportedPayload(event.getDragboard().getString())) {
                 return;
             }
@@ -241,11 +286,38 @@ public class WorkspaceView extends BorderPane {
 
         setOnDragDropped(event -> {
             String payload = event.getDragboard().getString();
+            if (isNestedTrackTarget(event.getTarget(), payload)) {
+                event.setDropCompleted(false);
+                event.consume();
+                return;
+            }
             boolean completed = handleWorkspaceDrop(payload, null, false);
             clearInsertionMarker();
             event.setDropCompleted(completed);
             event.consume();
         });
+    }
+
+    /**
+     * Nested track drops belong to the queue/tile even when that container rejects the particular destination.
+     * Otherwise a rejected self-drop or queue background bubbles into workspace insertion. Capture-phase cleanup
+     * also runs before a child consumes the event, so returning from an outer edge cannot leave its marker behind.
+     * Whole-container drags retain workspace ordering/queue merging behavior. Outer drop markers must remain until
+     * their drop handler reads the insertion slot; only nested targets are cleared during drop capture.
+     */
+    private void updateNestedDragFeedback(Object target, String payload) {
+        if (isNestedTrackTarget(target, payload) || !isSupportedPayload(payload)) clearInsertionMarker();
+    }
+
+    private boolean isNestedTrackTarget(Object target, String payload) {
+        if (!isSupportedPayload(payload) || parseWorkspaceQueueId(payload) != null
+                || parseWorkspaceVirtualTileId(payload) != null) return false;
+        Node node = target instanceof Node picked ? picked : null;
+        while (node != null && node != contentPane && node != this) {
+            if (node instanceof QueueView || node instanceof VirtualTileView) return true;
+            node = node.getParent();
+        }
+        return false;
     }
 
     private void autoScrollDuringDrag(long now) {
@@ -276,6 +348,43 @@ public class WorkspaceView extends BorderPane {
         dragPointerSceneY = Double.NaN;
         lastAutoScrollFrame = 0L;
         updateTileVisibility();
+    }
+
+    /**
+     * Completion is observed in scene capture because nested targets consume drop/done events, and a successful
+     * move may detach the source before DRAG_DONE can bubble through this workspace. Drop capture queues cleanup
+     * until target handlers have read the insertion slot; the generation guard prevents it clearing a newer drag.
+     * DRAG_DONE also covers cancellation and drops outside the workspace. Both paths release the viewport's mouse
+     * focus as well as visual/scroll feedback, without stealing focus acquired by a child control during the drop.
+     * Scene listeners are unbound on detach so an old scene cannot retain or mutate a replaced workspace.
+     */
+    private void bindDragCompletion(Scene previous, Scene current) {
+        if (previous != null) {
+            previous.removeEventFilter(DragEvent.DRAG_DONE, sceneDragDone);
+            previous.removeEventFilter(DragEvent.DRAG_DROPPED, sceneDragDropped);
+            finishDragFeedback();
+        }
+        if (current != null) {
+            current.addEventFilter(DragEvent.DRAG_DONE, sceneDragDone);
+            current.addEventFilter(DragEvent.DRAG_DROPPED, sceneDragDropped);
+        }
+    }
+
+    private boolean isWorkspaceDragSource(Object source) {
+        Node node = source instanceof Node picked ? picked : null;
+        while (node != null) {
+            if (node == this) return true;
+            node = node.getParent();
+        }
+        return false;
+    }
+
+    private void finishDragFeedback() {
+        dragFeedbackActive = false;
+        dragFeedbackGeneration++;
+        stopDragAutoScroll();
+        clearInsertionMarker();
+        if (scrollPane.isFocused()) contentPane.requestFocus();
     }
 
     static double calculateAutoScrollVelocity(double pointerY, double top, double bottom,

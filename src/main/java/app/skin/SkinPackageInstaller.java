@@ -2,6 +2,7 @@ package app.skin;
 
 import app.persistence.PackageSourceRegistry;
 import app.packages.PackageIdentity;
+import app.packages.PackageDiscovery;
 import app.packages.PackageInstallation;
 import app.packages.PackageExtraction;
 import app.packages.PackageArchiveWriter;
@@ -106,42 +107,27 @@ public class SkinPackageInstaller {
     public void installAvailablePackages(List<Path> sourceDirectories) {
         Map<String, List<Path>> discoveredSources = new LinkedHashMap<>();
         Set<String> synchronizedPackages = new LinkedHashSet<>();
-        for (Path sourceDirectory : sourceDirectories) {
-            if (!Files.isDirectory(sourceDirectory)) {
-                continue;
-            }
-            try (var packages = Files.list(sourceDirectory)) {
-                for (Path packageFile : packages
-                        .filter(Files::isRegularFile)
-                        .filter(this::hasPackageExtension)
-                        .sorted()
-                        .toList()) {
-                    try {
-                        SkinManifest manifest = readPackageManifest(packageFile);
-                        UUID skinUid = manifest.getUid();
-                        PackageIdentity identity = new PackageIdentity(skinUid, manifest.getVersion());
-                        addDiscoveredSource(discoveredSources, identity, packageFile);
-                        if (!synchronizedPackages.add(identity.storageName())) {
-                            continue;
-                        }
-                        if (Files.exists(repository.getExternalSkinsDirectory().resolve(identity.storageName()))) {
-                            install(packageFile, true, skinUid, false);
-                        } else if (isDisabled(identity)) {
-                        } else {
-                            install(packageFile, false, null, false);
-                        }
-                    } catch (SkinAlreadyInstalledException exception) {
-                        SkinManifest manifest = exception.getSkin();
-                        addDiscoveredSource(discoveredSources,
-                                new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
-                    } catch (IOException | IllegalArgumentException exception) {
-                        // Invalid or unreadable packages remain absent from the skin list.
-                    }
+        PackageDiscovery.visit(sourceDirectories, this::hasPackageExtension, packageFile -> {
+            try {
+                SkinManifest manifest = readPackageManifest(packageFile);
+                UUID skinUid = manifest.getUid();
+                PackageIdentity identity = new PackageIdentity(skinUid, manifest.getVersion());
+                PackageDiscovery.addSource(discoveredSources, identity, packageFile);
+                if (!synchronizedPackages.add(identity.storageName())) {
+                    return;
                 }
-            } catch (IOException | SecurityException exception) {
-                // Other package source directories remain available when one cannot be read.
+                if (Files.exists(repository.getExternalSkinsDirectory().resolve(identity.storageName()))) {
+                    install(packageFile, true, skinUid, false);
+                } else if (isDisabled(identity)) {
+                } else {
+                    install(packageFile, false, null, false);
+                }
+            } catch (SkinAlreadyInstalledException exception) {
+                SkinManifest manifest = exception.getSkin();
+                PackageDiscovery.addSource(discoveredSources,
+                        new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
             }
-        }
+        });
         packageSources.synchronizeVersionedDiscovered(discoveredSources);
     }
 
@@ -155,35 +141,25 @@ public class SkinPackageInstaller {
         if (!Files.isDirectory(sourceDirectory)) return;
         Map<String, List<Path>> discoveredSources = new LinkedHashMap<>();
         Set<String> processedPackages = new LinkedHashSet<>();
-        try (var packages = Files.list(sourceDirectory)) {
-            for (Path packageFile : packages
-                    .filter(Files::isRegularFile)
-                    .filter(this::hasPackageExtension)
-                    .sorted()
-                    .toList()) {
-                try {
-                    SkinManifest manifest = readPackageManifest(packageFile);
-                    PackageIdentity identity = new PackageIdentity(manifest.getUid(), manifest.getVersion());
-                    addDiscoveredSource(discoveredSources, identity, packageFile);
-                    if (!processedPackages.add(identity.storageName())) continue;
-                    Path target = repository.getExternalSkinsDirectory().resolve(identity.storageName());
-                    boolean existingSourceAvailable = packageSources.isDiscovered(identity.uid(), identity.version());
-                    if (Files.exists(target) && !existingSourceAvailable) {
-                        install(packageFile, true, identity.uid(), false);
-                    } else if (!Files.exists(target) && !isDisabled(identity)) {
-                        install(packageFile, false, null, false);
-                    }
-                } catch (SkinAlreadyInstalledException exception) {
-                    SkinManifest manifest = exception.getSkin();
-                    addDiscoveredSource(discoveredSources,
-                            new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
-                } catch (IOException | IllegalArgumentException exception) {
-                    // Invalid packages do not prevent the remaining files in the added directory from being discovered.
+        if (!PackageDiscovery.visit(sourceDirectory, this::hasPackageExtension, packageFile -> {
+            try {
+                SkinManifest manifest = readPackageManifest(packageFile);
+                PackageIdentity identity = new PackageIdentity(manifest.getUid(), manifest.getVersion());
+                PackageDiscovery.addSource(discoveredSources, identity, packageFile);
+                if (!processedPackages.add(identity.storageName())) return;
+                Path target = repository.getExternalSkinsDirectory().resolve(identity.storageName());
+                boolean existingSourceAvailable = packageSources.isDiscovered(identity.uid(), identity.version());
+                if (Files.exists(target) && !existingSourceAvailable) {
+                    install(packageFile, true, identity.uid(), false);
+                } else if (!Files.exists(target) && !isDisabled(identity)) {
+                    install(packageFile, false, null, false);
                 }
+            } catch (SkinAlreadyInstalledException exception) {
+                SkinManifest manifest = exception.getSkin();
+                PackageDiscovery.addSource(discoveredSources,
+                        new PackageIdentity(manifest.getUid(), manifest.getVersion()), packageFile);
             }
-        } catch (IOException | SecurityException exception) {
-            return;
-        }
+        })) return;
         packageSources.mergeVersionedDiscovered(discoveredSources);
     }
 
@@ -527,9 +503,7 @@ public class SkinPackageInstaller {
         }
     }
 
-    private void addDiscoveredSource(Map<String, List<Path>> discoveredSources, PackageIdentity identity, Path source) {
-        discoveredSources.computeIfAbsent(identity.storageName(), ignored -> new ArrayList<>()).add(source);
-    }
+
 
     private PackageIdentity identity(SkinDescriptor skin) {
         return new PackageIdentity(skin.manifest().getUid(), skin.manifest().getVersion());
