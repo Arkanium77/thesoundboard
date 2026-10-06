@@ -11,6 +11,7 @@ import app.skin.SkinDescriptor;
 import app.skin.SkinPackageInstaller;
 import app.skin.SkinService;
 import app.ui.UiIcons;
+import app.ui.ConfirmationDialogs;
 import app.waveform.WaveformPreferences;
 import javafx.css.PseudoClass;
 import javafx.geometry.Insets;
@@ -317,25 +318,17 @@ public class SettingsWindow {
     }
 
     private boolean confirmPermanentSourceDeletion(Path source) {
-        Alert second = new Alert(Alert.AlertType.WARNING,
-                localizationService.format(TextKey.DIALOG_DELETE_SOURCE_SECOND, source),
-                ButtonType.CANCEL, ButtonType.OK);
-        second.initOwner(stage);
-        styleDialog(second, "settings-confirmation-dialog");
-        second.setTitle(localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE));
-        second.setHeaderText(localizationService.text(TextKey.SETTINGS_DELETE_SOURCE));
-        return second.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK;
+        return ConfirmationDialogs.confirm(stage, alert -> styleDialog(alert, "settings-confirmation-dialog"),
+                Alert.AlertType.WARNING, localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE),
+                localizationService.text(TextKey.SETTINGS_DELETE_SOURCE),
+                localizationService.format(TextKey.DIALOG_DELETE_SOURCE_SECOND, source));
     }
 
     private boolean confirmSourceDeletionFromList(Path source) {
-        Alert first = new Alert(Alert.AlertType.CONFIRMATION,
-                localizationService.format(TextKey.DIALOG_DELETE_SOURCE_CONFIRM, source),
-                ButtonType.CANCEL, ButtonType.OK);
-        first.initOwner(stage);
-        styleDialog(first, "settings-confirmation-dialog");
-        first.setTitle(localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE));
-        first.setHeaderText(localizationService.text(TextKey.SETTINGS_DELETE_SOURCE));
-        return first.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK
+        return ConfirmationDialogs.confirm(stage, alert -> styleDialog(alert, "settings-confirmation-dialog"),
+                Alert.AlertType.CONFIRMATION, localizationService.text(TextKey.DIALOG_SOURCE_FILES_TITLE),
+                localizationService.text(TextKey.SETTINGS_DELETE_SOURCE),
+                localizationService.format(TextKey.DIALOG_DELETE_SOURCE_CONFIRM, source))
                 && confirmPermanentSourceDeletion(source);
     }
 

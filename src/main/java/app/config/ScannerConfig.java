@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ScannerConfig {
-    private List<String> supportedExtensions = new ArrayList<>(List.of("mp3"));
+    private List<String> supportedExtensions = new ArrayList<>(List.of("mp3", "wav", "ogg", "flac", "opus"));
 
     public List<String> getSupportedExtensions() {
         return supportedExtensions;

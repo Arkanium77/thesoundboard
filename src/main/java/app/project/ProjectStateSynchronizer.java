@@ -16,6 +16,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ProjectStateSynchronizer {
     private final int schemaVersion;
@@ -24,24 +26,32 @@ public class ProjectStateSynchronizer {
         this.schemaVersion = schemaVersion;
     }
 
+    /** Source identity is separate from its path and label: identical filenames in different libraries stay
+     * independent. Ignore results for unlinked sources so a stale asynchronous scan cannot resurrect them. */
     public ProjectState synchronize(ProjectState projectState, List<ScannedAudioFile> scannedAudioFiles) {
-        Map<String, AudioFile> existingByPath = new LinkedHashMap<>();
+        Set<UUID> sources = projectState.getLinkedAudioFolders().stream().map(folder -> folder.getId()).collect(Collectors.toSet());
+        Map<AudioPath, AudioFile> existingByPath = new LinkedHashMap<>();
         for (AudioFile audioFile : projectState.getAudioFiles()) {
-            existingByPath.put(RelativePathUtils.normalize(audioFile.getRelativePath()), audioFile);
+            if (audioFile.getLinkedFolderId() == null || sources.contains(audioFile.getLinkedFolderId())) {
+                existingByPath.put(new AudioPath(audioFile.getLinkedFolderId(), RelativePathUtils.normalize(audioFile.getRelativePath())), audioFile);
+            }
         }
 
-        Map<String, AudioFile> synchronizedFiles = new LinkedHashMap<>();
+        Map<AudioPath, AudioFile> synchronizedFiles = new LinkedHashMap<>();
         for (ScannedAudioFile scannedAudioFile : scannedAudioFiles) {
+            if (scannedAudioFile.getLinkedFolderId() != null && !sources.contains(scannedAudioFile.getLinkedFolderId())) continue;
             String normalizedRelativePath = RelativePathUtils.normalize(scannedAudioFile.getRelativePath());
-            AudioFile existingAudioFile = existingByPath.remove(normalizedRelativePath);
+            AudioPath key = new AudioPath(scannedAudioFile.getLinkedFolderId(), normalizedRelativePath);
+            AudioFile existingAudioFile = existingByPath.remove(key);
             AudioFile synchronizedAudioFile = existingAudioFile == null
                     ? new AudioFile(UUID.randomUUID(), normalizedRelativePath, scannedAudioFile.getDisplayName(), false)
                     : existingAudioFile;
 
             synchronizedAudioFile.setRelativePath(normalizedRelativePath);
+            synchronizedAudioFile.setLinkedFolderId(scannedAudioFile.getLinkedFolderId());
             synchronizedAudioFile.setDisplayName(scannedAudioFile.getDisplayName());
             synchronizedAudioFile.setMissing(false);
-            synchronizedFiles.put(normalizedRelativePath, synchronizedAudioFile);
+            synchronizedFiles.put(key, synchronizedAudioFile);
         }
 
         for (AudioFile missingAudioFile : existingByPath.values()) {
@@ -50,7 +60,7 @@ public class ProjectStateSynchronizer {
                 missingAudioFile.setDisplayName(RelativePathUtils.displayName(missingAudioFile.getRelativePath()));
             }
             missingAudioFile.setMissing(true);
-            synchronizedFiles.put(missingAudioFile.getRelativePath(), missingAudioFile);
+            synchronizedFiles.put(new AudioPath(missingAudioFile.getLinkedFolderId(), missingAudioFile.getRelativePath()), missingAudioFile);
         }
 
         List<AudioFile> audioFiles = new ArrayList<>(synchronizedFiles.values());
@@ -63,6 +73,8 @@ public class ProjectStateSynchronizer {
         normalizeVirtualTiles(projectState);
         return projectState;
     }
+
+    private record AudioPath(UUID linkedFolderId, String relativePath) { }
 
     private void normalizeWorkspaceOrder(ProjectState projectState) {
         List<WorkspaceOrderEntry> entries = new ArrayList<>();

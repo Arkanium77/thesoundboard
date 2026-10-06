@@ -31,3 +31,47 @@
 .status-bar .scale-target-button {
     -fx-padding: 0 2px;
 }
+
+/* Linked icons use the existing .soundboard-icon palette so older skins retain their own icon colors. */
+.project-tree .tree-cell:linked-folder:unavailable {
+    -fx-opacity: 0.6;
+}
+
+/* Alert artwork is a platform-independent application choice; omit Modena's stock question/error PNGs. */
+.dialog-pane {
+    -fx-graphic: null;
+}
+
+/* Keep toolbar geometry consistent across skins while retaining their colors, borders and artwork. The adjoining
+   controls form one project action: choosing a folder on the left and opening its history on the right. */
+.main-header .button,
+.main-header .menu-button {
+    -fx-min-height: 2.8em;
+    -fx-pref-height: 2.8em;
+    -fx-max-height: 2.8em;
+    -fx-padding: 0 0.8em;
+}
+.main-header .open-project-main {
+    -fx-background-insets: 0, 2 0 2 2;
+    -fx-border-width: 1 0 1 1;
+    -fx-background-radius: 3 0 0 3;
+    -fx-border-radius: 3 0 0 3;
+}
+.main-header .open-project-history {
+    -fx-padding: 0;
+    -fx-background-insets: 0, 2 2 2 0;
+    -fx-border-width: 1;
+    -fx-background-radius: 0 3 3 0;
+    -fx-border-radius: 0 3 3 0;
+}
+.main-header .open-project-history > .label {
+    -fx-padding: 0;
+}
+.main-header .open-project-history > .arrow-button {
+    -fx-padding: 0 0.6em;
+}
+.project-pane .project-link-button {
+    -fx-padding: 0 0.4em;
+    -fx-background-insets: 0, 1;
+    -fx-border-width: 1;
+}

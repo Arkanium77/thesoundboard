@@ -1,7 +1,7 @@
 package app;
 
 import app.audio.AudioEngine;
-import app.audio.JavaFxAudioEngine;
+import app.audio.AudioEngineMode;
 import app.config.AppConfig;
 import app.config.AppConfigLoader;
 import app.config.LoggingConfigurer;
@@ -29,11 +29,15 @@ import javafx.beans.property.SimpleDoubleProperty;
 import javafx.scene.Scene;
 import javafx.scene.image.Image;
 import javafx.stage.Stage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URL;
 
 public class SoundboardApplication extends Application {
+    private static final Logger LOGGER = LoggerFactory.getLogger(SoundboardApplication.class);
     private MainView mainView;
+    private AudioEngine audioEngine;
 
     @Override
     public void start(Stage stage) {
@@ -45,7 +49,10 @@ public class SoundboardApplication extends Application {
         LastProjectPreferences lastProjectPreferences = new LastProjectPreferences();
         Texts.configure(localizationService);
 
-        AudioScanner audioScanner = new AudioScanner(appConfig.getScanner().getSupportedExtensions());
+        AudioEngineMode audioEngineMode = AudioEngineMode.fromArguments(getParameters().getRaw());
+        LOGGER.info("Selected audio engine: {}", audioEngineMode);
+        AudioScanner audioScanner = new AudioScanner(audioEngineMode.filterSupportedExtensions(
+                appConfig.getScanner().getSupportedExtensions()), audioEngineMode::supportsFile);
         ProjectStateRepository projectStateRepository = new ProjectStateRepository(appConfig.getPersistence().getStateFileName());
         ProjectStateSynchronizer projectStateSynchronizer = new ProjectStateSynchronizer(appConfig.getSchemaVersion());
         ProjectService projectService = new ProjectService(
@@ -55,7 +62,7 @@ public class SoundboardApplication extends Application {
                 projectStateSynchronizer
         );
         ProjectStateEditor projectStateEditor = new ProjectStateEditor();
-        AudioEngine audioEngine = new JavaFxAudioEngine();
+        audioEngine = audioEngineMode.createEngine();
         int waveformWorkerCount = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
         WaveformService waveformService = new WaveformService(
                 new AudioInputStreamWaveformExtractor(appConfig.getUi().getWaveformResolution()),
@@ -95,6 +102,7 @@ public class SoundboardApplication extends Application {
         if (mainView != null) {
             mainView.shutdown();
         }
+        if (audioEngine != null) audioEngine.shutdown();
     }
 
     public static void main(String[] args) {

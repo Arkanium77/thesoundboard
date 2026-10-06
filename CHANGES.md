@@ -2,6 +2,39 @@
 
 Release descriptions, newest version first. This file is maintained in the repository and is not included in application archives.
 
+## 1.3.0 — Unreleased
+
+### Project navigation
+
+- Quickly reopen the ten most recent projects, ordered by last access.
+- Keep project navigation compact with a recent-project arrow beside Open Folder and a small Link button in the project tree header.
+
+### Dialogs and popup menus
+
+- Apply the active skin to error dialogs and popup menus, with concise error messages and no stock alert artwork.
+- Use one confirmation when unlinking an audio folder.
+
+### Linked audio folders
+
+- Link audio folders and their subfolders into a project tree to reuse libraries across projects without copying audio files.
+- Unlink a folder after confirmation to remove its project references and associated tracks while preserving the original files.
+
+### Playback and waveforms
+
+- Added streaming playback and waveforms for OGG Vorbis, Opus and FLAC, including FLAC inside OGG, through the default miniaudio engine.
+- Read OGG duration from container metadata so streaming playback and seeking work when the decoder's length query is unavailable.
+- Detect the codec inside OGG containers during library scans so unsupported files receive the existing unavailable-file appearance before playback.
+- Automatically highlight the first track and display its waveform when tracks are added to an empty queue.
+- Keep the repeat-current-track control on the queue so its state and playback behavior remain consistent when selecting another track.
+- Buffer encoded waveform input to reduce small filesystem reads during analysis.
+
+### Audio engine performance
+
+- Made miniaudio the default playback engine; JavaFX remains available through `--audio-engine=javafx`.
+- Reduced memory use during extended playback with miniaudio. In a one-hour Windows GUI comparison using a 96-MP3 project, median process memory after Stop decreased from approximately 2,481 to 491 MiB (80%).
+- Reduced operating-system threads during playback of 35 simultaneous tracks from approximately 298 to 84 in the same comparison.
+- Accelerated playback startup and seeking: median time until the playback position first advanced decreased from approximately 170 to 6 ms for a track's first Play, and from 40 to 12 ms for subsequent Plays.
+
 ## 1.2.0 — 2026-09-26
 
 The Soundboard 1.2.0 improves responsiveness in large workspaces, prioritizes the selected track's waveform, strengthens saving and package operations, and fixes drag-and-drop feedback.

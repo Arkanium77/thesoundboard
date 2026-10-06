@@ -202,6 +202,8 @@ public class QueueView extends StackPane implements WorkspaceItemView {
         rightInsertionMarker.setVisible(insertionMarker == WorkspaceInsertionMarker.RIGHT);
     }
 
+    /** Structural edits can select the first entry of a previously empty queue. Refresh the focus and waveform
+     * together with its chips; progress polling deliberately does not rebuild selection or request waveforms. */
     public void rebuildChips() {
         chipContainer.getChildren().stream()
                 .filter(QueueTrackChipView.class::isInstance)
@@ -236,6 +238,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
             chipViews.add(chipView);
         }
         chipContainer.getChildren().setAll(chipViews);
+        refresh();
     }
 
     private void configureLayout(UiConfig uiConfig) {

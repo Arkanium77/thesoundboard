@@ -15,9 +15,32 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.function.IntConsumer;
 
 public class ProjectStateEditor {
+    /** Unlinking edits references only. Shared physical files in other sources remain independent; empty queue and
+     * virtual containers retain their names/settings. Callers refresh live owners after this atomic FX-thread edit. */
+    public void unlinkAudioFolder(ProjectState state, UUID folderId) {
+        Set<UUID> removed = state.getAudioFiles().stream().filter(file -> folderId.equals(file.getLinkedFolderId()))
+                .map(AudioFile::getId).collect(Collectors.toSet());
+        state.getWorkspaceTracks().removeIf(track -> removed.contains(track.getAudioFileId()));
+        for (WorkspaceQueue queue : state.getWorkspaceQueues()) {
+            queue.getTracks().removeIf(track -> removed.contains(track.getAudioFileId()));
+            normalizeQueueTrackOrder(queue);
+            if (queue.getTracks().stream().noneMatch(track -> track.getId().equals(queue.getSelectedTrackId()))) {
+                queue.setSelectedTrackId(queue.getTracks().isEmpty() ? null : queue.getTracks().getFirst().getId());
+            }
+        }
+        for (WorkspaceVirtualTile tile : state.getWorkspaceVirtualTiles()) {
+            tile.getTracks().removeIf(track -> removed.contains(track.getAudioFileId()));
+            for (int index = 0; index < tile.getTracks().size(); index++) tile.getTracks().get(index).setOrder(index);
+        }
+        state.getAudioFiles().removeIf(file -> removed.contains(file.getId()));
+        state.getLinkedAudioFolders().removeIf(folder -> folderId.equals(folder.getId()));
+        normalizeWorkspaceOrder(state);
+    }
     public WorkspaceTrack addWorkspaceTrack(ProjectState projectState, UUID audioFileId, double volume, boolean loop) {
         return addWorkspaceTracks(projectState, List.of(audioFileId), volume, loop, null, false).getFirst();
     }

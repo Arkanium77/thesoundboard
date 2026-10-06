@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public final class UiIcons {
     private static final double ICON_SIZE = 16d;
@@ -67,10 +68,15 @@ public final class UiIcons {
         return create("unmuted");
     }
 
+
     public static Node settings() {
         return create("settings");
     }
 
+    public static Node linkedFolder() { return create("linked-folder"); }
+
+    /** Tree cells are recycled and keep icons only while needed. Hold each surviving referent through the update;
+     * collection can clear a weak reference even after the preceding dead-entry cleanup. */
     public static void configure(SkinDescriptor skin) {
         Map<String, List<String>> icons = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : skin.manifest().getIcons().entrySet()) {
@@ -83,6 +89,7 @@ public final class UiIcons {
         iconPanes.removeIf(reference -> reference.get() == null);
         iconPanes.stream()
                 .map(WeakReference::get)
+                .filter(Objects::nonNull)
                 .forEach(IconPane::refreshGraphic);
     }
 
@@ -143,6 +150,7 @@ public final class UiIcons {
 
     private static Map<String, String> createFallbackIcons() {
         Map<String, String> icons = new LinkedHashMap<>();
+        icons.put("linked-folder", "M2 4h8l2 2h10v5h-2V8H4v12h6v2H2z M12 13h5v2h-5z M15 10h5a4 4 0 0 1 0 8h-2v-2h2a2 2 0 0 0 0-4h-5z M15 16v2h-3a2 2 0 0 0 0 4h5v2h-5a4 4 0 0 1 0-8z");
         icons.put("play", "M8 5v14l11-7z");
         icons.put("pause", "M6 5h4v14H6zm8 0h4v14h-4z");
         icons.put("stop", "M6 6h12v12H6z");

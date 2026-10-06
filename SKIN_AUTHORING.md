@@ -43,7 +43,7 @@ rendering:
 - `regular`, `bold`, and `italic` are required. `boldItalic` is optional.
 - Use `system` for every font role to use the platform UI font. Do not mix `system` roles and font files.
 - `allowFallback` defaults to `true`. Set it to `false` only when unsupported characters are intentionally allowed to remain missing.
-- Icons are optional. Omitted roles use built-in vector icons. Supported roles are `play`, `pause`, `stop`, `previous`, `next`, `loop`, `muted`, and `unmuted`.
+- Icons are optional. Omitted roles use built-in vector icons. Supported roles are `play`, `pause`, `stop`, `previous`, `next`, `loop`, `muted`, `unmuted`, and `linked-folder`.
 - Rendering values are `AUTOMATIC`, `HARDWARE`, or `SOFTWARE`. A rendering change requires an application restart; ordinary CSS, fonts, and icons are applied immediately.
 
 Bundle the license required by every included font, image, or icon. Do not assume that a freely downloadable asset permits redistribution.
@@ -64,6 +64,10 @@ gradients for depth. Effects remain supported for small, isolated, infrequently 
 - items: `.track-tile`, `.queue-tile`, `.queue-chip`, `.insertion-marker`, `.soundboard-icon`, `.waveform-seek-view`;
 - settings: `.settings-window`, `.settings-navigation`, `.settings-content`, `.settings-title`;
 - dialogs: `.settings-dialog` plus `.settings-confirmation-dialog`, `.settings-information-dialog`, `.settings-error-dialog`, or `.restart-confirmation-dialog`.
+
+Linked audio folder tree cells expose `linked-folder` and `unavailable` pseudo-classes. Their icon has `.linked-folder-icon` and the existing `.soundboard-icon` class; omitted `linked-folder` icons use the built-in SVG.
+
+Linked audio folder tree cells expose `linked-folder` and `unavailable` pseudo-classes. Their icon has `.linked-folder-icon` and the existing `.soundboard-icon` class; omitted `linked-folder` icons use the built-in SVG.
 
 Queue chips expose `selected`, `playing`, `paused`, `finished`, and `ready` pseudo-classes. Standard JavaFX selectors such as `.button`, `.label`, `.slider`, and `.scroll-pane` remain available.
 
@@ -123,3 +127,5 @@ Release builds include ready-to-use packages under `TheSoundboard/assets/skins`.
 The application also remembers the original `.tsbs` path selected through the installation dialog. If that file exists it takes priority over automatically discovered sources; otherwise updates fall back through the configured source directories in order. Skins installed by an earlier application version need either one manual replacement or a matching discovered package before their source becomes known.
 
 An installed skin can be exported back to `.tsbs`. On Windows, a previously loaded font may remain locked until exit; affected replacement or deletion is safely staged and the application offers to restart.
+
+Popup menus inherit the current owner skin, including its root palette. Alert dialogs omit stock graphics; skins may supply their own `-fx-graphic` on `.dialog-pane` if desired.

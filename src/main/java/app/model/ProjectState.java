@@ -7,6 +7,7 @@ public class ProjectState {
     private int schemaVersion = 2;
     private Double masterVolume = 1.0d;
     private List<AudioFile> audioFiles = new ArrayList<>();
+    private List<LinkedAudioFolder> linkedAudioFolders = new ArrayList<>();
     private List<WorkspaceTrack> workspaceTracks = new ArrayList<>();
     private List<WorkspaceQueue> workspaceQueues = new ArrayList<>();
     private List<WorkspaceVirtualTile> workspaceVirtualTiles = new ArrayList<>();
@@ -40,6 +41,11 @@ public class ProjectState {
 
     public List<AudioFile> getAudioFiles() {
         return audioFiles;
+    }
+
+    public List<LinkedAudioFolder> getLinkedAudioFolders() { return linkedAudioFolders; }
+    public void setLinkedAudioFolders(List<LinkedAudioFolder> folders) {
+        linkedAudioFolders = folders == null ? new ArrayList<>() : new ArrayList<>(folders);
     }
 
     public void setAudioFiles(List<AudioFile> audioFiles) {

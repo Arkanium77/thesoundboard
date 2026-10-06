@@ -66,6 +66,6 @@ public class WorkspaceVirtualTileItem {
 
     private WorkspaceTrackItem createTrackItem(VirtualTileTrack track) {
         AudioFile audioFile = audioFiles.findOrMissing(track.getAudioFileId());
-        return new WorkspaceTrackItem(rootPath, track, audioFile, audioEngine, masterVolume, errorHandler);
+        return new WorkspaceTrackItem(audioFiles.root(rootPath, audioFile), track, audioFile, audioEngine, masterVolume, errorHandler);
     }
 }

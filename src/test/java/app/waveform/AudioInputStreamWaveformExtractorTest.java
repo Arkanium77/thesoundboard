@@ -3,6 +3,9 @@ package app.waveform;
 import app.support.TestDirectorySupport;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.assertj.core.data.Offset;
 
 import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
@@ -12,8 +15,37 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.io.InputStream;
 
 class AudioInputStreamWaveformExtractorTest {
+    @ParameterizedTest
+    @ValueSource(strings = {"wav", "mp3", "ogg", "flac", "24.flac", "float.wav", "opus", "flac.ogg"})
+    void analysesSupportedFormatsThroughStreamingProviders(String extension) throws Exception {
+        Path directory = TestDirectorySupport.createTempDirectory("waveform-formats-");
+        Path path = directory.resolve("tone." + extension);
+        try (InputStream stream = getClass().getResourceAsStream("/audio/tone." + extension)) {
+            Files.copy(stream, path);
+        }
+        WaveformData data = new AudioInputStreamWaveformExtractor(64).extract(path);
+        Assertions.assertThat(data.isEmpty()).isFalse();
+        Assertions.assertThat(data.size()).isEqualTo(64);
+        Assertions.assertThat(data.getDuration().toSeconds()).isCloseTo(1d, Offset.offset(0.12d));
+        for (double value : data.copyAmplitudes()) Assertions.assertThat(value).isBetween(0d, 1d);
+    }
+
+    @Test
+    void analysesOpusEvenWhenContainerUsesOggExtension() throws Exception {
+        Path directory = TestDirectorySupport.createTempDirectory("waveform-opus-");
+        Path path = directory.resolve("opus-in-ogg.ogg");
+        try (InputStream stream = getClass().getResourceAsStream("/audio/tone.opus")) {
+            Files.copy(stream, path);
+        }
+        WaveformData waveform = new AudioInputStreamWaveformExtractor(64).extract(path);
+        Assertions.assertThat(waveform.isEmpty()).isFalse();
+        Assertions.assertThat(waveform.getDuration().toSeconds()).isCloseTo(1d, Offset.offset(0.001d));
+    }
+
     @Test
     void honoursCancellationBeforeOpeningAudio() {
         try {

@@ -21,6 +21,59 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 class WorkspaceQueueItemTest {
     @Test
+    void queueTrackLoopSurvivesFocusChangesAndControlsTheActivePlayer() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("queue-track-loop-");
+        Files.writeString(root.resolve("one.mp3"), "audio");
+        UUID audioId = UUID.randomUUID();
+        AudioFile audio = new AudioFile(audioId, "one.mp3", "one.mp3", false);
+        QueueTrack first = new QueueTrack(UUID.randomUUID(), audioId, 0, false);
+        QueueTrack second = new QueueTrack(UUID.randomUUID(), audioId, 1, true);
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue", 0, 1d, false);
+        queue.setTracks(List.of(first, second));
+        List<FakePlayingTrack> players = new ArrayList<>();
+        WorkspaceQueueItem item = new WorkspaceQueueItem(root, queue, List.of(audio),
+                path -> { FakePlayingTrack player = new FakePlayingTrack(); players.add(player); return player; },
+                1d, exception -> { });
+        item.setLoopCurrentTrack(true);
+        item.togglePlayPause();
+        Assertions.assertThat(players.getFirst().loop).isTrue();
+        item.selectTrack(second.getId());
+        Assertions.assertThat(item.isLoopCurrentTrack()).isTrue();
+        item.setLoopCurrentTrack(false);
+        Assertions.assertThat(players.getFirst().loop).isFalse();
+        Assertions.assertThat(first.isLoop()).isFalse();
+        Assertions.assertThat(second.isLoop()).isTrue();
+        item.playSelectedTrack(second.getId());
+        Assertions.assertThat(players.getLast().loop).isFalse();
+        item.setLoopCurrentTrack(true);
+        item.selectTrack(first.getId());
+        Assertions.assertThat(item.isLoopCurrentTrack()).isTrue();
+        Assertions.assertThat(players.getLast().loop).isTrue();
+        item.dispose();
+    }
+
+    @Test
+    void capturesLegacySelectedTrackLoopOnceAndAllowsEmptyQueueConfiguration() {
+        UUID audioId = UUID.randomUUID();
+        QueueTrack first = new QueueTrack(UUID.randomUUID(), audioId, 0, true);
+        QueueTrack second = new QueueTrack(UUID.randomUUID(), audioId, 1, false);
+        WorkspaceQueue legacy = new WorkspaceQueue();
+        legacy.setTracks(List.of(first, second));
+        legacy.setSelectedTrackId(first.getId());
+        WorkspaceQueueItem item = new WorkspaceQueueItem(Path.of("."), legacy, List.of(),
+                path -> { throw new AssertionError("No playback requested"); }, 1d, exception -> { });
+        Assertions.assertThat(item.isLoopCurrentTrack()).isTrue();
+        item.selectTrack(second.getId());
+        Assertions.assertThat(item.isLoopCurrentTrack()).isTrue();
+        legacy.setTracks(List.of());
+        item.refreshAfterMutation();
+        item.setLoopCurrentTrack(false);
+        legacy.setTracks(List.of(first));
+        item.refreshAfterMutation();
+        Assertions.assertThat(item.isLoopCurrentTrack()).isFalse();
+    }
+
+    @Test
     void refreshesIndexedSelectionAndOrderAfterMutationAndShuffle() {
         WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue", 0, 1d, false);
         QueueTrack first = new QueueTrack(UUID.randomUUID(), UUID.randomUUID(), 0, false);
@@ -368,6 +421,7 @@ class WorkspaceQueueItemTest {
 
         private PlaybackStatus playbackStatus = PlaybackStatus.READY;
         private double volume;
+        private boolean loop;
         private Duration currentTime = Duration.ZERO;
         private final List<String> events = new ArrayList<>();
 
@@ -401,6 +455,7 @@ class WorkspaceQueueItemTest {
 
         @Override
         public void setLoop(boolean loop) {
+            this.loop = loop;
         }
 
         @Override

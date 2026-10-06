@@ -1,5 +1,8 @@
 package app.waveform;
 
+import app.audio.OggAudioMetadata;
+import app.audio.OggAudioMetadata.Codec;
+import javazoom.spi.vorbis.sampled.file.VorbisEncoding;
 import javafx.util.Duration;
 
 import javax.sound.sampled.AudioFileFormat;
@@ -10,7 +13,20 @@ import javax.sound.sampled.UnsupportedAudioFileException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.io.InputStream;
+import java.io.BufferedInputStream;
 
+/**
+ * Uses Java Sound providers for background MP3, PCM WAV, Vorbis and FLAC analysis independently of playback.
+ * The native binding exposes no streaming PCM reader, so using its whole-file decode API would violate the
+ * bounded-memory design. Opus uses a separate portable packet decoder; detect it by container contents,
+ * including .ogg files, rather than sending it to an unsupported Java Sound provider. Ogg FLAC packets are
+ * demultiplexed into their original encoded bitstream for jFLAC; both Ogg paths share bounded packet input.
+ * No source file is converted or cached as audio; only the existing bounded envelopes are retained.
+ * The encoded input is buffered before provider probing: some providers otherwise issue small reads directly
+ * against a FileInputStream, making container analysis unnecessarily dependent on filesystem call overhead.
+ */
 public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
     private static final int PCM_SAMPLE_SIZE_BITS = 16;
     private static final int CHUNK_FRAME_COUNT = 1024;
@@ -24,11 +40,17 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
     @Override
     public WaveformData extract(Path audioPath) throws IOException {
         checkInterrupted();
-        try (AudioInputStream encodedStream = AudioSystem.getAudioInputStream(audioPath.toFile())) {
+        Codec codec = OggAudioMetadata.codec(audioPath);
+        if (codec == Codec.OPUS) return new OpusWaveformExtractor(resolution).extract(audioPath);
+        try (InputStream input = new BufferedInputStream(codec == Codec.FLAC
+                ? OggFlacInputStream.open(audioPath) : Files.newInputStream(audioPath));
+                AudioInputStream encodedStream = AudioSystem.getAudioInputStream(input)) {
             AudioFormat pcmFormat = toPcmFormat(encodedStream.getFormat());
-            long totalFrames = resolveTotalFrames(audioPath, encodedStream.getFormat(), encodedStream.getFrameLength());
+            long totalFrames = codec == Codec.FLAC
+                    ? Math.round(OggAudioMetadata.duration(audioPath).toSeconds() * encodedStream.getFormat().getSampleRate())
+                    : resolveTotalFrames(audioPath, encodedStream.getFormat(), encodedStream.getFrameLength());
 
-            try (AudioInputStream pcmStream = AudioSystem.getAudioInputStream(pcmFormat, encodedStream)) {
+            try (AudioInputStream pcmStream = openPcmStream(encodedStream, pcmFormat)) {
                 if (totalFrames > 0L) {
                     return extractFixedResolution(pcmStream, pcmFormat, totalFrames);
                 }
@@ -37,6 +59,29 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
         } catch (UnsupportedAudioFileException exception) {
             throw new IOException("Unsupported audio file: " + audioPath, exception);
         }
+    }
+
+    /**
+     * Compressed providers can decode only to their native bit depth (notably 24-bit FLAC). Use the standard PCM
+     * converter as a second streaming stage rather than rejecting those files or allocating a decoded recording.
+     * The returned stream owns both stages so cancellation and ordinary closure release the decoder as before.
+     */
+    private AudioInputStream openPcmStream(AudioInputStream encodedStream, AudioFormat pcmFormat) throws IOException,
+            UnsupportedAudioFileException {
+        if (AudioSystem.isConversionSupported(pcmFormat, encodedStream.getFormat())) {
+            return AudioSystem.getAudioInputStream(pcmFormat, encodedStream);
+        }
+        for (AudioFormat decodedFormat : AudioSystem.getTargetFormats(AudioFormat.Encoding.PCM_SIGNED, encodedStream.getFormat())) {
+            if (!AudioSystem.isConversionSupported(pcmFormat, decodedFormat)) continue;
+            AudioInputStream decodedStream = AudioSystem.getAudioInputStream(decodedFormat, encodedStream);
+            try {
+                return AudioSystem.getAudioInputStream(pcmFormat, decodedStream);
+            } catch (RuntimeException exception) {
+                decodedStream.close();
+                throw exception;
+            }
+        }
+        throw new UnsupportedAudioFileException("No streaming PCM conversion for " + encodedStream.getFormat());
     }
 
     /**
@@ -115,12 +160,24 @@ public class AudioInputStreamWaveformExtractor implements WaveformExtractor {
         );
     }
 
+    /**
+     * Only PCM frame lengths describe sample counts. Compressed providers may expose byte or packet counts
+     * (jFLAC returns the compressed file length), which would squeeze the waveform and report a false duration.
+     * Prefer explicit duration metadata for compressed input; otherwise count decoded frames in the bounded path.
+     * Vorbis uses the shared Ogg granule reader to keep its waveform timeline consistent with streaming playback
+     * and avoid reopening a separate provider decoder just to obtain duration.
+     */
     private long resolveTotalFrames(Path audioPath, AudioFormat sourceFormat, long streamFrameLength) {
-        if (streamFrameLength > 0L) {
+        if (streamFrameLength > 0L && (sourceFormat.getEncoding().equals(AudioFormat.Encoding.PCM_SIGNED)
+                || sourceFormat.getEncoding().equals(AudioFormat.Encoding.PCM_UNSIGNED)
+                || sourceFormat.getEncoding().equals(AudioFormat.Encoding.PCM_FLOAT))) {
             return streamFrameLength;
         }
 
         try {
+            if (sourceFormat.getEncoding().equals(VorbisEncoding.VORBISENC)) {
+                return Math.round(OggAudioMetadata.duration(audioPath).toSeconds() * sourceFormat.getSampleRate());
+            }
             AudioFileFormat audioFileFormat = AudioSystem.getAudioFileFormat(audioPath.toFile());
             Object durationValue = audioFileFormat.properties().get("duration");
             if (durationValue instanceof Long durationMicros && sourceFormat.getSampleRate() > 0f) {

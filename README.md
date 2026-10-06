@@ -1,10 +1,10 @@
 # The Soundboard
 
-The Soundboard is a desktop application for organizing and playing MP3 collections during games, streams, performances, and other live sessions. It keeps the library on disk, turns selected tracks into reusable tiles, and lets several independent queues live in one workspace..
+The Soundboard is a desktop application for organizing and playing audio collections during games, streams, performances, and other live sessions. It keeps the library on disk, turns selected tracks into reusable tiles, and lets several independent queues live in one workspace.
 
 ## Features
 
-- Scan a folder and browse its MP3 files as a tree.
+- Scan a folder and browse supported audio files as a tree.
 - Add individual tracks or multiple selections to the workspace with drag and drop.
 - Group tracks into named queues and reorder tracks or workspace items.
 - Play, pause, stop, seek, loop, and mute tracks independently.
@@ -41,11 +41,11 @@ The application is not signed or notarized. On first launch, Gatekeeper may requ
 
 To update within the same major version, extract the new release and copy its contents over the old application directory, replacing conflicting files. Installed skins and localization packages are stored under `~/.thesoundboard` (`%USERPROFILE%\.thesoundboard` on Windows), interface preferences use the operating-system preference store, and project state remains in the selected audio-library directory. Replacing the application files therefore does not erase installed user data. Files placed manually under `TheSoundboard/assets` are discovery sources rather than installed data and may be replaced by a future release, so keep the original package elsewhere when it must survive application-folder replacement.
 
-The Linux build requires a graphical desktop and the system libraries normally required by JavaFX, including GTK 3 and the audio/media stack. MP3 is the only library format enabled by default.
+The Linux build requires a graphical desktop and the system libraries normally required by JavaFX, including GTK 3 and the audio/media stack.
 
 ## Using the application
 
-Choose **Open Folder** and select the root of an MP3 library. Double-click a file or drag selected files from the project tree into the workspace. Use the workspace context menu to create a queue, then drag tracks into it. Changes are saved in the selected folder; keep `.soundboard-project.json` if you want to preserve the layout between launches.
+Choose **Open Folder** and select the root of an audio library. Double-click a file or drag selected files from the project tree into the workspace. Use the workspace context menu to create a queue, then drag tracks into it. Changes are saved in the selected folder; keep `.soundboard-project.json` if you want to preserve the layout between launches.
 
 The last successfully opened project is remembered. **Settings → General → Restore the last open session on startup** controls whether an ordinary launch reopens it and is disabled by default. Restarts initiated by the application always restore the current project so a required settings restart does not interrupt the session.
 

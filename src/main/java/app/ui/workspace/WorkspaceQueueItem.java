@@ -138,7 +138,7 @@ public class WorkspaceQueueItem {
             return Optional.empty();
         }
 
-        Path audioPath = rootPath.resolve(audioFile.getRelativePath());
+        Path audioPath = audioFilesById.resolve(rootPath, audioFile);
         return Optional.of(audioPath);
     }
 
@@ -150,7 +150,7 @@ public class WorkspaceQueueItem {
                 continue;
             }
 
-            Path audioPath = rootPath.resolve(audioFile.getRelativePath());
+            Path audioPath = audioFilesById.resolve(rootPath, audioFile);
             audioPaths.add(audioPath);
         }
         return audioPaths;
@@ -270,16 +270,14 @@ public class WorkspaceQueueItem {
     }
 
     public boolean isLoopCurrentTrack() {
-        return getFocusedTrack().map(QueueTrack::isLoop).orElse(false);
+        return Boolean.TRUE.equals(workspaceQueue.getLoopCurrentTrack());
     }
 
+    /** The queue transport control affects the active player even when another entry is focused.
+     * Keep per-track flags intact for transfers to standalone tiles; they do not govern queue playback. */
     public void setLoopCurrentTrack(boolean loop) {
-        getFocusedTrack().ifPresent(queueTrack -> {
-            queueTrack.setLoop(loop);
-            if (playingTrack != null && queueTrack.getId().equals(playingQueueTrackId)) {
-                playingTrack.setLoop(loop);
-            }
-        });
+        workspaceQueue.setLoopCurrentTrack(loop);
+        if (playingTrack != null) playingTrack.setLoop(loop);
     }
 
     public boolean isLoopQueue() {
@@ -396,7 +394,7 @@ public class WorkspaceQueueItem {
         focusedQueueTrackId = queueTrackId;
         finishedHandled = false;
         applyVolume();
-        playingTrack.setLoop(track.isLoop());
+        playingTrack.setLoop(isLoopCurrentTrack());
         playbackChanged.run();
     }
 
@@ -419,6 +417,7 @@ public class WorkspaceQueueItem {
         workspaceQueue.setTracks(queueTracks);
         ensureSelectedTrack();
         ensureFocusedTrack();
+        initializeQueueLoop();
 
         UUID selectedTrackId = workspaceQueue.getSelectedTrackId();
         if (selectedTrackId == null) {
@@ -468,7 +467,7 @@ public class WorkspaceQueueItem {
             return;
         }
 
-        if (currentTrack.isLoop()) {
+        if (isLoopCurrentTrack()) {
             return;
         }
 
@@ -561,6 +560,14 @@ public class WorkspaceQueueItem {
         workspaceQueue.setSelectedTrackId(queueTracks.isEmpty() ? null : queueTracks.getFirst().getId());
     }
 
+    /** Capture the visible legacy setting once on load, before focus changes can choose a different track.
+     * The optional queue field keeps old JSON readable without changing IDs, tracks or stored per-track flags. */
+    private void initializeQueueLoop() {
+        if (workspaceQueue.getLoopCurrentTrack() == null) {
+            workspaceQueue.setLoopCurrentTrack(getSelectedTrack().map(QueueTrack::isLoop).orElse(false));
+        }
+    }
+
     private void ensureFocusedTrack() {
         if (focusedQueueTrackId != null && tracksById.containsKey(focusedQueueTrackId)) return;
         focusedQueueTrackId = workspaceQueue.getSelectedTrackId();
@@ -581,7 +588,7 @@ public class WorkspaceQueueItem {
             return false;
         }
 
-        Path audioPath = rootPath.resolve(audioFile.getRelativePath());
+        Path audioPath = audioFilesById.resolve(rootPath, audioFile);
         if (!Files.exists(audioPath)) {
             audioFile.setMissing(true);
             return false;
@@ -592,7 +599,7 @@ public class WorkspaceQueueItem {
             playingQueueTrackId = queueTrack.getId();
             bindPlayback();
             applyVolume();
-            playingTrack.setLoop(queueTrack.isLoop());
+            playingTrack.setLoop(isLoopCurrentTrack());
             return true;
         } catch (Exception exception) {
             trackCreationFailed = true;

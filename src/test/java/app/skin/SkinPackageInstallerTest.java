@@ -355,7 +355,7 @@ class SkinPackageInstallerTest {
         Assertions.assertThat(nightMode.manifest().getVersion()).isEqualTo(2);
         Assertions.assertThat(sakura.manifest().getVersion()).isEqualTo(2);
         Assertions.assertThat(retroAmp.manifest().getVersion()).isEqualTo(1);
-        Assertions.assertThat(tacticalCodec.manifest().getVersion()).isEqualTo(2);
+        Assertions.assertThat(tacticalCodec.manifest().getVersion()).isEqualTo(3);
     }
 
     @Test

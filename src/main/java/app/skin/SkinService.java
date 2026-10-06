@@ -4,6 +4,8 @@ import app.packages.PackageSourceDirectories;
 import app.packages.PackageSourceDirectoryRegistry;
 import app.ui.UiFonts;
 import app.ui.UiIcons;
+import app.ui.PopupSkinSupport;
+import javafx.scene.control.DialogPane;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 
@@ -57,6 +59,7 @@ public class SkinService {
     }
 
     public void prepareUiResources() {
+        PopupSkinSupport.install();
         loadedSkins.add(identity(activeSkin));
         UiFonts.configure(activeSkin);
         UiIcons.configure(activeSkin);
@@ -70,6 +73,7 @@ public class SkinService {
     }
 
     public void apply(Parent root) {
+        if (root instanceof DialogPane pane) pane.setGraphic(null);
         UiFonts.applyApplicationFont(root);
         URL coreStylesheet = SkinService.class.getResource(CORE_STYLESHEET);
         URL stylesheet = activeSkin.resolveResource(activeSkin.manifest().getStylesheet());

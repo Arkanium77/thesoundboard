@@ -11,6 +11,13 @@ This product includes third-party software distributed under its own licenses:
 - SLF4J, licensed under the MIT License.
 - Logback, dual-licensed under EPL-1.0 and LGPL-2.1-or-later.
 - MP3SPI and its audio decoding dependencies, licensed under LGPL-2.1-or-later.
+- VorbisSPI and its audio decoding dependencies, licensed under LGPL-2.1-or-later.
+- jFLAC, licensed under LGPL-2.1-or-later.
+- Concentus, licensed under BSD-3-Clause, and VorbisJava, licensed under Apache License 2.0.
+- gdx-miniaudio, libGDX and the native loaders, licensed under Apache License 2.0.
+  gdx-miniaudio bundles miniaudio (public domain or MIT No Attribution),
+  libvorbis, libogg, libopus and libopusfile (Xiph BSD-style licenses).
+  License texts and source links are included in THIRD-PARTY-LICENSES.
 - Twemoji graphics, Copyright 2019 Twitter, Inc and other contributors,
   licensed under CC BY 4.0. The application uses the Twemoji 17.0.3 PNG set
   for platform-independent emoji rendering. License texts are included at

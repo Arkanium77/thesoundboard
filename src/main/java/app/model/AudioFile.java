@@ -4,6 +4,7 @@ import java.util.UUID;
 
 public class AudioFile {
     private UUID id;
+    private UUID linkedFolderId;
     private String relativePath;
     private String displayName;
     private boolean missing;
@@ -21,6 +22,9 @@ public class AudioFile {
     public UUID getId() {
         return id;
     }
+
+    public UUID getLinkedFolderId() { return linkedFolderId; }
+    public void setLinkedFolderId(UUID linkedFolderId) { this.linkedFolderId = linkedFolderId; }
 
     public void setId(UUID id) {
         this.id = id;

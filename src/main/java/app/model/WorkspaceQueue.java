@@ -10,6 +10,7 @@ public class WorkspaceQueue {
     private int order;
     private double volume = 0.8d;
     private boolean loopQueue;
+    private Boolean loopCurrentTrack;
     private boolean shuffleEnabled;
     private UUID selectedTrackId;
     private List<QueueTrack> tracks = new ArrayList<>();
@@ -23,6 +24,7 @@ public class WorkspaceQueue {
         this.order = order;
         this.volume = volume;
         this.loopQueue = loopQueue;
+        this.loopCurrentTrack = false;
     }
 
     public UUID getId() {
@@ -67,6 +69,16 @@ public class WorkspaceQueue {
 
     public boolean isShuffleEnabled() {
         return shuffleEnabled;
+    }
+
+    /** Null identifies older projects that stored this control on individual tracks. The workspace resolves it
+     * once from the previously selected track; explicit false must survive saves independently of legacy flags. */
+    public Boolean getLoopCurrentTrack() {
+        return loopCurrentTrack;
+    }
+
+    public void setLoopCurrentTrack(Boolean loopCurrentTrack) {
+        this.loopCurrentTrack = loopCurrentTrack;
     }
 
     public void setShuffleEnabled(boolean shuffleEnabled) {

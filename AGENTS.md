@@ -1,5 +1,7 @@
 # Agent instructions
 
+Release-candidate branches use `rc/<version>` by default, for example `rc/1.3.0`. Do not use `rc-1.3.0` or concatenate the prefix and version. This project convention takes precedence over a generic branch prefix unless the user explicitly requests a different name.
+
 Before building, testing, packaging, or changing the local development environment, read and follow the project-specific rules in [`.local/rules`](.local/rules/).
 
 At minimum, read [`.local/rules/linux-build.md`](.local/rules/linux-build.md) before producing a Linux artifact on this computer.

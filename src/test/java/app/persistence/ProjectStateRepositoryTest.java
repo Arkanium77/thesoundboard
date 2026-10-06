@@ -6,6 +6,7 @@ import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
 import app.support.TestDirectorySupport;
+import app.project.ProjectStateCopySupport;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +17,23 @@ import java.util.List;
 import java.util.UUID;
 
 class ProjectStateRepositoryTest {
+    @Test
+    void retainsQueueTrackLoopInSaveSnapshotsAndRoundTrips() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("queue-loop-save-");
+        ProjectStateRepository repository = new ProjectStateRepository("state.json");
+        ProjectState state = new ProjectState(2);
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue", 0, 1d, false);
+        queue.setLoopCurrentTrack(true);
+        state.setWorkspaceQueues(List.of(queue));
+        repository.save(root, ProjectStateCopySupport.copy(state));
+        Assertions.assertThat(repository.load(root).orElseThrow().getWorkspaceQueues().getFirst().getLoopCurrentTrack()).isTrue();
+        queue.setLoopCurrentTrack(false);
+        repository.save(root, ProjectStateCopySupport.copy(state));
+        Assertions.assertThat(repository.load(root).orElseThrow().getWorkspaceQueues().getFirst().getLoopCurrentTrack()).isFalse();
+        queue.setLoopCurrentTrack(null);
+        Assertions.assertThat(ProjectStateCopySupport.copy(state).getWorkspaceQueues().getFirst().getLoopCurrentTrack()).isNull();
+    }
+
     @Test
     void retainsPreviousSaveAndPreservesUnreadableOriginal() throws IOException {
         Path root = TestDirectorySupport.createTempDirectory("project-backup-");

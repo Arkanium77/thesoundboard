@@ -3,6 +3,9 @@ package app.ui.main;
 import app.audio.AudioEngine;
 import app.config.AppConfig;
 import app.model.AudioFile;
+import app.model.LinkedAudioFolder;
+import app.model.ProjectState;
+import app.ui.ConfirmationDialogs;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
@@ -18,6 +21,7 @@ import app.project.ProjectService;
 import app.project.ProjectSaveCoordinator;
 import app.project.ProjectStateEditor;
 import app.project.AudioFileIndex;
+import app.project.LinkedAudioFolderException;
 import app.skin.SkinService;
 import app.ui.UiIcons;
 import app.ui.VolumeSliderSupport;
@@ -33,6 +37,8 @@ import app.ui.workspace.WorkspaceTrackItem;
 import app.ui.workspace.WorkspaceVirtualTileItem;
 import app.waveform.WaveformService;
 import app.waveform.WaveformPreferences;
+
+import javafx.css.PseudoClass;
 import javafx.application.Platform;
 import javafx.animation.PauseTransition;
 import javafx.util.Duration;
@@ -46,6 +52,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ContextMenu;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
 import javafx.scene.control.MenuItem;
@@ -70,9 +77,12 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -115,6 +125,8 @@ public class MainView extends BorderPane {
     private final Node settingsGraphic = UiIcons.settings();
     private final Button settingsButton = new Button(null, settingsGraphic);
     private final Button openFolderButton = new Button(Texts.text(TextKey.MAIN_OPEN_FOLDER));
+    private final MenuButton recentProjectsButton = new MenuButton();
+    private final Button linkFolderButton = new Button(Texts.text(TextKey.MAIN_LINK_FOLDER_SHORT));
     private final Button rescanButton = new Button(Texts.text(TextKey.MAIN_RESCAN));
     private final Button saveButton = new Button(Texts.text(TextKey.MAIN_SAVE));
     private final Button clearWorkspaceButton = new Button(Texts.text(TextKey.MAIN_CLEAR_WORKSPACE));
@@ -298,6 +310,7 @@ public class MainView extends BorderPane {
                 "Save the recovered workspace before continuing? The unreadable original will be kept in a recovery file.",
                 ButtonType.OK, ButtonType.CANCEL);
         alert.initOwner(stage);
+        styleConfirmation(alert);
         return alert.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK;
     }
 
@@ -314,7 +327,11 @@ public class MainView extends BorderPane {
         stage.setTitle(Texts.text(TextKey.APP_TITLE));
         settingsButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_SETTINGS)));
         openFolderButton.setText(Texts.text(TextKey.MAIN_OPEN_FOLDER));
+        recentProjectsButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_RECENT_PROJECTS)));
         rescanButton.setText(Texts.text(TextKey.MAIN_RESCAN));
+        linkFolderButton.setText(Texts.text(TextKey.MAIN_LINK_FOLDER_SHORT));
+        linkFolderButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_LINK_FOLDER)));
+        treeView.refresh();
         saveButton.setText(Texts.text(TextKey.MAIN_SAVE));
         clearWorkspaceButton.setText(Texts.text(TextKey.MAIN_CLEAR_WORKSPACE));
         rebuildStateButton.setText(Texts.text(TextKey.MAIN_REBUILD_SAVE));
@@ -342,7 +359,17 @@ public class MainView extends BorderPane {
         StackPane projectTreeContainer = new StackPane(projectTreeBackground, treeView);
         projectTreeContainer.getStyleClass().add("project-tree-container");
 
-        leftPane = new VBox(8, projectTreeLabel, projectTreeContainer);
+        Region projectHeaderSpacer = new Region();
+        HBox.setHgrow(projectHeaderSpacer, Priority.ALWAYS);
+        HBox projectHeader = new HBox(8, projectTreeLabel, projectHeaderSpacer, linkFolderButton);
+        projectHeader.setAlignment(Pos.CENTER_LEFT);
+        linkFolderButton.getStyleClass().add("project-link-button");
+        linkFolderButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_LINK_FOLDER)));
+        linkFolderButton.fontProperty().bind(projectTreeLabel.fontProperty());
+        linkFolderButton.prefHeightProperty().bind(projectTreeLabel.heightProperty().add(4d));
+        linkFolderButton.minHeightProperty().bind(projectTreeLabel.heightProperty().add(4d));
+        linkFolderButton.maxHeightProperty().bind(projectTreeLabel.heightProperty().add(4d));
+        leftPane = new VBox(8, projectHeader, projectTreeContainer);
         leftPane.getStyleClass().add("project-pane");
         treeView.getStyleClass().add("project-tree");
         leftPane.setPadding(new Insets(8));
@@ -366,9 +393,14 @@ public class MainView extends BorderPane {
 
     private ToolBar createToolBar() {
         settingsButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_SETTINGS)));
+        HBox openProjectButton = new HBox(0, openFolderButton, recentProjectsButton);
+        openProjectButton.getStyleClass().add("open-project-button");
+        openFolderButton.getStyleClass().add("open-project-main");
+        recentProjectsButton.getStyleClass().add("open-project-history");
+        recentProjectsButton.setTooltip(new Tooltip(Texts.text(TextKey.MAIN_RECENT_PROJECTS)));
         ToolBar toolBar = new ToolBar(
                 settingsButton,
-                openFolderButton,
+                openProjectButton,
                 rescanButton,
                 saveButton,
                 clearWorkspaceButton,
@@ -376,7 +408,10 @@ public class MainView extends BorderPane {
                 projectPathLabel
         );
         toolBar.getStyleClass().add("main-header");
+        recentProjectsButton.setOnShowing(event -> refreshRecentProjects());
         rescanButton.setDisable(true);
+        linkFolderButton.setDisable(true);
+        linkFolderButton.setOnAction(event -> chooseLinkedFolder());
         saveButton.setDisable(true);
         clearWorkspaceButton.setDisable(true);
         rebuildStateButton.setDisable(true);
@@ -486,6 +521,7 @@ public class MainView extends BorderPane {
         UiIcons.resize(workspacePauseGraphic, scale);
         UiIcons.resize(workspaceStopGraphic, scale);
         UiIcons.resize(settingsGraphic, scale);
+        treeView.refresh();
         decreaseScaleButton.setMinWidth(26d * scale);
         increaseScaleButton.setMinWidth(26d * scale);
         decreaseScaleButton.setPrefHeight(26d * scale);
@@ -559,9 +595,15 @@ public class MainView extends BorderPane {
         treeView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         treeView.setCellFactory(view -> {
             TreeCell<TreeNodeValue> cell = new TreeCell<>() {
+                private Node linkedFolderGraphic;
+
                 @Override
                 protected void updateItem(TreeNodeValue item, boolean empty) {
                     super.updateItem(item, empty);
+                    setGraphic(null);
+                    setTooltip(null);
+                    pseudoClassStateChanged(PseudoClass.getPseudoClass("linked-folder"), false);
+                    pseudoClassStateChanged(PseudoClass.getPseudoClass("unavailable"), false);
                     if (empty || item == null) {
                         setText(null);
                         setContextMenu(null);
@@ -571,7 +613,21 @@ public class MainView extends BorderPane {
 
                     setText(item.getLabel());
                     setContextMenu(createContextMenu(item));
-                    if (item.isMissing()) {
+                    if (item.getType() == TreeNodeType.LINKED_FOLDER) {
+                        if (linkedFolderGraphic == null) {
+                            linkedFolderGraphic = UiIcons.linkedFolder();
+                            linkedFolderGraphic.getStyleClass().add("linked-folder-icon");
+                        }
+                        UiIcons.resize(linkedFolderGraphic, uiScale.get());
+                        setGraphic(linkedFolderGraphic);
+                        pseudoClassStateChanged(PseudoClass.getPseudoClass("linked-folder"), true);
+                        pseudoClassStateChanged(PseudoClass.getPseudoClass("unavailable"), item.isMissing());
+                        session.getState().getLinkedAudioFolders().stream()
+                                .filter(folder -> folder.getId().equals(item.getLinkedFolderId())).findFirst()
+                                .ifPresent(folder -> setTooltip(new Tooltip(Texts.format(item.isMissing()
+                                        ? TextKey.LINKED_FOLDER_UNAVAILABLE : TextKey.LINKED_FOLDER_TOOLTIP, linkedFolderLocation(folder)))));
+                    }
+                    if (item.isMissing() && item.getType() != TreeNodeType.LINKED_FOLDER) {
                         setStyle("-fx-text-fill: #aa3b3b;");
                     } else if (item.getType() == TreeNodeType.REAL_ROOT) {
                         setStyle("-fx-font-weight: bold;");
@@ -617,8 +673,16 @@ public class MainView extends BorderPane {
     }
 
     private ContextMenu createContextMenu(TreeNodeValue nodeValue) {
+        if (nodeValue.getType() == TreeNodeType.LINKED_FOLDER) {
+            MenuItem unlink = new MenuItem(Texts.text(TextKey.MAIN_UNLINK_FOLDER));
+            unlink.setOnAction(event -> confirmUnlinkFolder(nodeValue.getLinkedFolderId()));
+            return new ContextMenu(unlink);
+        }
         if (nodeValue.getType() != TreeNodeType.REAL_AUDIO_FILE) {
-            return null;
+            MenuItem link = new MenuItem(Texts.text(TextKey.MAIN_LINK_FOLDER));
+            link.setDisable(session.getRootPath() == null);
+            link.setOnAction(event -> chooseLinkedFolder());
+            return new ContextMenu(link);
         }
 
         MenuItem addToWorkspaceItem = new MenuItem(Texts.text(TextKey.MAIN_ADD_TO_WORKSPACE));
@@ -634,6 +698,122 @@ public class MainView extends BorderPane {
         addToQueueMenu.setDisable(workspaceQueues.isEmpty());
 
         return new ContextMenu(addToWorkspaceItem, addToQueueMenu);
+    }
+
+    private String linkedFolderLocation(LinkedAudioFolder folder) {
+        try { return folder.resolve(session.getRootPath()).toString(); }
+        catch (IllegalArgumentException exception) { return folder.getLocation(); }
+    }
+
+    private void chooseLinkedFolder() {
+        if (session.getRootPath() == null || session.isLoading() || session.isClosing() || saving || !confirmRecoverySave()) return;
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle(Texts.text(TextKey.MAIN_LINK_FOLDER_DIALOG));
+        File selected = chooser.showDialog(stage);
+        if (selected != null) saveCurrentProject(() -> beginLinkFolder(selected.toPath()), true);
+    }
+
+    /** Attach only the new source to the live revision: playback may advance while the worker scans. Existing
+     * players and waveform subscriptions remain intact, and late results cannot install into another session. */
+    private void beginLinkFolder(Path selected) {
+        long generation = session.beginLoad();
+        Path root = session.getRootPath();
+        ProjectState snapshot = session.snapshot().state();
+        setControlsDisabled(true);
+        statusLabel.setText(Texts.format(TextKey.STATUS_LINKING_FOLDER, selected));
+        Task<ProjectLoadResult> task = new Task<>() {
+            @Override protected ProjectLoadResult call() throws Exception { return projectService.linkFolder(root, snapshot, selected); }
+        };
+        task.setOnSucceeded(event -> {
+            if (shuttingDown || !session.acceptsLoad(generation)) return;
+            ProjectState attached = task.getValue().getProjectState();
+            session.getState().getLinkedAudioFolders().addAll(attached.getLinkedAudioFolders());
+            List<AudioFile> files = new ArrayList<>(session.getState().getAudioFiles());
+            files.addAll(attached.getAudioFiles());
+            session.getState().setAudioFiles(files);
+            audioFileIndex.update(session.getState());
+            session.cancelLoad();
+            setControlsDisabled(false);
+            rebuildTree();
+            requestProjectSave();
+            statusLabel.setText(Texts.format(TextKey.STATUS_LINKED_FOLDER, selected));
+        });
+        task.setOnFailed(event -> {
+            if (shuttingDown || !session.acceptsLoad(generation)) return;
+            session.failLoad(generation);
+            setControlsDisabled(false);
+            statusLabel.setText(Texts.text(TextKey.LINKED_FOLDER_LINK_FAILED));
+            Exception failure = asException(task.getException());
+            LOGGER.warn("Could not link audio folder {}", selected, failure);
+            String detail = failure instanceof LinkedAudioFolderException reason
+                    ? Texts.text(reason.getReason() == LinkedAudioFolderException.Reason.ALREADY_LINKED
+                    ? TextKey.LINKED_FOLDER_ALREADY_LINKED : TextKey.LINKED_FOLDER_INSIDE_PROJECT)
+                    : Texts.text(TextKey.LINKED_FOLDER_LINK_FAILED_MESSAGE);
+            showError(Texts.text(TextKey.LINKED_FOLDER_LINK_FAILED), detail);
+        });
+        executorService.submit(task);
+    }
+
+    private void confirmUnlinkFolder(UUID folderId) {
+        if (session.isLoading() || session.isClosing() || saving || !confirmRecoverySave()) return;
+        session.getState().getLinkedAudioFolders().stream().filter(folder -> folder.getId().equals(folderId)).findFirst()
+                .ifPresent(folder -> {
+                    String title = Texts.text(TextKey.MAIN_UNLINK_FOLDER);
+                    String path = linkedFolderLocation(folder);
+                    if (ConfirmationDialogs.confirm(stage, this::styleConfirmation, Alert.AlertType.CONFIRMATION,
+                            title, folder.displayName(), Texts.format(TextKey.LINKED_FOLDER_UNLINK_FIRST, path))) {
+                        unlinkAudioFolder(folderId);
+                        statusLabel.setText(Texts.format(TextKey.STATUS_UNLINKED_FOLDER, path));
+                    }
+                });
+    }
+
+    private void styleConfirmation(Alert alert) {
+        skinService.apply(alert.getDialogPane());
+        alert.getDialogPane().getStyleClass().addAll("settings-dialog", "settings-confirmation-dialog");
+    }
+
+    /** Remove source references in one FX-thread edit, then refresh only affected owners. The queue refresh
+     * detaches its old callback before disposal, preventing removal from being interpreted as track completion. */
+    private void unlinkAudioFolder(UUID folderId) {
+        Set<UUID> files = session.getState().getAudioFiles().stream().filter(file -> folderId.equals(file.getLinkedFolderId()))
+                .map(AudioFile::getId).collect(Collectors.toSet());
+        List<UUID> tracks = session.getState().getWorkspaceTracks().stream().filter(track -> files.contains(track.getAudioFileId()))
+                .map(WorkspaceTrack::getId).toList();
+        List<UUID> queues = session.getState().getWorkspaceQueues().stream()
+                .filter(queue -> queue.getTracks().stream().anyMatch(track -> files.contains(track.getAudioFileId())))
+                .map(WorkspaceQueue::getId).toList();
+        List<UUID> tiles = session.getState().getWorkspaceVirtualTiles().stream()
+                .filter(tile -> tile.getTracks().stream().anyMatch(track -> files.contains(track.getAudioFileId())))
+                .map(WorkspaceVirtualTile::getId).toList();
+        projectStateEditor.unlinkAudioFolder(session.getState(), folderId);
+        for (UUID id : tracks) {
+            WorkspaceTrackItem item = workspaceTrackItems.remove(id);
+            if (item != null) item.dispose();
+            TrackTileView view = trackTileViews.remove(id);
+            if (view != null) view.dispose();
+        }
+        audioFileIndex.update(session.getState());
+        queues.forEach(this::refreshQueueView);
+        tiles.forEach(this::refreshVirtualTile);
+        rebuildTree();
+        refreshWorkspaceOrder();
+        refreshWorkspaceTransportButtons();
+        requestProjectSave();
+    }
+
+    private void refreshRecentProjects() {
+        recentProjectsButton.getItems().clear();
+        for (Path path : lastProjectPreferences.loadRecent()) {
+            MenuItem item = new MenuItem(path.toString());
+            item.setOnAction(event -> loadProject(path, false));
+            recentProjectsButton.getItems().add(item);
+        }
+        if (recentProjectsButton.getItems().isEmpty()) {
+            MenuItem empty = new MenuItem(Texts.text(TextKey.MAIN_RECENT_PROJECTS_EMPTY));
+            empty.setDisable(true);
+            recentProjectsButton.getItems().add(empty);
+        }
     }
 
     private void chooseFolder() {
@@ -664,10 +844,11 @@ public class MainView extends BorderPane {
         long generation = session.beginLoad();
         setControlsDisabled(true);
         statusLabel.setText(Texts.format(TextKey.STATUS_LOADING, rootPath));
+        ProjectState rebuildSources = rebuild ? session.snapshot().state() : null;
         Task<ProjectLoadResult> loadTask = new Task<>() {
             @Override
             protected ProjectLoadResult call() throws Exception {
-                return rebuild ? projectService.rebuildProjectState(rootPath) : projectService.loadProject(rootPath);
+                return rebuild ? projectService.rebuildProjectState(rootPath, rebuildSources) : projectService.loadProject(rootPath);
             }
         };
         loadTask.setOnSucceeded(event -> {
@@ -723,14 +904,22 @@ public class MainView extends BorderPane {
     private void buildRealTree(TreeItem<TreeNodeValue> realRoot) {
         Map<String, TreeItem<TreeNodeValue>> folderIndex = new HashMap<>();
         folderIndex.put("", realRoot);
+        for (LinkedAudioFolder folder : session.getState().getLinkedAudioFolders()) {
+            TreeItem<TreeNodeValue> linkedRoot = new TreeItem<>(new TreeNodeValue(TreeNodeType.LINKED_FOLDER,
+                    folder.displayName(), null, folder.isUnavailable(), folder.getId()));
+            realRoot.getChildren().add(linkedRoot);
+            folderIndex.put(folder.getId() + ":", linkedRoot);
+        }
 
         session.getState().getAudioFiles().stream()
                 .filter(audioFile -> !audioFile.isMissing())
                 .sorted(Comparator.comparing(AudioFile::getRelativePath, String.CASE_INSENSITIVE_ORDER))
                 .forEach(audioFile -> {
                     String[] pathParts = audioFile.getRelativePath().split("/");
+                    String sourcePrefix = audioFile.getLinkedFolderId() == null ? "" : audioFile.getLinkedFolderId() + ":";
                     StringBuilder currentFolderPath = new StringBuilder();
-                    TreeItem<TreeNodeValue> parentItem = realRoot;
+                    TreeItem<TreeNodeValue> parentItem = folderIndex.get(sourcePrefix);
+                    if (parentItem == null) return;
 
                     for (int index = 0; index < pathParts.length - 1; index++) {
                         if (!currentFolderPath.isEmpty()) {
@@ -738,7 +927,7 @@ public class MainView extends BorderPane {
                         }
                         currentFolderPath.append(pathParts[index]);
 
-                        String folderPathKey = currentFolderPath.toString();
+                        String folderPathKey = sourcePrefix + currentFolderPath;
                         TreeItem<TreeNodeValue> folderItem = folderIndex.get(folderPathKey);
                         if (folderItem == null) {
                             folderItem = new TreeItem<>(new TreeNodeValue(TreeNodeType.REAL_FOLDER, pathParts[index], null, false));
@@ -774,7 +963,7 @@ public class MainView extends BorderPane {
 
     private int treeNodeRank(TreeNodeType treeNodeType) {
         return switch (treeNodeType) {
-            case REAL_ROOT, REAL_FOLDER -> 0;
+            case REAL_ROOT, REAL_FOLDER, LINKED_FOLDER -> 0;
             default -> 1;
         };
     }
@@ -782,7 +971,7 @@ public class MainView extends BorderPane {
     private void rebuildWorkspace() {
         rebuildingWorkspace = true;
         clearWorkspace();
-        audioFileIndex = new AudioFileIndex(session.getState().getAudioFiles());
+        audioFileIndex = new AudioFileIndex(session.getState());
 
         for (WorkspaceTrack workspaceTrack : sortedWorkspaceTracks()) {
             createWorkspaceTrackTile(workspaceTrack);
@@ -1072,6 +1261,7 @@ public class MainView extends BorderPane {
                 ButtonType.CANCEL
         );
         alert.initOwner(stage);
+        styleConfirmation(alert);
         alert.setTitle(Texts.text(TextKey.DIALOG_CLEAR_TITLE));
         alert.setHeaderText(Texts.text(TextKey.DIALOG_CLEAR_TITLE));
         if (alert.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
@@ -1096,6 +1286,7 @@ public class MainView extends BorderPane {
                 ButtonType.CANCEL
         );
         alert.initOwner(stage);
+        styleConfirmation(alert);
         alert.setTitle(Texts.text(TextKey.MAIN_REBUILD_SAVE));
         alert.setHeaderText(Texts.text(TextKey.DIALOG_REBUILD_TITLE));
         if (alert.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
@@ -1124,7 +1315,7 @@ public class MainView extends BorderPane {
     private void createWorkspaceTrackTile(WorkspaceTrack workspaceTrack) {
         AudioFile audioFile = findAudioFileForWorkspace(workspaceTrack.getAudioFileId());
         WorkspaceTrackItem workspaceTrackItem = new WorkspaceTrackItem(
-                session.getRootPath(),
+                audioFileIndex.root(session.getRootPath(), audioFile),
                 workspaceTrack,
                 audioFile,
                 audioEngine,
@@ -1514,7 +1705,9 @@ public class MainView extends BorderPane {
         workspaceStopButton.setDisable(disabled);
         masterVolumeSlider.setDisable(disabled);
         openFolderButton.setDisable(disabled);
+        recentProjectsButton.setDisable(disabled);
         rescanButton.setDisable(disabled || session.getRootPath() == null);
+        linkFolderButton.setDisable(disabled || session.getRootPath() == null);
         saveButton.setDisable(disabled || session.getRootPath() == null);
         clearWorkspaceButton.setDisable(disabled || session.getRootPath() == null);
         rebuildStateButton.setDisable(disabled || session.getRootPath() == null);
@@ -1532,10 +1725,18 @@ public class MainView extends BorderPane {
     }
 
     private void showError(String title, String message, Exception exception) {
-        Alert alert = new Alert(Alert.AlertType.ERROR, message + System.lineSeparator() + exception.getMessage(), ButtonType.OK);
+        LOGGER.warn("{}: {}", title, message, exception);
+        String detail = exception.getMessage();
+        showError(title, detail == null || detail.isBlank() ? message : detail);
+    }
+
+    private void showError(String title, String detail) {
+        Alert alert = new Alert(Alert.AlertType.ERROR, detail, ButtonType.OK);
         alert.initOwner(stage);
+        skinService.apply(alert.getDialogPane());
+        alert.getDialogPane().getStyleClass().addAll("settings-dialog", "settings-error-dialog");
         alert.setTitle(title);
-        alert.setHeaderText(title);
+        alert.setHeaderText(null);
         alert.showAndWait();
     }
 

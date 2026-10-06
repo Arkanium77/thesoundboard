@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "team.isaz"
-version = "1.2.0"
+version = "1.3.0"
 val applicationVersion = version.toString()
 
 java {
@@ -38,6 +38,16 @@ repositories {
 }
 
 dependencies {
+    implementation("games.rednblack.miniaudio:miniaudio:0.8")
+    // The binding publishes libGDX utilities as runtime-only, but its public API implements their interfaces.
+    implementation("com.badlogicgames.gdx:gdx:1.14.2")
+    runtimeOnly("games.rednblack.miniaudio:gdx-miniaudio-platform:0.8:natives-desktop")
+    implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3") {
+        exclude(group = "junit", module = "junit")
+    }
+    implementation("org.jflac:jflac-codec:1.5.2")
+    implementation("io.github.jaredmdobson:concentus:1.0.2")
+    implementation("org.gagravarr:vorbis-java-core:0.8")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.19.4")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.19.4")
     implementation("com.googlecode.soundlibs:mp3spi:1.9.5.4") {
@@ -306,6 +316,9 @@ val prepareRelease by tasks.registering(Sync::class) {
         into(appImageDirectoryName)
     }
     from("README.md", "SKIN_AUTHORING.md", "LOCALIZATION_AUTHORING.md", "LICENSE", "NOTICE")
+    from("src/main/resources/licenses") {
+        into("THIRD-PARTY-LICENSES")
+    }
     from(listOf("src/main/resources/emoji/Twemoji-MIT.txt", "src/main/resources/emoji/Twemoji-CC-BY-4.0.txt")) {
         into("THIRD-PARTY-LICENSES")
     }
@@ -415,5 +428,42 @@ tasks.register("release") {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform { excludeTags("audio-device", "audio-benchmark") }
+}
+
+tasks.register<Test>("audioDeviceTest") {
+    description = "Compares real JavaFX and miniaudio playback; requires a working audio output and graphical session."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("audio-device") }
+    maxParallelForks = 1
+    outputs.upToDateWhen { false }
+}
+
+tasks.register<Test>("audioBenchmark") {
+    description = "Measures playback CPU, JVM heap and threads for both engines; requires audio output and a graphical session."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("audio-benchmark") }
+    maxParallelForks = 1
+    outputs.upToDateWhen { false }
+    testLogging.showStandardStreams = true
+}
+
+tasks.register<JavaExec>("runJavaFx") {
+    description = "Runs the application with the original JavaFX audio engine."
+    group = "application"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass = application.mainClass
+    args("--audio-engine=javafx")
+}
+
+tasks.register<JavaExec>("runMiniaudio") {
+    description = "Runs the application with the streaming miniaudio engine."
+    group = "application"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass = application.mainClass
+    args("--audio-engine=miniaudio")
 }

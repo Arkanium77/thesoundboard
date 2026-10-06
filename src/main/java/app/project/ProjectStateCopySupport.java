@@ -1,6 +1,7 @@
 package app.project;
 
 import app.model.AudioFile;
+import app.model.LinkedAudioFolder;
 import app.model.ProjectState;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
@@ -18,6 +19,14 @@ public final class ProjectStateCopySupport {
     public static ProjectState copy(ProjectState source) {
         ProjectState copy = new ProjectState(source.getSchemaVersion());
         copy.setMasterVolume(source.getMasterVolume());
+        List<LinkedAudioFolder> folders = new ArrayList<>();
+        for (LinkedAudioFolder folder : source.getLinkedAudioFolders()) {
+            LinkedAudioFolder copied = new LinkedAudioFolder(folder.getId(), folder.getLocation(), folder.isRelative());
+            copied.setName(folder.getName());
+            copied.setUnavailable(folder.isUnavailable());
+            folders.add(copied);
+        }
+        copy.setLinkedAudioFolders(folders);
         copy.setAudioFiles(copyAudioFiles(source.getAudioFiles()));
         copy.setWorkspaceTracks(copyWorkspaceTracks(source.getWorkspaceTracks()));
         copy.setWorkspaceQueues(copyWorkspaceQueues(source.getWorkspaceQueues()));
@@ -28,12 +37,14 @@ public final class ProjectStateCopySupport {
     private static List<AudioFile> copyAudioFiles(List<AudioFile> source) {
         List<AudioFile> audioFiles = new ArrayList<>();
         for (AudioFile audioFile : source) {
-            audioFiles.add(new AudioFile(
+            AudioFile copied = new AudioFile(
                     audioFile.getId(),
                     audioFile.getRelativePath(),
                     audioFile.getDisplayName(),
                     audioFile.isMissing()
-            ));
+            );
+            copied.setLinkedFolderId(audioFile.getLinkedFolderId());
+            audioFiles.add(copied);
         }
         return audioFiles;
     }
@@ -63,6 +74,7 @@ public final class ProjectStateCopySupport {
                     workspaceQueue.isLoopQueue()
             );
             copiedQueue.setShuffleEnabled(workspaceQueue.isShuffleEnabled());
+            copiedQueue.setLoopCurrentTrack(workspaceQueue.getLoopCurrentTrack());
             copiedQueue.setSelectedTrackId(workspaceQueue.getSelectedTrackId());
             copiedQueue.setTracks(copyQueueTracks(workspaceQueue.getTracks()));
             workspaceQueues.add(copiedQueue);

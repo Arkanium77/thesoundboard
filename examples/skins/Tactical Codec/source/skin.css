@@ -268,3 +268,10 @@
 .package-source-row-odd {
     -fx-background-color: -tsb-paper-dark;
 }
+
+.menu-item .label {
+    -fx-text-fill: -tsb-ink;
+}
+.menu-item:focused .label {
+    -fx-text-fill: #f5edd2;
+}

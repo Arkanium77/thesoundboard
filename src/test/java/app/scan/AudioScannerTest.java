@@ -11,6 +11,16 @@ import java.util.List;
 
 class AudioScannerTest {
     @Test
+    void appliesContentSupportBeforeSynchronizingTheLibrary() throws IOException {
+        Path tempDir = TestDirectorySupport.createTempDirectory("audio-scanner-content-");
+        Files.writeString(tempDir.resolve("supported.ogg"), "audio");
+        Files.writeString(tempDir.resolve("unsupported.ogg"), "audio");
+        AudioScanner scanner = new AudioScanner(List.of("ogg"), path -> path.getFileName().toString().equals("supported.ogg"));
+        Assertions.assertThat(scanner.scan(tempDir)).extracting(ScannedAudioFile::getRelativePath)
+                .containsExactly("supported.ogg");
+    }
+
+    @Test
     void scansRecursivelyAndStoresRelativePaths() throws IOException {
         Path tempDir = TestDirectorySupport.createTempDirectory("audio-scanner-");
         Path nestedFolder = Files.createDirectories(tempDir.resolve("battle").resolve("dragons"));

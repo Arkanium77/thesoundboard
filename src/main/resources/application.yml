@@ -6,6 +6,10 @@ app:
   scanner:
     supportedExtensions:
       - mp3
+      - wav
+      - ogg
+      - flac
+      - opus
   workspace:
     defaultVolume: 0.8
     defaultMasterVolume: 1.0
