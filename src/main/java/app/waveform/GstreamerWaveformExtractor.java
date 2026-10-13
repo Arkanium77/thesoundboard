@@ -7,7 +7,6 @@ import javafx.util.Duration;
 import org.freedesktop.gstreamer.Buffer;
 import org.freedesktop.gstreamer.Caps;
 import org.freedesktop.gstreamer.BusSyncReply;
-import org.freedesktop.gstreamer.message.ErrorMessage;
 import org.freedesktop.gstreamer.message.MessageType;
 import org.freedesktop.gstreamer.Element;
 import org.freedesktop.gstreamer.Gst;
@@ -38,7 +37,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * A single owned caps snapshot caches PCM layout across buffers: repeatedly parsing identical native structures
  * adds JNI work for every decoder frame. Compare caps before reusing layout so renegotiation still validates channel
  * count and rejects sample-rate changes. The snapshot is bounded metadata, released with the pipeline. Bus filtering
- * copies errors synchronously without scheduling unused messages on the binding's global executor.
+ * schedules only errors on the binding's global executor. Keep typed Bus.ERROR parsing: ErrorMessage.getMessage()
+ * frees a JNA Structure that JNA auto-reads afterwards, dereferencing freed string memory on Linux/macOS. The typed
+ * callback frees through a raw pointer, preserving error reporting without touching released native storage.
  * Caps and PCM buffers are borrowed from each Sample in this binding. Unmap before disposing the owning Sample;
  * separately disposing a borrowed wrapper can invalidate native storage still owned by the sample or another decoder.
  */
@@ -78,10 +79,8 @@ public class GstreamerWaveformExtractor implements WaveformExtractor {
         Element source = pipeline.getElementByName("source");
         Bus bus = pipeline.getBus();
         AtomicReference<String> failure = new AtomicReference<>();
-        bus.setSyncHandler(message -> {
-            if (message.getType() == MessageType.ERROR) failure.set(((ErrorMessage) message).getMessage());
-            return BusSyncReply.DROP;
-        });
+        bus.connect((Bus.ERROR) (object, code, message) -> failure.set(message));
+        bus.setSyncHandler(message -> message.getType() == MessageType.ERROR ? BusSyncReply.PASS : BusSyncReply.DROP);
         WaveformAccumulator accumulator = new WaveformAccumulator(resolution, 1);
         long frames = 0;
         int sampleRate = 0;

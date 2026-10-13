@@ -2,8 +2,8 @@ package app.audio;
 
 import app.model.PlaybackStatus;
 import javafx.util.Duration;
+import org.freedesktop.gstreamer.Bus;
 import org.freedesktop.gstreamer.BusSyncReply;
-import org.freedesktop.gstreamer.message.ErrorMessage;
 import org.freedesktop.gstreamer.Caps;
 import org.freedesktop.gstreamer.Element;
 import org.freedesktop.gstreamer.ElementFactory;
@@ -28,8 +28,9 @@ import java.util.concurrent.TimeUnit;
  * control work directly on the engine executor. The binding's default bus watch schedules every message
  * (including unobserved state/tag messages) on its global executor first;
  * bypassing that hop avoids task bursts when many tiles start or stop. No playback state changes run inside a native
- * callback. Error text is copied before returning DROP because the binding releases the message on return; native
- * messages must never escape into queued commands. Listeners run on JavaFX and are looked up at delivery time
+ * callback. Errors alone pass to the binding's typed Bus.ERROR callback, which frees GError through a raw pointer.
+ * ErrorMessage.getMessage() instead frees a JNA Structure: JNA then auto-reads freed string memory and can crash
+ * the process on Linux/macOS. Keep the pointer-based error path; native messages must not escape into queued work. Listeners run on JavaFX and are looked up at delivery time
  * so a queue transfer cannot notify the previous owner. Cached
  * timestamps keep native duration/position queries off the rendering thread. Between native samples the UI advances
  * from a monotonic timestamp, avoiding a staircase cursor or a 200 ms artificial first-play delay. NULL precedes disposal.
@@ -103,14 +104,13 @@ final class GstreamerPlayingTrack implements PlayingTrack {
                     target.dispose();
                 }
             });
-            player.getBus().setSyncHandler(message -> {
+            Bus bus = player.getBus();
+            bus.connect((Bus.ERROR) (source, code, message) -> engine.execute(() -> fail(message)));
+            bus.setSyncHandler(message -> {
                 switch (message.getType()) {
                     case ASYNC_DONE -> engine.execute(this::prerolled);
                     case EOS -> engine.execute(this::ended);
-                    case ERROR -> {
-                        String detail = ((ErrorMessage) message).getMessage();
-                        engine.execute(() -> fail(detail));
-                    }
+                    case ERROR -> { return BusSyncReply.PASS; }
                     case DURATION_CHANGED -> engine.execute(this::refreshDuration);
                     default -> { }
                 }
