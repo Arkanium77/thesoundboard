@@ -109,6 +109,36 @@ class GstreamerIntegrationTest {
 
     @Test
     @Timeout(30)
+    void replaysAfterStopAndEndWithRecreatedDecoderPads() throws Exception {
+        prepareRuntime();
+        GstreamerAudioEngine engine = new GstreamerAudioEngine(Runnable::run, "fakesink");
+        try {
+            for (String extension : List.of("mp3", "wav", "ogg", "flac", "opus")) {
+                PlayingTrack track = engine.createTrack(Path.of(getClass().getResource("/audio/tone." + extension).toURI()));
+                for (int replay = 0; replay < 3; replay++) {
+                    track.play();
+                    await(() -> track.getStatus() == PlaybackStatus.PLAYING || track.getStatus() == PlaybackStatus.ERROR);
+                    Assertions.assertThat(track.getStatus()).as(extension).isEqualTo(PlaybackStatus.PLAYING);
+                    await(() -> track.getCurrentTime().toMillis() > 50d);
+                    track.stop();
+                    await(() -> track.getStatus() == PlaybackStatus.STOPPED);
+                    Assertions.assertThat(track.getCurrentTime()).isEqualTo(Duration.ZERO);
+                }
+                track.play();
+                await(() -> track.getStatus() == PlaybackStatus.FINISHED || track.getStatus() == PlaybackStatus.ERROR);
+                Assertions.assertThat(track.getStatus()).as(extension).isEqualTo(PlaybackStatus.FINISHED);
+                track.play();
+                await(() -> track.getStatus() == PlaybackStatus.PLAYING || track.getStatus() == PlaybackStatus.ERROR);
+                Assertions.assertThat(track.getStatus()).as(extension).isEqualTo(PlaybackStatus.PLAYING);
+                track.dispose();
+            }
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    @Timeout(30)
     void buildsBoundedWaveformsUsingThePlaybackDecoderFamily() throws Exception {
         prepareRuntime();
         GstreamerWaveformExtractor extractor = new GstreamerWaveformExtractor(128);
@@ -207,6 +237,10 @@ class GstreamerIntegrationTest {
                 track.play();
                 await(() -> track.getStatus() == PlaybackStatus.FINISHED || track.getStatus() == PlaybackStatus.ERROR);
                 Assertions.assertThat(track.getStatus()).as(extension).isEqualTo(PlaybackStatus.FINISHED);
+                track.restorePlayback(Duration.millis(300), true);
+                await(() -> track.getStatus() == PlaybackStatus.PAUSED || track.getStatus() == PlaybackStatus.ERROR);
+                Assertions.assertThat(track.getStatus()).as(extension).isEqualTo(PlaybackStatus.PAUSED);
+                Assertions.assertThat(track.getCurrentTime().toMillis()).as(extension).isBetween(250d, 350d);
                 track.dispose();
             }
         } finally {

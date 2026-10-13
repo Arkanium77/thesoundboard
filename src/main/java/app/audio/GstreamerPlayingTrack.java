@@ -3,18 +3,22 @@ package app.audio;
 import app.model.PlaybackStatus;
 import javafx.util.Duration;
 import org.freedesktop.gstreamer.Bus;
+import org.freedesktop.gstreamer.Caps;
 import org.freedesktop.gstreamer.Element;
 import org.freedesktop.gstreamer.ElementFactory;
 import org.freedesktop.gstreamer.Format;
+import org.freedesktop.gstreamer.Pad;
+import org.freedesktop.gstreamer.Pipeline;
 import org.freedesktop.gstreamer.State;
 import org.freedesktop.gstreamer.StateChangeReturn;
-import org.freedesktop.gstreamer.elements.PlayBin;
 import org.freedesktop.gstreamer.event.SeekFlags;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
@@ -27,14 +31,20 @@ import java.util.concurrent.TimeUnit;
  * Windows uses the C WASAPI plugin: WASAPI2's newer C++ mutex implementation crashes with the older MSVC
  * runtime already loaded by supported JDK 21 installations. Changing a DLL directory cannot replace that runtime.
  * Initial validation, Stop and end use NULL, retaining only the reusable player shell and known duration. PAUSED would
- * keep decoder/device threads for every tile ever created. Resume from Pause stays warm; replay after Stop prerolls and applies the pending
- * seek again. ASYNC_DONE is accepted only when the current pipeline really reached PAUSED/PLAYING, not a stale stop.
+ * keep decoder/device threads for every tile ever created. Resume from Pause stays warm; replay after Stop prerolls
+ * and applies any requested seek. ASYNC_DONE is accepted only when the pipeline reached PAUSED/PLAYING, not a stale stop.
+ * A local audio-only chain avoids PlayBin's extra playback queue/task per tile. Decodebin retains the same format
+ * discovery, while conversion/resampling and software gain stay explicit. Its dynamic pad must be linked on every
+ * activation: parseLaunch's delayed link only survives the first preroll and breaks replay after NULL. NULL already
+ * resets the source to zero, so replay must not add a redundant flushing seek unless the caller requested a position.
  */
 final class GstreamerPlayingTrack implements PlayingTrack {
     private static final Logger LOGGER = LoggerFactory.getLogger(GstreamerPlayingTrack.class);
     private final GstreamerAudioEngine engine;
     private final Path path;
-    private PlayBin player;
+    private final List<Element> elements = new ArrayList<>();
+    private Pipeline player;
+    private Element gain;
     private volatile PlaybackStatus status = PlaybackStatus.READY;
     private volatile Duration currentTime = Duration.ZERO;
     private volatile Duration totalDuration = Duration.ZERO;
@@ -56,18 +66,34 @@ final class GstreamerPlayingTrack implements PlayingTrack {
     void initialize() {
         if (disposed) return;
         try {
-            player = new PlayBin("soundboard-track", path.toUri());
-            // Audio and software volume only: omit video/subtitles, but retain independent tile/master gain.
-            player.set("flags", 2 | 16);
+            player = new Pipeline("soundboard-track");
+            Element fileSource = element("filesrc", "soundboard-source");
+            Element decoder = element("decodebin", "soundboard-decoder");
+            Element convert = element("audioconvert", "soundboard-convert");
+            Element resample = element("audioresample", "soundboard-resample");
+            gain = element("volume", "soundboard-gain");
             String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
             String outputFactory = engine.outputFactory();
             if (outputFactory == null) outputFactory = os.contains("windows") ? "wasapisink"
                     : os.contains("mac") ? "osxaudiosink" : "pulsesink";
-            Element output = ElementFactory.make(outputFactory, "soundboard-output");
+            Element output = element(outputFactory, "soundboard-output");
             output.set("sync", true);
             if (outputFactory.equals("wasapisink")) output.set("low-latency", true);
-            player.setAudioSink(output);
-            output.dispose();
+            player.addMany(fileSource, decoder, convert, resample, gain, output);
+            fileSource.set("location", path.toString());
+            if (!Element.linkMany(fileSource, decoder) || !Element.linkMany(convert, resample, gain, output)) {
+                throw new IllegalStateException("Cannot connect the audio pipeline");
+            }
+            decoder.connect((Element.PAD_ADDED) (element, pad) -> {
+                Pad target = convert.getStaticPad("sink");
+                Caps caps = pad.getCurrentCaps();
+                try {
+                    if (!target.isLinked() && caps != null && caps.toString().startsWith("audio/")) pad.link(target);
+                } finally {
+                    if (caps != null) caps.dispose();
+                    target.dispose();
+                }
+            });
             player.getBus().connect((Bus.ASYNC_DONE) source -> engine.execute(() -> {
                 if (disposed || ready) return;
                 State state = player.getState(0, TimeUnit.NANOSECONDS);
@@ -89,7 +115,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
             player.getBus().connect((Bus.ERROR) (source, code, message) ->
                     engine.execute(() -> fail(message)));
             player.getBus().connect((Bus.DURATION_CHANGED) source -> engine.execute(this::refreshDuration));
-            player.setVolume(volume);
+            gain.set("volume", volume);
             initializedAt = System.nanoTime();
             if (player.setState(State.PAUSED) == StateChangeReturn.FAILURE) fail("Cannot open the audio stream");
         } catch (RuntimeException | Error exception) {
@@ -98,11 +124,16 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         }
     }
 
+    private Element element(String factory, String name) {
+        Element element = ElementFactory.make(factory, name);
+        elements.add(element);
+        return element;
+    }
+
     @Override
     public void play() {
         engine.execute(() -> {
             if (disposed) return;
-            if (requested == PlaybackStatus.FINISHED) pendingSeek = Duration.ZERO;
             requested = PlaybackStatus.PLAYING;
             applyRequested();
         });
@@ -190,7 +221,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         player.setState(State.NULL);
         ready = false;
         initializedAt = 0;
-        pendingSeek = Duration.ZERO;
+        pendingSeek = null;
         currentTime = Duration.ZERO;
         positionUpdatedAt = 0;
         updateStatus(value);
@@ -200,7 +231,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
     public void setVolume(double volume) {
         engine.execute(() -> {
             this.volume = Math.max(0d, Math.min(1d, volume));
-            if (!disposed && player != null) player.setVolume(this.volume);
+            if (!disposed && gain != null) gain.set("volume", this.volume);
         });
     }
 
@@ -277,8 +308,11 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         listener = () -> { };
         if (player != null) {
             player.setState(State.NULL);
+            elements.forEach(Element::dispose);
+            elements.clear();
             player.dispose();
             player = null;
+            gain = null;
         }
         engine.remove(this);
     }
