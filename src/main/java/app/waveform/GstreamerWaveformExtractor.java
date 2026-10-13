@@ -5,6 +5,10 @@ import com.sun.jna.Library;
 import com.sun.jna.Pointer;
 import javafx.util.Duration;
 import org.freedesktop.gstreamer.Buffer;
+import org.freedesktop.gstreamer.Caps;
+import org.freedesktop.gstreamer.BusSyncReply;
+import org.freedesktop.gstreamer.message.ErrorMessage;
+import org.freedesktop.gstreamer.message.MessageType;
 import org.freedesktop.gstreamer.Element;
 import org.freedesktop.gstreamer.Gst;
 import org.freedesktop.gstreamer.Pipeline;
@@ -31,6 +35,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * speculative work waits in its priority queue, where a selected track can overtake it, instead of at this semaphore.
  * All source channels contribute to the envelope; downmixing could cancel out a transient. Starting with one-frame
  * buckets preserves detail in short sound effects while adaptive merging bounds long recordings to the same memory.
+ * A single owned caps snapshot caches PCM layout across buffers: repeatedly parsing identical native structures
+ * adds JNI work for every decoder frame. Compare caps before reusing layout so renegotiation still validates channel
+ * count and rejects sample-rate changes. The snapshot is bounded metadata, released with the pipeline. Bus filtering
+ * copies errors synchronously without scheduling unused messages on the binding's global executor.
  * Caps and PCM buffers are borrowed from each Sample in this binding. Unmap before disposing the owning Sample;
  * separately disposing a borrowed wrapper can invalidate native storage still owned by the sample or another decoder.
  */
@@ -70,10 +78,15 @@ public class GstreamerWaveformExtractor implements WaveformExtractor {
         Element source = pipeline.getElementByName("source");
         Bus bus = pipeline.getBus();
         AtomicReference<String> failure = new AtomicReference<>();
-        bus.connect((Bus.ERROR) (object, code, message) -> failure.set(message));
+        bus.setSyncHandler(message -> {
+            if (message.getType() == MessageType.ERROR) failure.set(((ErrorMessage) message).getMessage());
+            return BusSyncReply.DROP;
+        });
         WaveformAccumulator accumulator = new WaveformAccumulator(resolution, 1);
         long frames = 0;
         int sampleRate = 0;
+        int channels = 0;
+        Caps decodedCaps = null;
         long lastData = System.nanoTime();
         try {
             source.set("location", path.toAbsolutePath().toString());
@@ -92,11 +105,16 @@ public class GstreamerWaveformExtractor implements WaveformExtractor {
                 }
                 Sample sample = Natives.callerOwnsReturn(pointer, Sample.class);
                 try {
-                    int rate = sample.getCaps().getStructure(0).getInteger("rate");
-                    int channels = sample.getCaps().getStructure(0).getInteger("channels");
-                    if (channels < 1 || channels > 64) throw new IOException("Unexpected decoded channel count");
-                    if (sampleRate != 0 && sampleRate != rate) throw new IOException("Audio sample rate changed");
-                    sampleRate = rate;
+                    Caps caps = sample.getCaps();
+                    if (decodedCaps == null || !decodedCaps.isEqual(caps)) {
+                        int rate = caps.getStructure(0).getInteger("rate");
+                        channels = caps.getStructure(0).getInteger("channels");
+                        if (channels < 1 || channels > 64) throw new IOException("Unexpected decoded channel count");
+                        if (sampleRate != 0 && sampleRate != rate) throw new IOException("Audio sample rate changed");
+                        sampleRate = rate;
+                        if (decodedCaps != null) decodedCaps.dispose();
+                        decodedCaps = caps.copy();
+                    }
                     Buffer buffer = sample.getBuffer();
                     ByteBuffer bytes = buffer.map(false);
                     if (bytes == null) throw new IOException("Cannot map decoded PCM");
@@ -129,6 +147,7 @@ public class GstreamerWaveformExtractor implements WaveformExtractor {
         } finally {
             pipeline.setState(State.NULL);
             pipeline.getState(5, TimeUnit.SECONDS);
+            if (decodedCaps != null) decodedCaps.dispose();
             source.dispose();
             sink.dispose();
             bus.dispose();

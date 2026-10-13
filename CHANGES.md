@@ -21,19 +21,21 @@ Release descriptions, newest version first. This file is maintained in the repos
 
 ### Playback and waveforms
 
-- Added streaming playback and waveforms for OGG Vorbis, Opus and FLAC, including FLAC inside OGG, through the default miniaudio engine.
+- Added streaming playback and waveforms for MP3, WAV, OGG Vorbis, Opus, FLAC, AAC, M4A and AIFF through the default GStreamer engine, with bundled native libraries for Windows, Linux and macOS.
 - Read OGG duration from container metadata so streaming playback and seeking work when the decoder's length query is unavailable.
 - Detect the codec inside OGG containers during library scans so unsupported files receive the existing unavailable-file appearance before playback.
 - Automatically highlight the first track and display its waveform when tracks are added to an empty queue.
 - Keep the repeat-current-track control on the queue so its state and playback behavior remain consistent when selecting another track.
 - Buffer encoded waveform input to reduce small filesystem reads during analysis.
+- Prepare waveforms for queued workspace tracks in the background, prioritizing the selected track. The top-bar loading indicator follows pending work without resizing Master Volume.
+- Show actionable native-library startup errors on Windows, Linux and macOS.
 
 ### Audio engine performance
 
-- Made miniaudio the default playback engine; JavaFX remains available through `--audio-engine=javafx`.
-- Reduced memory use during extended playback with miniaudio. In a one-hour Windows GUI comparison using a 96-MP3 project, median process memory after Stop decreased from approximately 2,481 to 491 MiB (80%).
-- Reduced operating-system threads during playback of 35 simultaneous tracks from approximately 298 to 84 in the same comparison.
-- Accelerated playback startup and seeking: median time until the playback position first advanced decreased from approximately 170 to 6 ms for a track's first Play, and from 40 to 12 ms for subsequent Plays.
+- Made GStreamer the default playback engine; miniaudio and JavaFX remain available through `--audio-engine=miniaudio` and `--audio-engine=javafx`.
+- Reduced native playback tasks when multiple tracks play simultaneously and released audio-device resources held by stopped tracks.
+- Reduced repeated native metadata parsing while preparing waveforms.
+- Accelerated playback startup on Windows by reducing repeated audio-device negotiation.
 
 ## 1.2.0 — 2026-09-26
 

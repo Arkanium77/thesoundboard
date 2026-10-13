@@ -26,6 +26,7 @@ import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CountDownLatch;
@@ -133,6 +134,41 @@ class GstreamerIntegrationTest {
                 track.dispose();
             }
         } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void handlesConcurrentTrackStateBurstsAndRecreatesStoppedOutputs() throws Exception {
+        prepareRuntime();
+        GstreamerAudioEngine engine = new GstreamerAudioEngine(Runnable::run, "fakesink");
+        List<PlayingTrack> tracks = new ArrayList<>();
+        try {
+            Path path = Path.of(getClass().getResource("/audio/tone.mp3").toURI());
+            for (int index = 0; index < 24; index++) {
+                PlayingTrack track = engine.createTrack(path);
+                track.setLoop(true);
+                tracks.add(track);
+            }
+            for (int cycle = 0; cycle < 3; cycle++) {
+                tracks.forEach(PlayingTrack::play);
+                await(() -> tracks.stream().allMatch(track -> track.getStatus() == PlaybackStatus.PLAYING));
+                tracks.forEach(PlayingTrack::stop);
+                await(() -> tracks.stream().allMatch(track -> track.getStatus() == PlaybackStatus.STOPPED));
+                Assertions.assertThat(tracks).allSatisfy(track ->
+                        Assertions.assertThat(track.getCurrentTime()).isEqualTo(Duration.ZERO));
+            }
+            tracks.forEach(track -> track.restorePlayback(Duration.millis(300), true));
+            await(() -> tracks.stream().allMatch(track -> track.getStatus() == PlaybackStatus.PAUSED));
+            tracks.getFirst().play();
+            await(() -> tracks.getFirst().getStatus() == PlaybackStatus.PLAYING);
+            Assertions.assertThat(tracks.subList(1, tracks.size())).allSatisfy(track -> {
+                Assertions.assertThat(track.getStatus()).isEqualTo(PlaybackStatus.PAUSED);
+                Assertions.assertThat(track.getCurrentTime().toMillis()).isBetween(250d, 350d);
+            });
+        } finally {
+            tracks.forEach(PlayingTrack::dispose);
             engine.shutdown();
         }
     }

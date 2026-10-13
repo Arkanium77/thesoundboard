@@ -2,7 +2,8 @@ package app.audio;
 
 import app.model.PlaybackStatus;
 import javafx.util.Duration;
-import org.freedesktop.gstreamer.Bus;
+import org.freedesktop.gstreamer.BusSyncReply;
+import org.freedesktop.gstreamer.message.ErrorMessage;
 import org.freedesktop.gstreamer.Caps;
 import org.freedesktop.gstreamer.Element;
 import org.freedesktop.gstreamer.ElementFactory;
@@ -19,13 +20,17 @@ import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Prerolls silently and defers the entire position-before-play sequence until ASYNC_DONE. In particular a paused
- * ownership transfer must never briefly start the device. Native bus callbacks only enqueue control work; listeners
- * run on JavaFX and are looked up at delivery time so a queue transfer cannot notify the previous owner. Cached
+ * ownership transfer must never briefly start the device. Native bus callbacks filter notifications before queuing
+ * control work directly on the engine executor. The binding's default bus watch schedules every message
+ * (including unobserved state/tag messages) on its global executor first;
+ * bypassing that hop avoids task bursts when many tiles start or stop. No playback state changes run inside a native
+ * callback. Error text is copied before returning DROP because the binding releases the message on return; native
+ * messages must never escape into queued commands. Listeners run on JavaFX and are looked up at delivery time
+ * so a queue transfer cannot notify the previous owner. Cached
  * timestamps keep native duration/position queries off the rendering thread. Between native samples the UI advances
  * from a monotonic timestamp, avoiding a staircase cursor or a 200 ms artificial first-play delay. NULL precedes disposal.
  * Windows uses the C WASAPI plugin: WASAPI2's newer C++ mutex implementation crashes with the older MSVC
@@ -34,7 +39,9 @@ import java.util.concurrent.TimeUnit;
  * every cold trigger cost about 10 ms in both preroll and measured loopback onset, without a resume benefit on the
  * tested device. Other drivers may benefit from AudioClient3; the system property
  * thesoundboard.gstreamer.wasapi.audioclient3 retains that option without changing saved projects or other platforms.
- * Initial validation, Stop and end use NULL, retaining only the reusable player shell and known duration. PAUSED would
+ * Initial validation, Stop and end use NULL, retaining only the reusable decoder shell and known duration. The device
+ * sink is detached while idle and reattached before preroll; only one spare is retained per engine, because leaving
+ * every WASAPI sink in NULL still retains device-enumerator threads. PAUSED would
  * keep decoder/device threads for every tile ever created. Resume from Pause stays warm; replay after Stop prerolls
  * and applies any requested seek. ASYNC_DONE is accepted only when the pipeline reached PAUSED/PLAYING, not a stale stop.
  * A local audio-only chain avoids PlayBin's extra playback queue/task per tile. Decodebin retains the same format
@@ -51,6 +58,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
     private final List<Element> elements = new ArrayList<>();
     private Pipeline player;
     private Element gain;
+    private Element output;
     private volatile PlaybackStatus status = PlaybackStatus.READY;
     private volatile Duration currentTime = Duration.ZERO;
     private volatile Duration totalDuration = Duration.ZERO;
@@ -78,21 +86,11 @@ final class GstreamerPlayingTrack implements PlayingTrack {
             Element convert = element("audioconvert", "soundboard-convert");
             Element resample = element("audioresample", "soundboard-resample");
             gain = element("volume", "soundboard-gain");
-            String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-            String outputFactory = engine.outputFactory();
-            if (outputFactory == null) outputFactory = os.contains("windows") ? "wasapisink"
-                    : os.contains("mac") ? "osxaudiosink" : "pulsesink";
-            Element output = element(outputFactory, "soundboard-output");
-            output.set("sync", true);
-            if (outputFactory.equals("wasapisink")) {
-                output.set("low-latency", true);
-                output.set("use-audioclient3", Boolean.getBoolean("thesoundboard.gstreamer.wasapi.audioclient3"));
-            }
             for (Element element : elements) {
                 if (!player.add(element)) throw new IllegalStateException("Cannot add an audio element");
             }
             fileSource.set("location", path.toString());
-            if (!fileSource.link(decoder) || !convert.link(resample) || !resample.link(gain) || !gain.link(output)) {
+            if (!fileSource.link(decoder) || !convert.link(resample) || !resample.link(gain)) {
                 throw new IllegalStateException("Cannot connect the audio pipeline");
             }
             decoder.connect((Element.PAD_ADDED) (element, pad) -> {
@@ -105,27 +103,20 @@ final class GstreamerPlayingTrack implements PlayingTrack {
                     target.dispose();
                 }
             });
-            player.getBus().connect((Bus.ASYNC_DONE) source -> engine.execute(() -> {
-                if (disposed || ready) return;
-                State state = player.getState(0, TimeUnit.NANOSECONDS);
-                if (state != State.PAUSED && state != State.PLAYING) return;
-                ready = true;
-                refreshPosition();
-                applyRequested();
-            }));
-            player.getBus().connect((Bus.EOS) source -> engine.execute(() -> {
-                if (disposed || requested != PlaybackStatus.PLAYING) return;
-                if (loop) {
-                    pendingSeek = Duration.ZERO;
-                    applyRequested();
-                } else {
-                    requested = PlaybackStatus.FINISHED;
-                    idle(PlaybackStatus.FINISHED);
+            player.getBus().setSyncHandler(message -> {
+                switch (message.getType()) {
+                    case ASYNC_DONE -> engine.execute(this::prerolled);
+                    case EOS -> engine.execute(this::ended);
+                    case ERROR -> {
+                        String detail = ((ErrorMessage) message).getMessage();
+                        engine.execute(() -> fail(detail));
+                    }
+                    case DURATION_CHANGED -> engine.execute(this::refreshDuration);
+                    default -> { }
                 }
-            }));
-            player.getBus().connect((Bus.ERROR) (source, code, message) ->
-                    engine.execute(() -> fail(message)));
-            player.getBus().connect((Bus.DURATION_CHANGED) source -> engine.execute(this::refreshDuration));
+                return BusSyncReply.DROP;
+            });
+            attachOutput();
             gain.set("volume", volume);
             initializedAt = System.nanoTime();
             if (player.setState(State.PAUSED) == StateChangeReturn.FAILURE) fail("Cannot open the audio stream");
@@ -133,6 +124,50 @@ final class GstreamerPlayingTrack implements PlayingTrack {
             LOGGER.warn("Cannot initialize the GStreamer player for {}", path, exception);
             fail(exception.getMessage());
         }
+    }
+
+    private void prerolled() {
+        if (disposed || ready) return;
+        State state = player.getState(0, TimeUnit.NANOSECONDS);
+        if (state != State.PAUSED && state != State.PLAYING) return;
+        ready = true;
+        refreshPosition();
+        applyRequested();
+    }
+
+    private void ended() {
+        if (disposed || requested != PlaybackStatus.PLAYING) return;
+        if (loop) {
+            pendingSeek = Duration.ZERO;
+            applyRequested();
+        } else {
+            requested = PlaybackStatus.FINISHED;
+            idle(PlaybackStatus.FINISHED);
+        }
+    }
+
+    /**
+     * Keep the decoder shell reusable, but return the idle device object to the engine's bounded spare slot.
+     * NULL alone stops streaming without releasing WASAPI's device-enumerator resources; retaining one sink per visited tile keeps idle native
+     * threads alive. Pause deliberately retains its sink for warm resume. The old sink is removed only after NULL,
+     * and an exclusively acquired sink is linked before preroll, preserving decoder replay and independent seeking.
+     */
+    private void attachOutput() {
+        if (output != null) return;
+        output = engine.acquireOutput();
+        elements.add(output);
+        if (!player.add(output) || !gain.link(output)) {
+            throw new IllegalStateException("Cannot connect the audio output");
+        }
+    }
+
+    private void detachOutput() {
+        if (output == null) return;
+        gain.unlink(output);
+        player.remove(output);
+        elements.remove(output);
+        engine.recycleOutput(output);
+        output = null;
     }
 
     private Element element(String factory, String name) {
@@ -198,6 +233,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         }
         if (!ready) {
             if (initializedAt == 0) {
+                attachOutput();
                 initializedAt = System.nanoTime();
                 if (player.setState(State.PAUSED) == StateChangeReturn.FAILURE) fail("Cannot open the audio stream");
             }
@@ -230,6 +266,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
 
     private void idle(PlaybackStatus value) {
         player.setState(State.NULL);
+        detachOutput();
         ready = false;
         initializedAt = 0;
         pendingSeek = null;
@@ -278,7 +315,10 @@ final class GstreamerPlayingTrack implements PlayingTrack {
     private void fail(String message) {
         if (disposed) return;
         LOGGER.warn("GStreamer cannot play {}: {}", path, message);
-        if (player != null) player.setState(State.NULL);
+        if (player != null) {
+            player.setState(State.NULL);
+            detachOutput();
+        }
         updateStatus(PlaybackStatus.ERROR);
     }
 
@@ -319,11 +359,13 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         listener = () -> { };
         if (player != null) {
             player.setState(State.NULL);
+            detachOutput();
             elements.forEach(Element::dispose);
             elements.clear();
             player.dispose();
             player = null;
             gain = null;
+            output = null;
         }
         engine.remove(this);
     }
