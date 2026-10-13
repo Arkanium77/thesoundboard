@@ -50,7 +50,7 @@ jobs:
         if: runner.os == 'Windows'
         run: .\gradlew.bat check --no-daemon --console=plain
 
-      - name: Set up Python for the experimental native runtime
+      - name: Set up Python for the bundled audio runtime
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -62,3 +62,41 @@ jobs:
       - name: Verify private GStreamer decoders on Windows
         if: runner.os == 'Windows'
         run: .\gradlew.bat gstreamerTest --no-daemon --max-workers=1 --console=plain
+
+      # Decoder tests alone do not prove jpackage kept the private libraries in the app bundle.
+      - name: Package and verify the default backend on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ./gradlew release --no-daemon --max-workers=1 --console=plain
+          app=$(find build -path '*/TheSoundboard.app/Contents/app' -type d -print -quit)
+          test -n "$app"
+          cat > "$RUNNER_TEMP/DefaultAudioEngineProbe.java" <<'JAVA'
+          import app.audio.AudioEngine;
+          import app.audio.AudioEngineMode;
+          import app.audio.GstreamerAudioEngine;
+          import app.audio.GstreamerRuntime;
+          import java.util.List;
+          public class DefaultAudioEngineProbe {
+              public static void main(String[] args) {
+                  AudioEngineMode mode = AudioEngineMode.fromArguments(List.of());
+                  if (mode != AudioEngineMode.GSTREAMER) throw new AssertionError(mode);
+                  AudioEngine engine = mode.createEngine();
+                  if (!(engine instanceof GstreamerAudioEngine)) throw new AssertionError(engine.getClass());
+                  engine.shutdown();
+                  GstreamerRuntime.shutdown();
+                  System.out.println("DEFAULT_GSTREAMER_PACKAGED_RUNTIME_OK");
+              }
+          }
+          JAVA
+          javac -cp "$app/*" -d "$RUNNER_TEMP" "$RUNNER_TEMP/DefaultAudioEngineProbe.java"
+          java -cp "$RUNNER_TEMP:$app/*" DefaultAudioEngineProbe
+
+      - name: Upload verified macOS package
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: thesoundboard-${{ matrix.os }}
+          path: build/release/*.dmg
+          if-no-files-found: error
+          retention-days: 7
