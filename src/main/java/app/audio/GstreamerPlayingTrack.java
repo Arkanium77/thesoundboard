@@ -40,11 +40,13 @@ import java.util.concurrent.TimeUnit;
  * every cold trigger cost about 10 ms in both preroll and measured loopback onset, without a resume benefit on the
  * tested device. Other drivers may benefit from AudioClient3; the system property
  * thesoundboard.gstreamer.wasapi.audioclient3 retains that option without changing saved projects or other platforms.
- * Initial validation, Stop and end use NULL, retaining only the reusable decoder shell and known duration. The device
- * sink is detached while idle and reattached before preroll; only one spare is retained per engine, because leaving
- * every WASAPI sink in NULL still retains device-enumerator threads. PAUSED would
- * keep decoder/device threads for every tile ever created. Resume from Pause stays warm; replay after Stop prerolls
- * and applies any requested seek. ASYNC_DONE is accepted only when the pipeline reached PAUSED/PLAYING, not a stale stop.
+ * Initial validation and end use NULL, retaining only the reusable decoder shell and known duration. Stop first
+ * pauses the device so a workspace burst becomes silent without waiting for every native destructor. A bounded
+ * idle reaper closes stopped pipelines shortly afterwards, one per callback, yielding to newly queued commands.
+ * A replay inside this grace must flush-seek to zero (or the requested stopped position), never resume the old audio.
+ * Afterwards replay prerolls normally without a redundant zero seek. A stopped seek survives background teardown.
+ * Only one detached NULL sink is retained per engine; leaving every WASAPI sink alive retains enumerator threads.
+ * Explicit Pause keeps its own warm pipeline and cancels pending idle teardown. ASYNC_DONE is accepted only when the pipeline reached PAUSED/PLAYING, not a stale stop.
  * A local audio-only chain avoids PlayBin's extra playback queue/task per tile. Decodebin retains the same format
  * discovery, while conversion/resampling and software gain stay explicit. Its dynamic pad must be linked on every
  * activation: parseLaunch's delayed link only survives the first preroll and breaks replay after NULL. NULL already
@@ -67,6 +69,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
     private volatile Runnable listener = () -> { };
     private volatile boolean disposed;
     private boolean ready;
+    private boolean warmStopped;
     private boolean loop;
     private double volume = 1d;
     private Duration pendingSeek;
@@ -195,7 +198,20 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         engine.execute(() -> {
             if (disposed || player == null) return;
             requested = PlaybackStatus.STOPPED;
-            idle(PlaybackStatus.STOPPED);
+            if (!engine.deferredStop() || !ready || output == null || status == PlaybackStatus.ERROR) {
+                idle(PlaybackStatus.STOPPED);
+                return;
+            }
+            if (player.setState(State.PAUSED) == StateChangeReturn.FAILURE) {
+                fail("Cannot stop the audio stream");
+                return;
+            }
+            warmStopped = true;
+            pendingSeek = null;
+            currentTime = Duration.ZERO;
+            positionUpdatedAt = 0;
+            updateStatus(PlaybackStatus.STOPPED);
+            engine.deferIdle(this);
         });
     }
 
@@ -243,6 +259,11 @@ final class GstreamerPlayingTrack implements PlayingTrack {
             idle(PlaybackStatus.READY);
             return;
         }
+        engine.cancelIdle(this);
+        if (warmStopped) {
+            warmStopped = false;
+            if (pendingSeek == null) pendingSeek = Duration.ZERO;
+        }
         if (pendingSeek != null) {
             Duration position = pendingSeek;
             pendingSeek = null;
@@ -264,11 +285,23 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         updateStatus(requested);
     }
 
-    private void idle(PlaybackStatus value) {
+    /** Leave the stopped position untouched during teardown so JavaFX cannot briefly observe a reset seek. */
+    void idleIfStopped() {
+        if (disposed || requested != PlaybackStatus.STOPPED || !warmStopped) return;
+        closeOutput();
+    }
+
+    private void closeOutput() {
+        engine.cancelIdle(this);
         player.setState(State.NULL);
         detachOutput();
         ready = false;
+        warmStopped = false;
         initializedAt = 0;
+    }
+
+    private void idle(PlaybackStatus value) {
+        closeOutput();
         pendingSeek = null;
         currentTime = Duration.ZERO;
         positionUpdatedAt = 0;
@@ -315,10 +348,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
     private void fail(String message) {
         if (disposed) return;
         LOGGER.warn("GStreamer cannot play {}: {}", path, message);
-        if (player != null) {
-            player.setState(State.NULL);
-            detachOutput();
-        }
+        if (player != null) closeOutput();
         updateStatus(PlaybackStatus.ERROR);
     }
 
@@ -358,8 +388,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         disposed = true;
         listener = () -> { };
         if (player != null) {
-            player.setState(State.NULL);
-            detachOutput();
+            closeOutput();
             elements.forEach(Element::dispose);
             elements.clear();
             player.dispose();

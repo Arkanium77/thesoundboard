@@ -36,6 +36,7 @@ Release descriptions, newest version first. This file is maintained in the repos
 - Reduced native playback tasks when multiple tracks play simultaneously and released audio-device resources held by stopped tracks.
 - Reduced repeated native metadata parsing while preparing waveforms.
 - Accelerated playback startup on Windows by reducing repeated audio-device negotiation.
+- Stop multiple tracks promptly and release their audio devices in the background, keeping new playback commands responsive.
 
 ## 1.2.0 — 2026-09-26
 

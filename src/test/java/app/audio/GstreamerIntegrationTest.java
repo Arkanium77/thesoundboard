@@ -140,6 +140,69 @@ class GstreamerIntegrationTest {
 
     @Test
     @Timeout(30)
+    void preservesStoppedSeekThroughIdleTeardownAndResetsWarmReplay() throws Exception {
+        prepareRuntime();
+        GstreamerAudioEngine engine = new GstreamerAudioEngine(Runnable::run, "fakesink");
+        try {
+            PlayingTrack track = engine.createTrack(Path.of(getClass().getResource("/audio/tone.mp3").toURI()));
+            track.setLoop(true);
+            track.restorePlayback(Duration.millis(600), true);
+            await(() -> track.getStatus() == PlaybackStatus.PAUSED);
+            track.stop();
+            track.play();
+            await(() -> track.getStatus() == PlaybackStatus.PLAYING);
+            Assertions.assertThat(track.getCurrentTime().toMillis()).isBetween(0d, 200d);
+            track.stop();
+            track.seek(Duration.millis(300));
+            await(() -> track.getStatus() == PlaybackStatus.STOPPED
+                    && Math.abs(track.getCurrentTime().toMillis() - 300d) < 50d);
+            Thread.sleep(250);
+            Assertions.assertThat(track.getCurrentTime().toMillis()).isBetween(250d, 350d);
+            track.play();
+            await(() -> track.getStatus() == PlaybackStatus.PLAYING);
+            Assertions.assertThat(track.getCurrentTime().toMillis()).isBetween(250d, 500d);
+            track.dispose();
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void keepsStoppedSeeksWhenABurstExceedsTheIdleGraceCapacity() throws Exception {
+        prepareRuntime();
+        GstreamerAudioEngine engine = new GstreamerAudioEngine(Runnable::run, "fakesink");
+        List<PlayingTrack> tracks = new ArrayList<>();
+        try {
+            Path path = Path.of(getClass().getResource("/audio/tone.mp3").toURI());
+            for (int index = 0; index < 70; index++) {
+                PlayingTrack track = engine.createTrack(path);
+                track.setLoop(true);
+                track.play();
+                tracks.add(track);
+            }
+            await(() -> tracks.stream().allMatch(track -> track.getStatus() == PlaybackStatus.PLAYING));
+            tracks.forEach(track -> {
+                track.stop();
+                track.seek(Duration.millis(300));
+            });
+            await(() -> tracks.stream().allMatch(track -> track.getStatus() == PlaybackStatus.STOPPED
+                    && Math.abs(track.getCurrentTime().toMillis() - 300d) < 50d));
+            Thread.sleep(500);
+            Assertions.assertThat(tracks).allSatisfy(track ->
+                    Assertions.assertThat(track.getCurrentTime().toMillis()).isBetween(250d, 350d));
+            tracks.forEach(track -> track.restorePlayback(Duration.millis(300), true));
+            await(() -> tracks.stream().allMatch(track -> track.getStatus() == PlaybackStatus.PAUSED));
+            Assertions.assertThat(tracks).allSatisfy(track ->
+                    Assertions.assertThat(track.getCurrentTime().toMillis()).isBetween(250d, 350d));
+        } finally {
+            tracks.forEach(PlayingTrack::dispose);
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    @Timeout(30)
     void handlesConcurrentTrackStateBurstsAndRecreatesStoppedOutputs() throws Exception {
         prepareRuntime();
         GstreamerAudioEngine engine = new GstreamerAudioEngine(Runnable::run, "fakesink");
@@ -286,6 +349,11 @@ class GstreamerIntegrationTest {
                 await(() -> track.getStatus() == PlaybackStatus.PAUSED || track.getStatus() == PlaybackStatus.ERROR);
                 Assertions.assertThat(track.getStatus()).as(extension).isEqualTo(PlaybackStatus.PAUSED);
                 Assertions.assertThat(track.getCurrentTime().toMillis()).as(extension).isBetween(250d, 350d);
+                track.stop();
+                track.play();
+                await(() -> track.getStatus() == PlaybackStatus.PLAYING || track.getStatus() == PlaybackStatus.ERROR);
+                Assertions.assertThat(track.getStatus()).as(extension).isEqualTo(PlaybackStatus.PLAYING);
+                Assertions.assertThat(track.getCurrentTime().toMillis()).as(extension).isBetween(0d, 200d);
                 track.dispose();
             }
         } finally {

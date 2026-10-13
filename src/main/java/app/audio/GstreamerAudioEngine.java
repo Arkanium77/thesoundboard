@@ -8,10 +8,13 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
@@ -35,6 +38,9 @@ public class GstreamerAudioEngine implements AudioEngine {
     private final Set<GstreamerPlayingTrack> tracks = new HashSet<>();
     private final Consumer<Runnable> dispatcher;
     private final String outputFactory;
+    private final boolean deferredStop = !Boolean.getBoolean("thesoundboard.gstreamer.immediateStop");
+    private final LinkedHashMap<GstreamerPlayingTrack, Long> pendingIdle = new LinkedHashMap<>();
+    private ScheduledFuture<?> idleReaper;
     private Element idleOutput;
     private volatile boolean closed;
 
@@ -86,7 +92,60 @@ public class GstreamerAudioEngine implements AudioEngine {
     }
 
     void remove(GstreamerPlayingTrack track) {
+        cancelIdle(track);
         tracks.remove(track);
+    }
+
+    boolean deferredStop() { return deferredStop; }
+
+    /**
+     * Stop silences the device first; expensive device teardown must not postpone stopping the remaining tiles.
+     * A short grace also lets an immediate replay reset the paused decoder without reopening hardware. Drain only
+     * one idle track per scheduled callback, then reschedule in the future: queuing all closures at one deadline
+     * would put a new Play behind the whole batch. Track deadlines are inserted once and never extended by repeated
+     * Stop. The 64-entry bound applies backpressure for unusually large bursts instead of retaining unlimited devices.
+     * Every operation remains on the control executor. An explicit one-step Stop remains available for A/B measurement.
+     */
+    void deferIdle(GstreamerPlayingTrack track) {
+        if (closed) return;
+        pendingIdle.putIfAbsent(track, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50));
+        if (pendingIdle.size() > 64) reapOldestIdle();
+        scheduleIdleReaper();
+    }
+
+    void cancelIdle(GstreamerPlayingTrack track) {
+        pendingIdle.remove(track);
+        if (pendingIdle.isEmpty() && idleReaper != null) {
+            idleReaper.cancel(false);
+            idleReaper = null;
+        }
+    }
+
+    private void scheduleIdleReaper() {
+        if (closed || idleReaper != null || pendingIdle.isEmpty()) return;
+        long delay = Math.max(TimeUnit.MILLISECONDS.toNanos(1), pendingIdle.firstEntry().getValue() - System.nanoTime());
+        try {
+            idleReaper = executor.schedule(this::reapIdle, delay, TimeUnit.NANOSECONDS);
+        } catch (RejectedExecutionException exception) {
+            if (!closed) throw exception;
+        }
+    }
+
+    private void reapIdle() {
+        idleReaper = null;
+        try {
+            if (!pendingIdle.isEmpty() && pendingIdle.firstEntry().getValue() <= System.nanoTime()) reapOldestIdle();
+        } catch (RuntimeException | Error exception) {
+            LOGGER.error("GStreamer idle teardown failed", exception);
+            throw exception;
+        } finally {
+            scheduleIdleReaper();
+        }
+    }
+
+    private void reapOldestIdle() {
+        Map.Entry<GstreamerPlayingTrack, Long> entry = pendingIdle.pollFirstEntry();
+        if (entry != null) entry.getKey().idleIfStopped();
     }
 
     /**
@@ -124,6 +183,11 @@ public class GstreamerAudioEngine implements AudioEngine {
         if (closed) return;
         closed = true;
         executor.execute(() -> {
+            if (idleReaper != null) {
+                idleReaper.cancel(false);
+                idleReaper = null;
+            }
+            pendingIdle.clear();
             for (GstreamerPlayingTrack track : tracks.toArray(GstreamerPlayingTrack[]::new)) track.release();
             tracks.clear();
             if (idleOutput != null) {
