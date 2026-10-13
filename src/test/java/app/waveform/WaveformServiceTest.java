@@ -3,6 +3,8 @@ package app.waveform;
 import app.support.TestDirectorySupport;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -15,18 +17,58 @@ import java.io.InterruptedIOException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class WaveformServiceTest {
-    @Test
-    void limitsSpeculationAndPromotesExplicitRequests() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 8})
+    void limitsSpeculationAndPromotesExplicitRequests(int workerCount) throws Exception {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         List<String> extracted = Collections.synchronizedList(new ArrayList<>());
+        WaveformExtractor extractor = new WaveformExtractor() {
+            @Override
+            public int getMaxConcurrentLoads() { return 1; }
+
+            @Override
+            public WaveformData extract(Path path) throws InterruptedIOException {
+                extracted.add(path.getFileName().toString());
+                if (path.getFileName().toString().equals("first")) {
+                    started.countDown();
+                    try {
+                        if (!release.await(5, TimeUnit.SECONDS)) throw new InterruptedIOException("Timed out");
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new InterruptedIOException("Cancelled");
+                    }
+                }
+                return new WaveformData(new double[]{1d});
+            }
+        };
+        WaveformService service = new WaveformService(extractor, workerCount);
+        try {
+            service.preloadWaveforms(List.of(Path.of("first"), Path.of("second"), Path.of("third"),
+                    Path.of("fourth"), Path.of("not-admitted")));
+            Assertions.assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+            Assertions.assertThat(service.getPendingLoadCount()).isEqualTo(5);
+            var selected = service.loadWaveform(Path.of("fourth"));
+            release.countDown();
+            selected.get(5, TimeUnit.SECONDS);
+            Assertions.assertThat(List.copyOf(extracted).subList(0, 2)).containsExactly("first", "fourth");
+        } finally {
+            release.countDown();
+            service.shutdown();
+        }
+    }
+
+    @Test
+    void drainsAllPreloadsEvenWhenCurrentTracksInitiallyFillTheBudget() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        List<Path> extracted = Collections.synchronizedList(new ArrayList<>());
         WaveformService service = new WaveformService(path -> {
-            extracted.add(path.getFileName().toString());
-            if (path.getFileName().toString().equals("first")) {
+            extracted.add(path);
+            if (path.getFileName().toString().equals("current-0")) {
                 started.countDown();
-                try {
-                    if (!release.await(5, TimeUnit.SECONDS)) throw new InterruptedIOException("Timed out");
-                } catch (InterruptedException exception) {
+                try { release.await(); }
+                catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
                     throw new InterruptedIOException("Cancelled");
                 }
@@ -34,14 +76,17 @@ class WaveformServiceTest {
             return new WaveformData(new double[]{1d});
         }, 1);
         try {
-            service.preloadWaveforms(List.of(Path.of("first"), Path.of("second"), Path.of("third"),
-                    Path.of("fourth"), Path.of("not-admitted")));
+            for (int index = 0; index < 4; index++) service.loadWaveform(Path.of("current-" + index));
             Assertions.assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
-            Assertions.assertThat(service.getPendingLoadCount()).isEqualTo(4);
-            var selected = service.loadWaveform(Path.of("fourth"));
+            List<Path> paths = new ArrayList<>();
+            for (int index = 0; index < 20; index++) paths.add(Path.of("queued-" + index).toAbsolutePath());
+            service.preloadWaveforms(paths);
+            Assertions.assertThat(service.getPendingLoadCount()).isEqualTo(24);
             release.countDown();
-            selected.get(5, TimeUnit.SECONDS);
-            Assertions.assertThat(List.copyOf(extracted).subList(0, 2)).containsExactly("first", "fourth");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (service.getPendingLoadCount() != 0 && System.nanoTime() < deadline) Thread.sleep(5);
+            Assertions.assertThat(service.getPendingLoadCount()).isZero();
+            Assertions.assertThat(extracted).containsAll(paths).hasSize(24);
         } finally {
             release.countDown();
             service.shutdown();
@@ -66,6 +111,8 @@ class WaveformServiceTest {
             var running = service.loadWaveform(Path.of("first"));
             Assertions.assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
             var queued = service.loadWaveform(Path.of("second"));
+            service.preloadWaveforms(List.of(Path.of("third"), Path.of("fourth"), Path.of("fifth"),
+                    Path.of("sixth"), Path.of("seventh")));
             service.clear();
             Assertions.assertThat(interrupted.await(5, TimeUnit.SECONDS)).isTrue();
             Assertions.assertThat(running.get(5, TimeUnit.SECONDS).isEmpty()).isTrue();

@@ -7,12 +7,15 @@ import java.util.List;
 
 class AudioEngineModeTest {
     @Test
-    void keepsMiniaudioDefaultAndAcceptsJavaFxOverride() {
-        Assertions.assertThat(AudioEngineMode.fromArguments(List.of())).isEqualTo(AudioEngineMode.MINIAUDIO);
+    void usesGstreamerByDefaultAndKeepsExplicitBackendOverrides() {
+        Assertions.assertThat(AudioEngineMode.fromArguments(List.of())).isEqualTo(AudioEngineMode.GSTREAMER);
+        Assertions.assertThat(AudioEngineMode.fromArguments(List.of("--restore-session"))).isEqualTo(AudioEngineMode.GSTREAMER);
         Assertions.assertThat(AudioEngineMode.fromArguments(List.of("--restore-session", "--audio-engine=miniaudio")))
                 .isEqualTo(AudioEngineMode.MINIAUDIO);
         Assertions.assertThat(AudioEngineMode.fromArguments(List.of("--audio-engine=javafx")))
                 .isEqualTo(AudioEngineMode.JAVAFX);
+        Assertions.assertThat(AudioEngineMode.fromArguments(List.of("--audio-engine=gstreamer")))
+                .isEqualTo(AudioEngineMode.GSTREAMER);
     }
 
     @Test
@@ -33,5 +36,7 @@ class AudioEngineModeTest {
                 .containsExactly("mp3", "wav", "ogg", "flac", "opus");
         Assertions.assertThat(AudioEngineMode.MINIAUDIO.filterSupportedExtensions(List.of("mp3")))
                 .containsExactly("mp3");
+        Assertions.assertThat(AudioEngineMode.GSTREAMER.filterSupportedExtensions(configured))
+                .containsExactly("mp3", "wav", "ogg", "flac", "opus", "aac");
     }
 }

@@ -18,6 +18,8 @@ This product includes third-party software distributed under its own licenses:
   gdx-miniaudio bundles miniaudio (public domain or MIT No Attribution),
   libvorbis, libogg, libopus and libopusfile (Xiph BSD-style licenses).
   License texts and source links are included in THIRD-PARTY-LICENSES.
+- gst1-java-core, licensed under LGPL-3.0, and JNA, used under Apache License 2.0.
+  License texts and source links are included in THIRD-PARTY-LICENSES.
 - Twemoji graphics, Copyright 2019 Twitter, Inc and other contributors,
   licensed under CC BY 4.0. The application uses the Twemoji 17.0.3 PNG set
   for platform-independent emoji rendering. License texts are included at

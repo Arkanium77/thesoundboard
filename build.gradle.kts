@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import org.gradle.api.tasks.bundling.Compression
 import org.gradle.api.tasks.bundling.Tar
 import org.gradle.api.tasks.bundling.Zip
@@ -25,7 +26,7 @@ javafx {
 }
 
 application {
-    mainClass = "app.SoundboardLauncher"
+    mainClass = "app.SoundboardBootstrap"
 }
 
 val applicationName = "TheSoundboard"
@@ -38,6 +39,8 @@ repositories {
 }
 
 dependencies {
+    implementation("org.freedesktop.gstreamer:gst1-java-core:1.4.0")
+    implementation("net.java.dev.jna:jna:5.18.1")
     implementation("games.rednblack.miniaudio:miniaudio:0.8")
     // The binding publishes libGDX utilities as runtime-only, but its public API implements their interfaces.
     implementation("com.badlogicgames.gdx:gdx:1.14.2")
@@ -106,6 +109,19 @@ val releaseBaseName = "thesoundboard-$applicationVersion-$releasePlatform-$relea
 val packageRootDir = layout.buildDirectory.dir("package/$releasePlatform-$releaseArchitecture")
 val packageInputDir = packageRootDir.map { it.dir("input") }
 val packageOutputDir = packageRootDir.map { it.dir("output") }
+val gstreamerRuntimeDirectory = providers.gradleProperty("gstreamerRuntime").orNull?.let { file(it) }
+        ?: layout.buildDirectory.dir("gstreamer/$releasePlatform-$releaseArchitecture").get().asFile
+val prepareGstreamerRuntime by tasks.registering(Exec::class) {
+    group = "distribution"
+    description = "Assembles the experimental audio runtime from pinned ready-built binaries without native compilation."
+    inputs.dir("scripts/gstreamer")
+    inputs.property("platform", "$releasePlatform-$releaseArchitecture")
+    outputs.dir(gstreamerRuntimeDirectory)
+    commandLine(providers.gradleProperty("gstreamerPython").getOrElse(if (releasePlatform == "windows") "python" else "python3"),
+            "scripts/gstreamer/prepare-runtime.py", "--platform", "$releasePlatform-$releaseArchitecture",
+            "--output", gstreamerRuntimeDirectory.absolutePath,
+            "--downloads", layout.buildDirectory.dir("gstreamer/downloads").get().asFile.absolutePath)
+}
 val releaseStagingDir = layout.buildDirectory.dir("release/$releaseBaseName")
 val macosIcon = layout.buildDirectory.file("generated/icons/app-icon.icns")
 val applicationIcon = when (releasePlatform) {
@@ -242,6 +258,32 @@ val preparePackageInput by tasks.registering(Sync::class) {
     dependsOn(tasks.jar)
     from(tasks.jar)
     from(configurations.runtimeClasspath)
+    // The default backend must work in every ordinary release, without an opt-in build property.
+    // Only catalog-selected files are shipped; research data and probe registries stay outside the image.
+    if (!providers.gradleProperty("gstreamerRuntime").isPresent) dependsOn(prepareGstreamerRuntime)
+    val runtime = gstreamerRuntimeDirectory
+    val catalogFiles by lazy {
+        val manifest = JsonSlurper().parse(file("$runtime/runtime-manifest.json")) as Map<*, *>
+        (manifest["files"] as List<*>).map { (it as Map<*, *>)["file"] as String }.toSet()
+    }
+    from(runtime) {
+        into("gstreamer")
+        // Copy only the catalog: an old plugin left by an ordinary copy-over update must
+        // neither become active nor leak into a newly packaged experimental application.
+        include { element ->
+            val path = element.relativePath.pathString
+            element.isDirectory || path == "native-load-order.txt" || path == "runtime-manifest.json"
+                    || path.startsWith("licenses/") || path in catalogFiles
+        }
+    }
+    doFirst {
+        check(file("$runtime/lib/gstreamer-1.0").isDirectory) {
+            "GStreamer runtime has no private plugin directory: $runtime"
+        }
+        check(file("$runtime/runtime-manifest.json").isFile && file("$runtime/licenses/NOTICE.txt").isFile) {
+            "Packaged GStreamer requires a pinned manifest and native license notices: $runtime"
+        }
+    }
     into(packageInputDir)
 }
 
@@ -261,6 +303,7 @@ val createAppImage by tasks.registering(Exec::class) {
     inputs.property("macosBundleIdentifier", macosBundleIdentifier)
     inputs.file(applicationIcon)
     inputs.dir(packageInputDir)
+    if (releasePlatform == "linux") inputs.file("scripts/linux/launch.sh")
     outputs.dir(packageOutputDir)
 
     doFirst {
@@ -287,6 +330,20 @@ val createAppImage by tasks.registering(Exec::class) {
             ))
         }
         commandLine(jpackageArguments)
+    }
+    doLast {
+        if (releasePlatform == "linux") {
+            val image = packageOutputDir.get().dir(appImageDirectoryName).asFile
+            val launcher = image.resolve("bin/$applicationName")
+            check(launcher.renameTo(image.resolve("bin/$applicationName.bin"))) {
+                "Cannot preserve the native Linux launcher"
+            }
+            image.resolve("lib/app/$applicationName.cfg")
+                    .copyTo(image.resolve("lib/app/$applicationName.bin.cfg"))
+            // Windows checkouts may use CRLF; the Linux kernel requires an LF shebang.
+            launcher.writeText(file("scripts/linux/launch.sh").readText().replace("\r\n", "\n"))
+            check(launcher.setExecutable(true, false)) { "Cannot make the Linux launcher executable" }
+        }
     }
 }
 
@@ -342,6 +399,14 @@ val releaseTar by tasks.registering(Tar::class) {
     description = "Builds the Linux release archive."
     enabled = releasePlatform == "linux"
     from(releaseStagingDir)
+    inputs.property("linuxExecutablePermissions", "0755")
+    // Copy specs can normalize modes when staging on a Windows filesystem. Preserve Linux launchability
+    // explicitly for both the shell/native entry points and the bundled JVM's executables/helpers.
+    eachFile {
+        if (path.contains("/bin/") || path.endsWith("/lib/jspawnhelper") || path.endsWith("/lib/jexec")) {
+            permissions { unix("rwxr-xr-x") }
+        }
+    }
     archiveBaseName = releaseBaseName
     archiveVersion = ""
     archiveExtension = "tar.gz"
@@ -452,6 +517,23 @@ tasks.register<Test>("audioBenchmark") {
     testLogging.showStandardStreams = true
 }
 
+// Development launches and standard Gradle distributions need the same private runtime as jpackage images.
+tasks.named<JavaExec>("run") {
+    if (!providers.gradleProperty("gstreamerRuntime").isPresent) dependsOn(prepareGstreamerRuntime)
+    doFirst {
+        systemProperty("thesoundboard.gstreamer.path", gstreamerRuntimeDirectory.absolutePath)
+    }
+}
+
+distributions.named("main") {
+    contents {
+        from(preparePackageInput) {
+            include("gstreamer/**")
+            into("lib")
+        }
+    }
+}
+
 tasks.register<JavaExec>("runJavaFx") {
     description = "Runs the application with the original JavaFX audio engine."
     group = "application"
@@ -466,4 +548,28 @@ tasks.register<JavaExec>("runMiniaudio") {
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass = application.mainClass
     args("--audio-engine=miniaudio")
+}
+
+tasks.register<JavaExec>("runGstreamer") {
+    description = "Runs the default GStreamer engine with its private native runtime."
+    group = "application"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass = application.mainClass
+    args("--audio-engine=gstreamer")
+    if (!providers.gradleProperty("gstreamerRuntime").isPresent) dependsOn(prepareGstreamerRuntime)
+    doFirst {
+        systemProperty("thesoundboard.gstreamer.path", gstreamerRuntimeDirectory.absolutePath)
+    }
+}
+
+tasks.register<Test>("gstreamerTest") {
+    group = "verification"
+    description = "Exercises the real private decoder runtime with synthetic audio, seek, waveform and playback lifecycle."
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform()
+    include("**/GstreamerIntegrationTest.class")
+    if (!providers.gradleProperty("gstreamerRuntime").isPresent) dependsOn(prepareGstreamerRuntime)
+    inputs.dir(gstreamerRuntimeDirectory)
+    environment("THESOUNDBOARD_GSTREAMER_TEST_RUNTIME", gstreamerRuntimeDirectory.absolutePath)
 }

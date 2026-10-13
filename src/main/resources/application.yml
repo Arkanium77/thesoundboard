@@ -10,6 +10,10 @@ app:
       - ogg
       - flac
       - opus
+      - aac
+      - m4a
+      - aiff
+      - aif
   workspace:
     defaultVolume: 0.8
     defaultMasterVolume: 1.0

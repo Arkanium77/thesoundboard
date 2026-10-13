@@ -2,6 +2,7 @@ package app;
 
 import app.audio.AudioEngine;
 import app.audio.AudioEngineMode;
+import app.audio.GstreamerRuntime;
 import app.config.AppConfig;
 import app.config.AppConfigLoader;
 import app.config.LoggingConfigurer;
@@ -18,7 +19,6 @@ import app.skin.SkinService;
 import app.ui.UiScalePane;
 import app.ui.UiScalePreferences;
 import app.ui.main.MainView;
-import app.waveform.AudioInputStreamWaveformExtractor;
 import app.waveform.WaveformService;
 import app.waveform.WaveformDisplaySettings;
 import app.waveform.WaveformPreferences;
@@ -33,14 +33,27 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URL;
+import java.util.concurrent.TimeUnit;
 
 public class SoundboardApplication extends Application {
     private static final Logger LOGGER = LoggerFactory.getLogger(SoundboardApplication.class);
     private MainView mainView;
     private AudioEngine audioEngine;
+    private WaveformService waveformService;
+    private AudioEngineMode audioEngineMode;
 
     @Override
     public void start(Stage stage) {
+        try {
+            audioEngineMode = AudioEngineMode.fromArguments(getParameters().getRaw());
+            initialize(stage);
+        } catch (RuntimeException | Error exception) {
+            try { stop(); } catch (RuntimeException failure) { exception.addSuppressed(failure); }
+            throw exception;
+        }
+    }
+
+    private void initialize(Stage stage) {
         AppConfig appConfig = AppConfigLoader.load();
         LoggingConfigurer.configure(appConfig.getLogging());
         SkinService skinService = new SkinService();
@@ -49,7 +62,6 @@ public class SoundboardApplication extends Application {
         LastProjectPreferences lastProjectPreferences = new LastProjectPreferences();
         Texts.configure(localizationService);
 
-        AudioEngineMode audioEngineMode = AudioEngineMode.fromArguments(getParameters().getRaw());
         LOGGER.info("Selected audio engine: {}", audioEngineMode);
         AudioScanner audioScanner = new AudioScanner(audioEngineMode.filterSupportedExtensions(
                 appConfig.getScanner().getSupportedExtensions()), audioEngineMode::supportsFile);
@@ -64,8 +76,8 @@ public class SoundboardApplication extends Application {
         ProjectStateEditor projectStateEditor = new ProjectStateEditor();
         audioEngine = audioEngineMode.createEngine();
         int waveformWorkerCount = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
-        WaveformService waveformService = new WaveformService(
-                new AudioInputStreamWaveformExtractor(appConfig.getUi().getWaveformResolution()),
+        waveformService = new WaveformService(
+                audioEngineMode.createWaveformExtractor(appConfig.getUi().getWaveformResolution()),
                 waveformWorkerCount
         );
 
@@ -97,12 +109,27 @@ public class SoundboardApplication extends Application {
         mainView.restoreLastProject(applicationRestart);
     }
 
+    /** Startup may fail even before the engine is created, after the launcher initialized GStreamer. Keep the selected
+     * mode independently of the engine instance. Both close paths stop waveform pulls and drain playback before global
+     * teardown, so native callbacks and the runtime executor cannot outlive failed startup or the UI. */
     @Override
     public void stop() {
         if (mainView != null) {
             mainView.shutdown();
         }
+        if (waveformService != null) waveformService.shutdown();
         if (audioEngine != null) audioEngine.shutdown();
+        if (audioEngineMode == AudioEngineMode.GSTREAMER) {
+            try {
+                if (waveformService != null && !waveformService.awaitShutdown(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("GStreamer waveform shutdown timed out");
+                }
+                GstreamerRuntime.shutdown();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("GStreamer shutdown was interrupted", exception);
+            }
+        }
     }
 
     public static void main(String[] args) {

@@ -13,3 +13,7 @@
 - VorbisJava 0.8 Ogg reader: https://github.com/Gagravarr/VorbisJava (Apache-2.0).
 
 The accompanying Apache license and native license notices are copied from the released gdx-miniaudio 0.8 sources.
+
+- gst1-java-core 1.4.0: https://github.com/gstreamer-java/gst1-java-core/tree/v1.4.0 (LGPL-3.0).
+  The binding is unmodified; LGPL-3.0 and its incorporated GPL-3.0 text accompany this file.
+- JNA 5.18.1: https://github.com/java-native-access/jna/tree/5.18.1 (used under Apache-2.0).

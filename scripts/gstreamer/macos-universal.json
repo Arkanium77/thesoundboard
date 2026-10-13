@@ -1,0 +1,589 @@
+{
+  "schema": 1,
+  "platform": "macos-universal",
+  "gstreamerVersion": "1.28.7",
+  "experimental": true,
+  "upstream": "https://gstreamer.freedesktop.org/download/",
+  "buildRecipes": {
+    "url": "https://codeload.github.com/GStreamer/cerbero/tar.gz/refs/tags/1.28.7",
+    "sha256": "f4926fb8e730a8aba6742d497764b2906ad933639bc6e8905e11a5011b7195e3"
+  },
+  "archives": [
+    {
+      "name": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "url": "https://files.pythonhosted.org/packages/22/a3/969350d1f0708cb6a507d50531127c46930183f1422ad56adc96149e2416/gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "sha256": "5a181336d80f4be235a2a7a62deed2ef6a47846bad3bd76135bd6600774377af"
+    },
+    {
+      "name": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "url": "https://files.pythonhosted.org/packages/0e/14/0296d360ab2e23dc2bec75f7582a5bf7afc14eac8ba322aa3ec44d450921/gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "sha256": "8d39f567ce15447a884bdbd4c8f2be5f78f2abe125fba1928e80bbb5b22a9e2c"
+    },
+    {
+      "name": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "url": "https://files.pythonhosted.org/packages/7d/8c/ea1a272ece86216ad2ff4f7a024cd0bfd74e37889f8e6bb983d3de37b512/gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "sha256": "3691f3c649b426e82fbad423619c9012e19446db7e09a3b298c4c4ab33434bda"
+    },
+    {
+      "name": "cerbero-1.28.7.tar.gz",
+      "url": "https://codeload.github.com/GStreamer/cerbero/tar.gz/refs/tags/1.28.7",
+      "sha256": "f4926fb8e730a8aba6742d497764b2906ad933639bc6e8905e11a5011b7195e3"
+    },
+    {
+      "name": "glib-2.82.4.tar.xz",
+      "url": "https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz",
+      "sha256": "37dd0877fe964cd15e9a2710b044a1830fb1bd93652a6d0cb6b8b2dff187c709",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/glib/glib-2.82.4.tar.xz"
+      ]
+    },
+    {
+      "name": "libffi-meson-3.2.9999.5.tar.bz2",
+      "url": "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi/-/archive/meson-3.2.9999.5/libffi-meson-3.2.9999.5.tar.bz2",
+      "sha256": "b4d403932a8860589e571300e807e40bb4f7d9d2630c8ec19c29fb9e7b0fd227",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/libffi/libffi-meson-3.2.9999.5.tar.bz2"
+      ]
+    },
+    {
+      "name": "orc-0.4.42.tar.xz",
+      "url": "https://gstreamer.freedesktop.org/src/orc/orc-0.4.42.tar.xz",
+      "sha256": "7ec912ab59af3cc97874c456a56a8ae1eec520c385ec447e8a102b2bd122c90c",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/orc/orc-0.4.42.tar.xz"
+      ]
+    },
+    {
+      "name": "libogg-1.3.5.tar.xz",
+      "url": "https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz",
+      "sha256": "c4d91be36fc8e54deae7575241e03f4211eb102afb3fc0775fbbc1b740016705",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/libogg/libogg-1.3.5.tar.xz"
+      ]
+    },
+    {
+      "name": "libvorbis-1.3.7.tar.xz",
+      "url": "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz",
+      "sha256": "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/libvorbis/libvorbis-1.3.7.tar.xz"
+      ]
+    },
+    {
+      "name": "opus-1.5.2.tar.gz",
+      "url": "https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz",
+      "sha256": "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/opus/opus-1.5.2.tar.gz"
+      ]
+    },
+    {
+      "name": "flac-1.4.3.tar.xz",
+      "url": "https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz",
+      "sha256": "6c58e69cd22348f441b861092b825e591d0b822e106de6eb0ee4d05d27205b70",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/flac/flac-1.4.3.tar.xz"
+      ]
+    },
+    {
+      "name": "pcre2-10.42.tar.bz2",
+      "url": "https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2",
+      "sha256": "8d36cd8cb6ea2a4c2bb358ff6411b0c788633a2a45dabbf1aeb4b701d1b5e840",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/pcre2/pcre2-10.42.tar.bz2"
+      ]
+    },
+    {
+      "name": "bzip2-1.0.8.tar.gz",
+      "url": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz",
+      "sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/bzip2/bzip2-1.0.8.tar.gz"
+      ]
+    },
+    {
+      "name": "zlib-1.3.1.tar.gz",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/zlib/zlib-1.3.1.tar.gz"
+      ]
+    },
+    {
+      "name": "mpg123-1.32.7.tar.bz2",
+      "url": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.7/mpg123-1.32.7.tar.bz2",
+      "sha256": "3c8919243707951cac0e3c39bbf28653bcaffc43c98ff16801a27350db8f0f21",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/mpg123/mpg123-1.32.7.tar.bz2"
+      ]
+    },
+    {
+      "name": "proxy-libintl-0.5.tar.gz",
+      "url": "https://github.com/frida/proxy-libintl/archive/refs/tags/0.5.tar.gz",
+      "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/proxy-libintl/proxy-libintl-0.5.tar.gz"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstaiff.dylib",
+      "target": "lib/gstreamer-1.0/libgstaiff.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstapetag.dylib",
+      "target": "lib/gstreamer-1.0/libgstapetag.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/libgstapp.dylib",
+      "target": "lib/gstreamer-1.0/libgstapp.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/libgstaudioconvert.dylib",
+      "target": "lib/gstreamer-1.0/libgstaudioconvert.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/libgstaudiomixer.dylib",
+      "target": "lib/gstreamer-1.0/libgstaudiomixer.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstaudioparsers.dylib",
+      "target": "lib/gstreamer-1.0/libgstaudioparsers.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/libgstaudioresample.dylib",
+      "target": "lib/gstreamer-1.0/libgstaudioresample.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/libgstcoreelements.dylib",
+      "target": "lib/gstreamer-1.0/libgstcoreelements.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstflac.dylib",
+      "target": "lib/gstreamer-1.0/libgstflac.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstid3demux.dylib",
+      "target": "lib/gstreamer-1.0/libgstid3demux.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstisomp4.dylib",
+      "target": "lib/gstreamer-1.0/libgstisomp4.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstlibav.dylib",
+      "target": "lib/gstreamer-1.0/libgstlibav.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstmpg123.dylib",
+      "target": "lib/gstreamer-1.0/libgstmpg123.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstogg.dylib",
+      "target": "lib/gstreamer-1.0/libgstogg.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstopus.dylib",
+      "target": "lib/gstreamer-1.0/libgstopus.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstosxaudio.dylib",
+      "target": "lib/gstreamer-1.0/libgstosxaudio.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstplayback.dylib",
+      "target": "lib/gstreamer-1.0/libgstplayback.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/libgsttypefindfunctions.dylib",
+      "target": "lib/gstreamer-1.0/libgsttypefindfunctions.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/libgstvolume.dylib",
+      "target": "lib/gstreamer-1.0/libgstvolume.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstvorbis.dylib",
+      "target": "lib/gstreamer-1.0/libgstvorbis.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/libgstwavparse.dylib",
+      "target": "lib/gstreamer-1.0/libgstwavparse.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libavcodec.61.dylib",
+      "target": "lib/libavcodec.61.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libavfilter.10.dylib",
+      "target": "lib/libavfilter.10.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libavformat.61.dylib",
+      "target": "lib/libavformat.61.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libavutil.59.dylib",
+      "target": "lib/libavutil.59.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libbz2.1.dylib",
+      "target": "lib/libbz2.1.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libffi.7.dylib",
+      "target": "lib/libffi.7.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libFLAC.8.dylib",
+      "target": "lib/libFLAC.8.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgio-2.0.0.dylib",
+      "target": "lib/libgio-2.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libglib-2.0.0.dylib",
+      "target": "lib/libglib-2.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgmodule-2.0.0.dylib",
+      "target": "lib/libgmodule-2.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgobject-2.0.0.dylib",
+      "target": "lib/libgobject-2.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgstapp-1.0.0.dylib",
+      "target": "lib/libgstapp-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgstaudio-1.0.0.dylib",
+      "target": "lib/libgstaudio-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgstbase-1.0.0.dylib",
+      "target": "lib/libgstbase-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgstpbutils-1.0.0.dylib",
+      "target": "lib/libgstpbutils-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgstreamer-1.0.0.dylib",
+      "target": "lib/libgstreamer-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgstriff-1.0.0.dylib",
+      "target": "lib/libgstriff-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgstrtp-1.0.0.dylib",
+      "target": "lib/libgstrtp-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgsttag-1.0.0.dylib",
+      "target": "lib/libgsttag-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libgstvideo-1.0.0.dylib",
+      "target": "lib/libgstvideo-1.0.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libintl.8.dylib",
+      "target": "lib/libintl.8.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libmpg123.1.dylib",
+      "target": "lib/libmpg123.1.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libogg.0.dylib",
+      "target": "lib/libogg.0.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libopus.0.dylib",
+      "target": "lib/libopus.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/liborc-0.4.0.dylib",
+      "target": "lib/liborc-0.4.0.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libpcre2-8.0.dylib",
+      "target": "lib/libpcre2-8.0.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libswresample.5.dylib",
+      "target": "lib/libswresample.5.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libswscale.8.dylib",
+      "target": "lib/libswscale.8.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libvorbis.0.dylib",
+      "target": "lib/libvorbis.0.dylib"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/lib/libvorbisenc.2.dylib",
+      "target": "lib/libvorbisenc.2.dylib"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-macosx_10_13_universal2.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/libz.1.dylib",
+      "target": "lib/libz.1.dylib"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/LGPL-2.0-or-later.txt",
+      "target": "licenses/LGPL-2.0-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/LGPL-2.1-or-later.txt",
+      "target": "licenses/LGPL-2.1-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/GPL-2.0-or-later.txt",
+      "target": "licenses/GPL-2.0-or-later.txt"
+    },
+    {
+      "archive": "libffi-meson-3.2.9999.5.tar.bz2",
+      "entry": "libffi-meson-3.2.9999.5/LICENSE",
+      "target": "licenses/libffi-LICENSE.txt"
+    },
+    {
+      "archive": "orc-0.4.42.tar.xz",
+      "entry": "orc-0.4.42/COPYING",
+      "target": "licenses/orc-COPYING.txt"
+    },
+    {
+      "archive": "libogg-1.3.5.tar.xz",
+      "entry": "libogg-1.3.5/COPYING",
+      "target": "licenses/libogg-COPYING.txt"
+    },
+    {
+      "archive": "libvorbis-1.3.7.tar.xz",
+      "entry": "libvorbis-1.3.7/COPYING",
+      "target": "licenses/libvorbis-COPYING.txt"
+    },
+    {
+      "archive": "opus-1.5.2.tar.gz",
+      "entry": "opus-1.5.2/COPYING",
+      "target": "licenses/opus-COPYING.txt"
+    },
+    {
+      "archive": "flac-1.4.3.tar.xz",
+      "entry": "flac-1.4.3/COPYING.Xiph",
+      "target": "licenses/flac-COPYING.Xiph.txt"
+    },
+    {
+      "archive": "pcre2-10.42.tar.bz2",
+      "entry": "pcre2-10.42/LICENCE",
+      "target": "licenses/pcre2-LICENCE.txt"
+    },
+    {
+      "archive": "pcre2-10.42.tar.bz2",
+      "entry": "pcre2-10.42/COPYING",
+      "target": "licenses/pcre2-COPYING.txt"
+    },
+    {
+      "archive": "bzip2-1.0.8.tar.gz",
+      "entry": "bzip2-1.0.8/LICENSE",
+      "target": "licenses/bzip2-LICENSE.txt"
+    },
+    {
+      "archive": "zlib-1.3.1.tar.gz",
+      "entry": "zlib-1.3.1/README",
+      "target": "licenses/zlib-README.txt"
+    },
+    {
+      "archive": "mpg123-1.32.7.tar.bz2",
+      "entry": "mpg123-1.32.7/COPYING",
+      "target": "licenses/mpg123-COPYING.txt"
+    },
+    {
+      "archive": "proxy-libintl-0.5.tar.gz",
+      "entry": "proxy-libintl-0.5/COPYING",
+      "target": "licenses/proxy-libintl-COPYING.txt"
+    }
+  ],
+  "preload": [
+    "lib/libogg.0.dylib",
+    "lib/libFLAC.8.dylib",
+    "lib/libavutil.59.dylib",
+    "lib/libswresample.5.dylib",
+    "lib/libavcodec.61.dylib",
+    "lib/libswscale.8.dylib",
+    "lib/libavfilter.10.dylib",
+    "lib/libbz2.1.dylib",
+    "lib/libavformat.61.dylib",
+    "lib/libffi.7.dylib",
+    "lib/libintl.8.dylib",
+    "lib/libpcre2-8.0.dylib",
+    "lib/libglib-2.0.0.dylib",
+    "lib/libgmodule-2.0.0.dylib",
+    "lib/libgobject-2.0.0.dylib",
+    "lib/libz.1.dylib",
+    "lib/libgio-2.0.0.dylib",
+    "lib/libgstreamer-1.0.0.dylib",
+    "lib/libgstbase-1.0.0.dylib",
+    "lib/libgstapp-1.0.0.dylib",
+    "lib/libgsttag-1.0.0.dylib",
+    "lib/liborc-0.4.0.dylib",
+    "lib/libgstaudio-1.0.0.dylib",
+    "lib/libgstvideo-1.0.0.dylib",
+    "lib/libgstpbutils-1.0.0.dylib",
+    "lib/libgstriff-1.0.0.dylib",
+    "lib/libgstrtp-1.0.0.dylib",
+    "lib/libmpg123.1.dylib",
+    "lib/libopus.0.dylib",
+    "lib/libvorbis.0.dylib",
+    "lib/libvorbisenc.2.dylib"
+  ],
+  "foundation": [
+    "macOS system frameworks and libraries"
+  ],
+  "architectures": [
+    "x86_64",
+    "arm64"
+  ],
+  "components": [
+    {
+      "component": "glib",
+      "version": "2.82.4",
+      "url": "https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz",
+      "sha256": "37dd0877fe964cd15e9a2710b044a1830fb1bd93652a6d0cb6b8b2dff187c709"
+    },
+    {
+      "component": "libffi",
+      "version": "3.2.9999.5",
+      "url": "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi/-/archive/meson-3.2.9999.5/libffi-meson-3.2.9999.5.tar.bz2",
+      "sha256": "b4d403932a8860589e571300e807e40bb4f7d9d2630c8ec19c29fb9e7b0fd227"
+    },
+    {
+      "component": "orc",
+      "version": "0.4.42",
+      "url": "https://gstreamer.freedesktop.org/src/orc/orc-0.4.42.tar.xz",
+      "sha256": "7ec912ab59af3cc97874c456a56a8ae1eec520c385ec447e8a102b2bd122c90c"
+    },
+    {
+      "component": "libogg",
+      "version": "1.3.5",
+      "url": "https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz",
+      "sha256": "c4d91be36fc8e54deae7575241e03f4211eb102afb3fc0775fbbc1b740016705"
+    },
+    {
+      "component": "libvorbis",
+      "version": "1.3.7",
+      "url": "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz",
+      "sha256": "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b"
+    },
+    {
+      "component": "opus",
+      "version": "1.5.2",
+      "url": "https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz",
+      "sha256": "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
+    },
+    {
+      "component": "flac",
+      "version": "1.4.3",
+      "url": "https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz",
+      "sha256": "6c58e69cd22348f441b861092b825e591d0b822e106de6eb0ee4d05d27205b70"
+    },
+    {
+      "component": "pcre2",
+      "version": "10.42",
+      "url": "https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2",
+      "sha256": "8d36cd8cb6ea2a4c2bb358ff6411b0c788633a2a45dabbf1aeb4b701d1b5e840"
+    },
+    {
+      "component": "bzip2",
+      "version": "1.0.8",
+      "url": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz",
+      "sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269"
+    },
+    {
+      "component": "zlib",
+      "version": "1.3.1",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+    },
+    {
+      "component": "mpg123",
+      "version": "1.32.7",
+      "url": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.7/mpg123-1.32.7.tar.bz2",
+      "sha256": "3c8919243707951cac0e3c39bbf28653bcaffc43c98ff16801a27350db8f0f21"
+    },
+    {
+      "component": "proxy-libintl",
+      "version": "0.5",
+      "url": "https://github.com/frida/proxy-libintl/archive/refs/tags/0.5.tar.gz",
+      "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303"
+    },
+    {
+      "component": "FFmpeg",
+      "version": "7.1 (Cerbero Meson port)",
+      "license": "LGPL-2.1-or-later",
+      "url": "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz",
+      "sha256": "40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6",
+      "patches": "cerbero-1.28.7/recipes/ffmpeg"
+    }
+  ],
+  "notice": "Experimental GStreamer audio runtime. Native libraries remain separate and replaceable. Upstream build recipes and exact source archive hashes are recorded in runtime-manifest.json. Only selected audio plugins are shipped; a wheel containing other plugins is not copied wholesale. GStreamer/GLib/proxy-libintl: LGPL-2.0-or-later. FFmpeg/mpg123: LGPL-2.1-or-later. libffi: MIT; Ogg/Vorbis/Opus/FLAC/ORC: BSD; PCRE2: BSD and Unicode; bzip2 and zlib: their respective permissive licenses. Full license and copyright texts are adjacent. FFmpeg GPL, nonfree and version3 options are disabled in these binaries. Build recipes, including upstream patches, are in the pinned Cerbero archive. No native source compilation is performed by The Soundboard runtime builder."
+}

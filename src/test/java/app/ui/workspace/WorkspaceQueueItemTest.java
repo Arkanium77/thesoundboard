@@ -21,6 +21,59 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 class WorkspaceQueueItemTest {
     @Test
+    void restoresLongQueueWaveformPreparationAtTheCurrentTrackWithoutOpeningPlayers() {
+        Path root = Path.of("library").toAbsolutePath();
+        List<AudioFile> files = new ArrayList<>();
+        List<QueueTrack> tracks = new ArrayList<>();
+        for (int index = 0; index < 100; index++) {
+            UUID audioId = UUID.randomUUID();
+            files.add(new AudioFile(audioId, index + ".mp3", index + ".mp3", false));
+            tracks.add(new QueueTrack(UUID.randomUUID(), audioId, index, false));
+        }
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue", 0, 1d, false);
+        queue.setTracks(tracks);
+        queue.setSelectedTrackId(tracks.get(90).getId());
+        WorkspaceQueueItem item = new WorkspaceQueueItem(root, queue, files,
+                path -> { throw new AssertionError("Waveform preparation must not open players"); },
+                1d, exception -> { });
+
+        List<Path> paths = item.getAudioPaths();
+
+        Assertions.assertThat(paths).hasSize(100);
+        Assertions.assertThat(paths.subList(0, 3)).containsExactly(
+                root.resolve("90.mp3"), root.resolve("91.mp3"), root.resolve("92.mp3"));
+        Assertions.assertThat(paths.get(10)).isEqualTo(root.resolve("0.mp3"));
+        Assertions.assertThat(paths.getLast()).isEqualTo(root.resolve("89.mp3"));
+        Assertions.assertThat(queue.getSelectedTrackId()).isEqualTo(tracks.get(90).getId());
+        Assertions.assertThat(item.getTracks()).containsExactlyElementsOf(tracks);
+    }
+
+    @Test
+    void waveformPreparationFollowsShuffleFromTheFocusedTrackAndHandlesAnEmptyQueue() {
+        Path root = Path.of("library").toAbsolutePath();
+        List<AudioFile> files = new ArrayList<>();
+        List<QueueTrack> tracks = new ArrayList<>();
+        for (int index = 0; index < 3; index++) {
+            UUID audioId = UUID.randomUUID();
+            files.add(new AudioFile(audioId, index + ".mp3", index + ".mp3", false));
+            QueueTrack track = new QueueTrack(UUID.randomUUID(), audioId, index, false);
+            track.setShuffledOrder(2 - index);
+            tracks.add(track);
+        }
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue", 0, 1d, true);
+        queue.setShuffleEnabled(true);
+        queue.setTracks(tracks);
+        queue.setSelectedTrackId(tracks.get(1).getId());
+        WorkspaceQueueItem item = new WorkspaceQueueItem(root, queue, files, path -> null, 1d, exception -> { });
+
+        Assertions.assertThat(item.getAudioPaths()).containsExactly(
+                root.resolve("1.mp3"), root.resolve("0.mp3"), root.resolve("2.mp3"));
+        queue.setTracks(List.of());
+        item.refreshAfterMutation();
+        Assertions.assertThat(item.getAudioPaths()).isEmpty();
+    }
+
+    @Test
     void queueTrackLoopSurvivesFocusChangesAndControlsTheActivePlayer() throws IOException {
         Path root = TestDirectorySupport.createTempDirectory("queue-track-loop-");
         Files.writeString(root.resolve("one.mp3"), "audio");

@@ -12,6 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.PriorityBlockingQueue;
@@ -21,7 +23,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * Bounds speculative preloading and completed cache storage while keeping explicit view requests reliable. Required
  * requests are never dropped to make room for prefetch; a selected preloaded entry is promoted ahead of speculative
- * work. Only completed envelopes count toward the LRU budget, and clearing removes queued tasks as well as interrupting
+ * work. Workers respect the extractor's concurrency limit so speculative loads cannot leave the priority queue
+ * merely to wait inside a native decoder guard. The preload limit bounds admitted tasks, not the requested workspace:
+ * deferred paths are retained and admitted as tasks finish, even when current tiles initially fill every slot.
+ * Only completed envelopes count toward the LRU budget, and clearing removes queued tasks as well as interrupting
  * decoders. Consumers may retain their own immutable envelopes after eviction without invalidating displayed data.
  */
 public class WaveformService {
@@ -31,6 +36,7 @@ public class WaveformService {
     private final WaveformExtractor waveformExtractor;
     private final ThreadPoolExecutor executorService;
     private final Map<Path, LoadTask> pending = new LinkedHashMap<>();
+    private final Set<Path> deferredPreloads = new LinkedHashSet<>();
     private final Map<Path, CachedWaveform> cache = new LinkedHashMap<>(16, 0.75f, true);
     private final int preloadLimit;
     private static final int MAX_PENDING_REQUESTS = 4096;
@@ -46,7 +52,7 @@ public class WaveformService {
 
     public WaveformService(WaveformExtractor waveformExtractor, int workerCount) {
         this.waveformExtractor = waveformExtractor;
-        int workers = Math.max(workerCount, 1);
+        int workers = Math.max(Math.min(workerCount, waveformExtractor.getMaxConcurrentLoads()), 1);
         preloadLimit = workers * 4;
         executorService = new ThreadPoolExecutor(workers, workers, 0L, TimeUnit.MILLISECONDS,
                 new PriorityBlockingQueue<>(), runnable -> {
@@ -57,14 +63,25 @@ public class WaveformService {
     }
 
     public synchronized CompletableFuture<WaveformData> loadWaveform(Path audioPath) {
+        if (audioPath != null) deferredPreloads.remove(audioPath.toAbsolutePath().normalize());
         return load(audioPath, false);
     }
 
     public synchronized void preloadWaveforms(Collection<Path> audioPaths) {
-        if (audioPaths == null) return;
+        if (audioPaths == null || closed) return;
         for (Path audioPath : audioPaths) {
-            if (pending.size() >= preloadLimit) break;
-            load(audioPath, true);
+            if (audioPath == null) continue;
+            Path path = audioPath.toAbsolutePath().normalize();
+            if (!pending.containsKey(path)) deferredPreloads.add(path);
+        }
+        admitPreloads();
+    }
+
+    private void admitPreloads() {
+        while (!closed && pending.size() < preloadLimit && !deferredPreloads.isEmpty()) {
+            Path path = deferredPreloads.iterator().next();
+            deferredPreloads.remove(path);
+            load(path, true);
         }
     }
 
@@ -87,11 +104,12 @@ public class WaveformService {
     }
 
     public synchronized int getPendingLoadCount() {
-        return Math.max(pending.size(), activeLoads.get());
+        return Math.max(pending.size() + deferredPreloads.size(), activeLoads.get());
     }
 
     public synchronized void clear() {
         cacheGeneration++;
+        deferredPreloads.clear();
         for (LoadTask task : pending.values().toArray(LoadTask[]::new)) task.cancel(true);
         pending.clear();
         executorService.purge();
@@ -103,6 +121,7 @@ public class WaveformService {
         cacheGeneration++;
         if (rootPath == null) return;
         Path root = rootPath.toAbsolutePath().normalize();
+        deferredPreloads.removeIf(path -> path.startsWith(root));
         for (LoadTask task : pending.values().toArray(LoadTask[]::new)) {
             if (task.path.startsWith(root)) task.cancel(true);
         }
@@ -118,6 +137,12 @@ public class WaveformService {
         closed = true;
         clear();
         executorService.shutdownNow();
+    }
+
+    /** Native decoders must finish their cancelled pulls before their process-wide runtime may be deinitialized.
+     * Waiting is reserved for application shutdown, never ordinary project switching or UI requests. */
+    public boolean awaitShutdown(long timeout, TimeUnit unit) throws InterruptedException {
+        return executorService.awaitTermination(timeout, unit);
     }
 
     /** Metadata is read on decoder workers, including warm hits. A rescan can retain envelopes without stale
@@ -206,6 +231,7 @@ public class WaveformService {
             }
             synchronized (WaveformService.this) {
                 pending.remove(path, this);
+                admitPreloads();
             }
             result.complete(data);
         }

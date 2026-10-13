@@ -1,0 +1,1073 @@
+{
+  "schema": 1,
+  "platform": "linux-x64",
+  "gstreamerVersion": "1.26.6 (base 1.26.6, good/bad 1.26.5)",
+  "experimental": true,
+  "glib": {
+    "minimumSystemMinor": 80,
+    "bundledVersion": "2.82.2"
+  },
+  "foundation": [
+    "glibc >=2.35 (Ubuntu 22.04 baseline)",
+    "Linux x86_64",
+    "system GTK used by JavaFX; share system GLib >=2.80 or preload the bundled newer fallback before GTK",
+    "system libstdc++ with GLIBCXX_3.4.29 and libudev.so.1; libdrm is shared with system GTK when installed"
+  ],
+  "archives": [
+    {
+      "name": "libgstreamer1.0-0_1.26.6-1backport1_amd64.deb",
+      "url": "https://ppa.launchpadcontent.net/arturmadrzak/jammy-backports/ubuntu/pool/main/g/gstreamer1.0/libgstreamer1.0-0_1.26.6-1backport1_amd64.deb",
+      "sha256": "5b02844bcaaa2247f78df9c3dbf4c0cb23c3cdd3c1e5c2775b2a6042744e80de",
+      "package": "libgstreamer1.0-0",
+      "version": "1.26.6-1backport1"
+    },
+    {
+      "name": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "url": "https://ppa.launchpadcontent.net/arturmadrzak/jammy-backports/ubuntu/pool/main/g/gst-plugins-base1.0/libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "sha256": "3d78b2f4edf72567f9dddb63ccf314fe02ac0efb4ab4d6f910ad7365e8894660",
+      "package": "libgstreamer-plugins-base1.0-0",
+      "version": "1.26.6-1backport2"
+    },
+    {
+      "name": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "url": "https://ppa.launchpadcontent.net/arturmadrzak/jammy-backports/ubuntu/pool/main/g/gst-plugins-base1.0/gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "sha256": "3bd854edfce82186eab260e50ea0f3fd5b86e44b9f4482d9a0f5e0ace95242a3",
+      "package": "gstreamer1.0-plugins-base",
+      "version": "1.26.6-1backport2"
+    },
+    {
+      "name": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "url": "https://ppa.launchpadcontent.net/arturmadrzak/jammy-backports/ubuntu/pool/main/g/gst-plugins-good1.0/gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "sha256": "899fc870de6493f8abdd31983a3584c5ba538bb4df65253fb29a924490a65331",
+      "package": "gstreamer1.0-plugins-good",
+      "version": "1.26.5-1ubuntu2backport4"
+    },
+    {
+      "name": "liborc-0.4-0t64_0.4.41-1backport1_amd64.deb",
+      "url": "https://ppa.launchpadcontent.net/arturmadrzak/jammy-backports/ubuntu/pool/main/o/orc/liborc-0.4-0t64_0.4.41-1backport1_amd64.deb",
+      "sha256": "8baf6583ab3eff92f0900dcec1a7c492c456a4ff518a0f734d74320647393817",
+      "package": "liborc-0.4-0t64",
+      "version": "1:0.4.41-1backport1"
+    },
+    {
+      "name": "libffi8_3.4.2-4_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libf/libffi/libffi8_3.4.2-4_amd64.deb",
+      "sha256": "b4f88c91fa6f4c942097be6abfc365fb133c5e147640168cbb7704fd855eac10",
+      "package": "libffi8",
+      "version": "3.4.2-4"
+    },
+    {
+      "name": "libpcre3_8.39-13ubuntu0.22.04.1_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/p/pcre3/libpcre3_8.39-13ubuntu0.22.04.1_amd64.deb",
+      "sha256": "0d1eb051047eb0c637c893f618f45e1d419863bfa3bc821897ee05ad418ba22e",
+      "package": "libpcre3",
+      "version": "2:8.39-13ubuntu0.22.04.1"
+    },
+    {
+      "name": "libcap2_2.44-1ubuntu0.22.04.3_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/libc/libcap2/libcap2_2.44-1ubuntu0.22.04.3_amd64.deb",
+      "sha256": "c497efb7fa3cd19a7ff297d95c7c5d678063c80c9fc230c9d034a8ee02ca8446",
+      "package": "libcap2",
+      "version": "1:2.44-1ubuntu0.22.04.3"
+    },
+    {
+      "name": "libmount1_2.37.2-4ubuntu3.6_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/u/util-linux/libmount1_2.37.2-4ubuntu3.6_amd64.deb",
+      "sha256": "9f69b37420731477105d94c6bf2139437be04bef7c46ba7ffcaf3741e301bdba",
+      "package": "libmount1",
+      "version": "2.37.2-4ubuntu3.6"
+    },
+    {
+      "name": "libblkid1_2.37.2-4ubuntu3.6_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/u/util-linux/libblkid1_2.37.2-4ubuntu3.6_amd64.deb",
+      "sha256": "bf9ab18457e0a10879951b01c87156bdf503bdeb0f87ae0f0f81ec62cb000279",
+      "package": "libblkid1",
+      "version": "2.37.2-4ubuntu3.6"
+    },
+    {
+      "name": "libselinux1_3.3-1build2_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libs/libselinux/libselinux1_3.3-1build2_amd64.deb",
+      "sha256": "b96c6b40ee2388bd51341cb11c0f1d5bcca29b9180b6e3a77a06b881f2913f7e",
+      "package": "libselinux1",
+      "version": "3.3-1build2"
+    },
+    {
+      "name": "libpcre2-8-0_10.39-3ubuntu0.1_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/p/pcre2/libpcre2-8-0_10.39-3ubuntu0.1_amd64.deb",
+      "sha256": "01a5a74f3d305cad32fffffdc200c2a92fd8e5a01bff97de76ac598fb444d53e",
+      "package": "libpcre2-8-0",
+      "version": "10.39-3ubuntu0.1"
+    },
+    {
+      "name": "zlib1g_1.2.11.dfsg-2ubuntu9.2_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/z/zlib/zlib1g_1.2.11.dfsg-2ubuntu9.2_amd64.deb",
+      "sha256": "9dc17e51a1be2d9ed63b7b84ef0e4e29c5abe6f1bc62cb03e7181483cce8a2f2",
+      "package": "zlib1g",
+      "version": "1:1.2.11.dfsg-2ubuntu9.2"
+    },
+    {
+      "name": "libbz2-1.0_1.0.8-5ubuntu0.1_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/b/bzip2/libbz2-1.0_1.0.8-5ubuntu0.1_amd64.deb",
+      "sha256": "2fd35bb1ac601fa1bf35da2fa08dba3541766ca791927342b5efcb18ef17aecb",
+      "package": "libbz2-1.0",
+      "version": "1.0.8-5ubuntu0.1"
+    },
+    {
+      "name": "libflac8_1.3.3-2ubuntu0.2_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/f/flac/libflac8_1.3.3-2ubuntu0.2_amd64.deb",
+      "sha256": "46ae4ced3fc67e23e173f5b5d8196f8a9235646a337528f135e6a07d3b206b9e",
+      "package": "libflac8",
+      "version": "1.3.3-2ubuntu0.2"
+    },
+    {
+      "name": "libogg0_1.3.5-0ubuntu3_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libo/libogg/libogg0_1.3.5-0ubuntu3_amd64.deb",
+      "sha256": "116a95c2ef71057d86f1e20c378247d34a0c8cfa257aecd0f4f36f75fc338de2",
+      "package": "libogg0",
+      "version": "1.3.5-0ubuntu3"
+    },
+    {
+      "name": "libvorbis0a_1.3.7-1build2_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libv/libvorbis/libvorbis0a_1.3.7-1build2_amd64.deb",
+      "sha256": "1c4195ccfe75a82c0989300762124b2371d34d8e1f99a968032fde64395a23ec",
+      "package": "libvorbis0a",
+      "version": "1.3.7-1build2"
+    },
+    {
+      "name": "libvorbisenc2_1.3.7-1build2_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libv/libvorbis/libvorbisenc2_1.3.7-1build2_amd64.deb",
+      "sha256": "3b5c496121c3c06bbda1b01386107c296992ad9b8cc53f5c3b1756382275d40f",
+      "package": "libvorbisenc2",
+      "version": "1.3.7-1build2"
+    },
+    {
+      "name": "libopus0_1.3.1-0.1build2_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/o/opus/libopus0_1.3.1-0.1build2_amd64.deb",
+      "sha256": "73225bff2be1b5ef888d00d680f44741e67a096932bd0854db8da7d5488603b5",
+      "package": "libopus0",
+      "version": "1.3.1-0.1build2"
+    },
+    {
+      "name": "libmpg123-0_1.29.3-1ubuntu0.1_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/m/mpg123/libmpg123-0_1.29.3-1ubuntu0.1_amd64.deb",
+      "sha256": "a71e502ddd867536a4dbde5dee9d1154faeca369fc9e274e8b98331641a2dd26",
+      "package": "libmpg123-0",
+      "version": "1.29.3-1ubuntu0.1"
+    },
+    {
+      "name": "libpulse0_15.99.1+dfsg1-1ubuntu1_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/p/pulseaudio/libpulse0_15.99.1+dfsg1-1ubuntu1_amd64.deb",
+      "sha256": "bb5089c305b9cf0f3ba1ff055216d63f92dd1b29ef9afde3b644991cf17c80cb",
+      "package": "libpulse0",
+      "version": "1:15.99.1+dfsg1-1ubuntu1"
+    },
+    {
+      "name": "libsndfile1_1.0.31-2ubuntu0.2_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/libs/libsndfile/libsndfile1_1.0.31-2ubuntu0.2_amd64.deb",
+      "sha256": "169b8d8c8c7790586e4a107beda8bf4a5dc397e236744749f11c92f1c0fcd59b",
+      "package": "libsndfile1",
+      "version": "1.0.31-2ubuntu0.2"
+    },
+    {
+      "name": "libasyncns0_0.8-6build2_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/liba/libasyncns/libasyncns0_0.8-6build2_amd64.deb",
+      "sha256": "6d223a97b434026e50fb9fcb237d45ed26fd272bb139f0bd793315d55a79901a",
+      "package": "libasyncns0",
+      "version": "0.8-6build2"
+    },
+    {
+      "name": "libdbus-1-3_1.12.20-2ubuntu4.1_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/d/dbus/libdbus-1-3_1.12.20-2ubuntu4.1_amd64.deb",
+      "sha256": "6a5171696c3b05aca273d637d9c0501c8033fda64a971e09fd545bc1ab72ca1e",
+      "package": "libdbus-1-3",
+      "version": "1.12.20-2ubuntu4.1"
+    },
+    {
+      "name": "libsystemd0_249.11-0ubuntu3.22_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/s/systemd/libsystemd0_249.11-0ubuntu3.22_amd64.deb",
+      "sha256": "4fae4644bcfd86f891faae12cedbf30aca280cf76a034768aec3a03fe42ddc25",
+      "package": "libsystemd0",
+      "version": "249.11-0ubuntu3.22"
+    },
+    {
+      "name": "liblzma5_5.2.5-2ubuntu1.1_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/x/xz-utils/liblzma5_5.2.5-2ubuntu1.1_amd64.deb",
+      "sha256": "af77f099e7fa95a31267023535832804382fa66572a6b38002187be6e15116cb",
+      "package": "liblzma5",
+      "version": "5.2.5-2ubuntu1.1"
+    },
+    {
+      "name": "liblz4-1_1.9.3-2build2_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/l/lz4/liblz4-1_1.9.3-2build2_amd64.deb",
+      "sha256": "ac9b54d0feb840345060c74fb687675c5e1eb2b195effafae38c5f9991041e98",
+      "package": "liblz4-1",
+      "version": "1.9.3-2build2"
+    },
+    {
+      "name": "libzstd1_1.4.8+dfsg-3build1_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libz/libzstd/libzstd1_1.4.8+dfsg-3build1_amd64.deb",
+      "sha256": "ae7db00ce8b093e50c994518b90203544e063b4bc574836a048bb142b950b2c9",
+      "package": "libzstd1",
+      "version": "1.4.8+dfsg-3build1"
+    },
+    {
+      "name": "libgcrypt20_1.9.4-3ubuntu3.3_amd64.deb",
+      "url": "https://security.ubuntu.com/ubuntu/pool/main/libg/libgcrypt20/libgcrypt20_1.9.4-3ubuntu3.3_amd64.deb",
+      "sha256": "8f16329a0aabf4900271a3687890721bbef307e60983acae5b92eeff12e799b3",
+      "package": "libgcrypt20",
+      "version": "1.9.4-3ubuntu3.3"
+    },
+    {
+      "name": "libgpg-error0_1.43-3_amd64.deb",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/libg/libgpg-error/libgpg-error0_1.43-3_amd64.deb",
+      "sha256": "1fbacdf9bd1e431cee874a697b339f6f925182bc79bba5a112b53669b33265c5",
+      "package": "libgpg-error0",
+      "version": "1.43-3"
+    },
+    {
+      "name": "gstreamer1.0-plugins-bad_1.26.5-1ubuntu2backport2_amd64.deb",
+      "url": "https://ppa.launchpadcontent.net/arturmadrzak/jammy-backports/ubuntu/pool/main/g/gst-plugins-bad1.0/gstreamer1.0-plugins-bad_1.26.5-1ubuntu2backport2_amd64.deb",
+      "sha256": "8a3b33df1f17edb82cd77ebae191529dd62b9f3a7e51471570a1614bc8112457",
+      "package": "gstreamer1.0-plugins-bad",
+      "version": "1.26.5-1ubuntu2backport2"
+    },
+    {
+      "name": "libglib-2.82.2-h2ff4ddf_1.conda",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libglib-2.82.2-h2ff4ddf_1.conda",
+      "sha256": "f0804a9e46ae7b32ca698d26c1c95aa82a91f71b6051883d4a46bea725be9ea4"
+    },
+    {
+      "name": "libiconv-1.18-h0cb94f2_3.conda",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libiconv-1.18-h0cb94f2_3.conda",
+      "sha256": "f943117edb9cd4d9c61cc972eee5a34291dc55ea7a6e9e38da104995841cbcb6"
+    },
+    {
+      "name": "gst-libav-1.26.6-h5186e55_1.conda",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/gst-libav-1.26.6-h5186e55_1.conda",
+      "sha256": "6c8535a88ed6d12260ce3ab89fb73e1204421c82a60fe2be42a11b98c6f53273"
+    },
+    {
+      "name": "cerbero-1.28.7.tar.gz",
+      "url": "https://codeload.github.com/GStreamer/cerbero/tar.gz/refs/tags/1.28.7",
+      "sha256": "f4926fb8e730a8aba6742d497764b2906ad933639bc6e8905e11a5011b7195e3"
+    },
+    {
+      "name": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "url": "https://repo.maven.apache.org/maven2/org/bytedeco/ffmpeg/8.1.2-1.5.14/ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "sha256": "6d0f000c4ddede3b669aa7c5c585e9b71f69b7f621fed7ab28ec01045dc336d0"
+    },
+    {
+      "name": "javacpp-presets-1.5.14.tar.gz",
+      "url": "https://codeload.github.com/bytedeco/javacpp-presets/tar.gz/refs/tags/1.5.14",
+      "sha256": "57066fb43a97e82d58049b9abebd70a176023547468eac48424e23eff1adef14"
+    },
+    {
+      "name": "harfbuzz-COPYING.txt",
+      "url": "https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.3.0/COPYING",
+      "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64"
+    },
+    {
+      "name": "zimg-COPYING.txt",
+      "url": "https://raw.githubusercontent.com/sekrit-twc/zimg/release-3.0.6/COPYING",
+      "sha256": "7637386b5f81e8a719ca336233149005e5fa28b5e6054ea7b67de49355b0ad40"
+    },
+    {
+      "name": "aom-LICENSE.txt",
+      "url": "https://aomedia.googlesource.com/aom/+/refs/tags/v3.14.1/LICENSE?format=TEXT",
+      "sha256": "1c3246fa272945b4f2f0671b8908e94da98b869cb5fea3a205a931034170a985"
+    },
+    {
+      "name": "aom-PATENTS.txt",
+      "url": "https://aomedia.googlesource.com/aom/+/refs/tags/v3.14.1/PATENTS?format=TEXT",
+      "sha256": "2c158a786fe17b960601d8e7e107d7c1696df2ce30941d73f05ca472419fbca6"
+    },
+    {
+      "name": "svt-av1-LICENSE.txt",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/raw/v4.2.0/LICENSE.md",
+      "sha256": "0acc2fcb27472bdc9aaf8b71f37055bbdac4f54671b7d922f241bd7fcd0dd3e6"
+    },
+    {
+      "name": "svt-av1-PATENTS.txt",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/raw/v4.2.0/PATENTS.md",
+      "sha256": "20678ab10402659106dc4c147c97b2a6e94b5c0695415e15a8f195ebc3547922"
+    }
+  ],
+  "files": [
+    {
+      "archive": "libflac8_1.3.3-2ubuntu0.2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libFLAC.so.8",
+      "target": "lib/libFLAC.so.8",
+      "strip": true
+    },
+    {
+      "archive": "libasyncns0_0.8-6build2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libasyncns.so.0",
+      "target": "lib/libasyncns.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libblkid1_2.37.2-4ubuntu3.6_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libblkid.so.1",
+      "target": "lib/libblkid.so.1",
+      "strip": true
+    },
+    {
+      "archive": "libbz2-1.0_1.0.8-5ubuntu0.1_amd64.deb",
+      "entry": "lib/x86_64-linux-gnu/libbz2.so.1.0",
+      "target": "lib/libbz2.so.1.0",
+      "strip": true
+    },
+    {
+      "archive": "libcap2_2.44-1ubuntu0.22.04.3_amd64.deb",
+      "entry": "lib/x86_64-linux-gnu/libcap.so.2",
+      "target": "lib/libcap.so.2",
+      "strip": true
+    },
+    {
+      "archive": "libdbus-1-3_1.12.20-2ubuntu4.1_amd64.deb",
+      "entry": "lib/x86_64-linux-gnu/libdbus-1.so.3",
+      "target": "lib/libdbus-1.so.3",
+      "strip": true
+    },
+    {
+      "archive": "libffi8_3.4.2-4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libffi.so.8",
+      "target": "lib/libffi.so.8",
+      "strip": true
+    },
+    {
+      "archive": "libgcrypt20_1.9.4-3ubuntu3.3_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgcrypt.so.20",
+      "target": "lib/libgcrypt.so.20",
+      "strip": true
+    },
+    {
+      "archive": "libgpg-error0_1.43-3_amd64.deb",
+      "entry": "lib/x86_64-linux-gnu/libgpg-error.so.0",
+      "target": "lib/libgpg-error.so.0",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstapetag.so",
+      "target": "lib/gstreamer-1.0/libgstapetag.so",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgstapp-1.0.so.0",
+      "target": "lib/libgstapp-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstapp.so",
+      "target": "lib/gstreamer-1.0/libgstapp.so",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgstaudio-1.0.so.0",
+      "target": "lib/libgstaudio-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaudioconvert.so",
+      "target": "lib/gstreamer-1.0/libgstaudioconvert.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaudiomixer.so",
+      "target": "lib/gstreamer-1.0/libgstaudiomixer.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaudioparsers.so",
+      "target": "lib/gstreamer-1.0/libgstaudioparsers.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaudioresample.so",
+      "target": "lib/gstreamer-1.0/libgstaudioresample.so",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer1.0-0_1.26.6-1backport1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgstbase-1.0.so.0",
+      "target": "lib/libgstbase-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer1.0-0_1.26.6-1backport1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstcoreelements.so",
+      "target": "lib/gstreamer-1.0/libgstcoreelements.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstflac.so",
+      "target": "lib/gstreamer-1.0/libgstflac.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstid3demux.so",
+      "target": "lib/gstreamer-1.0/libgstid3demux.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstisomp4.so",
+      "target": "lib/gstreamer-1.0/libgstisomp4.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmpg123.so",
+      "target": "lib/gstreamer-1.0/libgstmpg123.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstogg.so",
+      "target": "lib/gstreamer-1.0/libgstogg.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstopus.so",
+      "target": "lib/gstreamer-1.0/libgstopus.so",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgstpbutils-1.0.so.0",
+      "target": "lib/libgstpbutils-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstplayback.so",
+      "target": "lib/gstreamer-1.0/libgstplayback.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstpulseaudio.so",
+      "target": "lib/gstreamer-1.0/libgstpulseaudio.so",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer1.0-0_1.26.6-1backport1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgstreamer-1.0.so.0",
+      "target": "lib/libgstreamer-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgstriff-1.0.so.0",
+      "target": "lib/libgstriff-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgstrtp-1.0.so.0",
+      "target": "lib/libgstrtp-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgsttag-1.0.so.0",
+      "target": "lib/libgsttag-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgsttypefindfunctions.so",
+      "target": "lib/gstreamer-1.0/libgsttypefindfunctions.so",
+      "strip": true
+    },
+    {
+      "archive": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libgstvideo-1.0.so.0",
+      "target": "lib/libgstvideo-1.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvolume.so",
+      "target": "lib/gstreamer-1.0/libgstvolume.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstvorbis.so",
+      "target": "lib/gstreamer-1.0/libgstvorbis.so",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstwavparse.so",
+      "target": "lib/gstreamer-1.0/libgstwavparse.so",
+      "strip": true
+    },
+    {
+      "archive": "liblz4-1_1.9.3-2build2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/liblz4.so.1",
+      "target": "lib/liblz4.so.1",
+      "strip": true
+    },
+    {
+      "archive": "liblzma5_5.2.5-2ubuntu1.1_amd64.deb",
+      "entry": "lib/x86_64-linux-gnu/liblzma.so.5",
+      "target": "lib/liblzma.so.5",
+      "strip": true
+    },
+    {
+      "archive": "libmount1_2.37.2-4ubuntu3.6_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libmount.so.1",
+      "target": "lib/libmount.so.1",
+      "strip": true
+    },
+    {
+      "archive": "libmpg123-0_1.29.3-1ubuntu0.1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libmpg123.so.0",
+      "target": "lib/libmpg123.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libogg0_1.3.5-0ubuntu3_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libogg.so.0",
+      "target": "lib/libogg.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libopus0_1.3.1-0.1build2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libopus.so.0",
+      "target": "lib/libopus.so.0",
+      "strip": true
+    },
+    {
+      "archive": "liborc-0.4-0t64_0.4.41-1backport1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/liborc-0.4.so.0",
+      "target": "lib/liborc-0.4.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libpcre3_8.39-13ubuntu0.22.04.1_amd64.deb",
+      "entry": "lib/x86_64-linux-gnu/libpcre.so.3",
+      "target": "lib/libpcre.so.3",
+      "strip": true
+    },
+    {
+      "archive": "libpcre2-8-0_10.39-3ubuntu0.1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libpcre2-8.so.0",
+      "target": "lib/libpcre2-8.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libpulse0_15.99.1+dfsg1-1ubuntu1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libpulse.so.0",
+      "target": "lib/libpulse.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libpulse0_15.99.1+dfsg1-1ubuntu1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/pulseaudio/libpulsecommon-15.99.so",
+      "target": "lib/libpulsecommon-15.99.so",
+      "strip": true
+    },
+    {
+      "archive": "libselinux1_3.3-1build2_amd64.deb",
+      "entry": "lib/x86_64-linux-gnu/libselinux.so.1",
+      "target": "lib/libselinux.so.1",
+      "strip": true
+    },
+    {
+      "archive": "libsndfile1_1.0.31-2ubuntu0.2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libsndfile.so.1",
+      "target": "lib/libsndfile.so.1",
+      "strip": true
+    },
+    {
+      "archive": "libsystemd0_249.11-0ubuntu3.22_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libsystemd.so.0",
+      "target": "lib/libsystemd.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libvorbis0a_1.3.7-1build2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libvorbis.so.0",
+      "target": "lib/libvorbis.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libvorbisenc2_1.3.7-1build2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libvorbisenc.so.2",
+      "target": "lib/libvorbisenc.so.2",
+      "strip": true
+    },
+    {
+      "archive": "zlib1g_1.2.11.dfsg-2ubuntu9.2_amd64.deb",
+      "entry": "lib/x86_64-linux-gnu/libz.so.1",
+      "target": "lib/libz.so.1",
+      "strip": true
+    },
+    {
+      "archive": "libzstd1_1.4.8+dfsg-3build1_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/libzstd.so.1",
+      "target": "lib/libzstd.so.1",
+      "strip": true
+    },
+    {
+      "archive": "gstreamer1.0-plugins-bad_1.26.5-1ubuntu2backport2_amd64.deb",
+      "entry": "usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstaiff.so",
+      "target": "lib/gstreamer-1.0/libgstaiff.so",
+      "strip": true
+    },
+    {
+      "archive": "libglib-2.82.2-h2ff4ddf_1.conda",
+      "payload": "pkg-libglib-2.82.2-h2ff4ddf_1.tar.zst",
+      "entry": "lib/libgio-2.0.so.0.8200.2",
+      "target": "lib/libgio-2.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libglib-2.82.2-h2ff4ddf_1.conda",
+      "payload": "pkg-libglib-2.82.2-h2ff4ddf_1.tar.zst",
+      "entry": "lib/libgobject-2.0.so.0.8200.2",
+      "target": "lib/libgobject-2.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libglib-2.82.2-h2ff4ddf_1.conda",
+      "payload": "pkg-libglib-2.82.2-h2ff4ddf_1.tar.zst",
+      "entry": "lib/libglib-2.0.so.0.8200.2",
+      "target": "lib/libglib-2.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libglib-2.82.2-h2ff4ddf_1.conda",
+      "payload": "pkg-libglib-2.82.2-h2ff4ddf_1.tar.zst",
+      "entry": "info/licenses/COPYING",
+      "target": "licenses/libglib-COPYING.txt",
+      "strip": false
+    },
+    {
+      "archive": "libglib-2.82.2-h2ff4ddf_1.conda",
+      "payload": "pkg-libglib-2.82.2-h2ff4ddf_1.tar.zst",
+      "entry": "lib/libgmodule-2.0.so.0.8200.2",
+      "target": "lib/libgmodule-2.0.so.0",
+      "strip": true
+    },
+    {
+      "archive": "libiconv-1.18-h0cb94f2_3.conda",
+      "payload": "pkg-libiconv-1.18-h0cb94f2_3.tar.zst",
+      "entry": "lib/libiconv.so.2.7.0",
+      "target": "lib/libiconv.so.2",
+      "strip": true
+    },
+    {
+      "archive": "libiconv-1.18-h0cb94f2_3.conda",
+      "payload": "info-libiconv-1.18-h0cb94f2_3.tar.zst",
+      "entry": "info/licenses/COPYING.LIB",
+      "target": "licenses/libiconv-COPYING.LIB.txt",
+      "strip": false
+    },
+    {
+      "archive": "gst-libav-1.26.6-h5186e55_1.conda",
+      "payload": "pkg-gst-libav-1.26.6-h5186e55_1.tar.zst",
+      "entry": "lib/gstreamer-1.0/libgstlibav.so",
+      "target": "lib/gstreamer-1.0/libgstlibav.so",
+      "strip": true
+    },
+    {
+      "archive": "gst-libav-1.26.6-h5186e55_1.conda",
+      "payload": "pkg-gst-libav-1.26.6-h5186e55_1.tar.zst",
+      "entry": "info/licenses/COPYING",
+      "target": "licenses/gst-COPYING.txt",
+      "strip": false
+    },
+    {
+      "archive": "libgstreamer1.0-0_1.26.6-1backport1_amd64.deb",
+      "entry": "usr/share/doc/libgstreamer1.0-0/copyright",
+      "target": "licenses/libgstreamer1.0-0-copyright.txt"
+    },
+    {
+      "archive": "libgstreamer-plugins-base1.0-0_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/share/doc/libgstreamer-plugins-base1.0-0/copyright",
+      "target": "licenses/libgstreamer-plugins-base1.0-0-copyright.txt"
+    },
+    {
+      "archive": "gstreamer1.0-plugins-base_1.26.6-1backport2_amd64.deb",
+      "entry": "usr/share/doc/gstreamer1.0-plugins-base/copyright",
+      "target": "licenses/gstreamer1.0-plugins-base-copyright.txt"
+    },
+    {
+      "archive": "gstreamer1.0-plugins-good_1.26.5-1ubuntu2backport4_amd64.deb",
+      "entry": "usr/share/doc/gstreamer1.0-plugins-good/copyright",
+      "target": "licenses/gstreamer1.0-plugins-good-copyright.txt"
+    },
+    {
+      "archive": "liborc-0.4-0t64_0.4.41-1backport1_amd64.deb",
+      "entry": "usr/share/doc/liborc-0.4-0t64/copyright",
+      "target": "licenses/liborc-0.4-0t64-copyright.txt"
+    },
+    {
+      "archive": "libffi8_3.4.2-4_amd64.deb",
+      "entry": "usr/share/doc/libffi8/copyright",
+      "target": "licenses/libffi8-copyright.txt"
+    },
+    {
+      "archive": "libpcre3_8.39-13ubuntu0.22.04.1_amd64.deb",
+      "entry": "usr/share/doc/libpcre3/copyright",
+      "target": "licenses/libpcre3-copyright.txt"
+    },
+    {
+      "archive": "libcap2_2.44-1ubuntu0.22.04.3_amd64.deb",
+      "entry": "usr/share/doc/libcap2/copyright",
+      "target": "licenses/libcap2-copyright.txt"
+    },
+    {
+      "archive": "libmount1_2.37.2-4ubuntu3.6_amd64.deb",
+      "entry": "usr/share/doc/libmount1/copyright",
+      "target": "licenses/libmount1-copyright.txt"
+    },
+    {
+      "archive": "libblkid1_2.37.2-4ubuntu3.6_amd64.deb",
+      "entry": "usr/share/doc/libblkid1/copyright",
+      "target": "licenses/libblkid1-copyright.txt"
+    },
+    {
+      "archive": "libselinux1_3.3-1build2_amd64.deb",
+      "entry": "usr/share/doc/libselinux1/copyright",
+      "target": "licenses/libselinux1-copyright.txt"
+    },
+    {
+      "archive": "libpcre2-8-0_10.39-3ubuntu0.1_amd64.deb",
+      "entry": "usr/share/doc/libpcre2-8-0/copyright",
+      "target": "licenses/libpcre2-8-0-copyright.txt"
+    },
+    {
+      "archive": "zlib1g_1.2.11.dfsg-2ubuntu9.2_amd64.deb",
+      "entry": "usr/share/doc/zlib1g/copyright",
+      "target": "licenses/zlib1g-copyright.txt"
+    },
+    {
+      "archive": "libbz2-1.0_1.0.8-5ubuntu0.1_amd64.deb",
+      "entry": "usr/share/doc/libbz2-1.0/copyright",
+      "target": "licenses/libbz2-1.0-copyright.txt"
+    },
+    {
+      "archive": "libflac8_1.3.3-2ubuntu0.2_amd64.deb",
+      "entry": "usr/share/doc/libflac8/copyright",
+      "target": "licenses/libflac8-copyright.txt"
+    },
+    {
+      "archive": "libogg0_1.3.5-0ubuntu3_amd64.deb",
+      "entry": "usr/share/doc/libogg0/copyright",
+      "target": "licenses/libogg0-copyright.txt"
+    },
+    {
+      "archive": "libvorbis0a_1.3.7-1build2_amd64.deb",
+      "entry": "usr/share/doc/libvorbis0a/copyright",
+      "target": "licenses/libvorbis0a-copyright.txt"
+    },
+    {
+      "archive": "libvorbisenc2_1.3.7-1build2_amd64.deb",
+      "entry": "usr/share/doc/libvorbisenc2/copyright",
+      "target": "licenses/libvorbisenc2-copyright.txt"
+    },
+    {
+      "archive": "libopus0_1.3.1-0.1build2_amd64.deb",
+      "entry": "usr/share/doc/libopus0/copyright",
+      "target": "licenses/libopus0-copyright.txt"
+    },
+    {
+      "archive": "libmpg123-0_1.29.3-1ubuntu0.1_amd64.deb",
+      "entry": "usr/share/doc/libmpg123-0/copyright",
+      "target": "licenses/libmpg123-0-copyright.txt"
+    },
+    {
+      "archive": "libpulse0_15.99.1+dfsg1-1ubuntu1_amd64.deb",
+      "entry": "usr/share/doc/libpulse0/copyright",
+      "target": "licenses/libpulse0-copyright.txt"
+    },
+    {
+      "archive": "libsndfile1_1.0.31-2ubuntu0.2_amd64.deb",
+      "entry": "usr/share/doc/libsndfile1/copyright",
+      "target": "licenses/libsndfile1-copyright.txt"
+    },
+    {
+      "archive": "libasyncns0_0.8-6build2_amd64.deb",
+      "entry": "usr/share/doc/libasyncns0/copyright",
+      "target": "licenses/libasyncns0-copyright.txt"
+    },
+    {
+      "archive": "libdbus-1-3_1.12.20-2ubuntu4.1_amd64.deb",
+      "entry": "usr/share/doc/libdbus-1-3/copyright",
+      "target": "licenses/libdbus-1-3-copyright.txt"
+    },
+    {
+      "archive": "libsystemd0_249.11-0ubuntu3.22_amd64.deb",
+      "entry": "usr/share/doc/libsystemd0/copyright",
+      "target": "licenses/libsystemd0-copyright.txt"
+    },
+    {
+      "archive": "liblzma5_5.2.5-2ubuntu1.1_amd64.deb",
+      "entry": "usr/share/doc/liblzma5/copyright",
+      "target": "licenses/liblzma5-copyright.txt"
+    },
+    {
+      "archive": "liblz4-1_1.9.3-2build2_amd64.deb",
+      "entry": "usr/share/doc/liblz4-1/copyright",
+      "target": "licenses/liblz4-1-copyright.txt"
+    },
+    {
+      "archive": "libzstd1_1.4.8+dfsg-3build1_amd64.deb",
+      "entry": "usr/share/doc/libzstd1/copyright",
+      "target": "licenses/libzstd1-copyright.txt"
+    },
+    {
+      "archive": "libgcrypt20_1.9.4-3ubuntu3.3_amd64.deb",
+      "entry": "usr/share/doc/libgcrypt20/copyright",
+      "target": "licenses/libgcrypt20-copyright.txt"
+    },
+    {
+      "archive": "libgpg-error0_1.43-3_amd64.deb",
+      "entry": "usr/share/doc/libgpg-error0/copyright",
+      "target": "licenses/libgpg-error0-copyright.txt"
+    },
+    {
+      "archive": "gstreamer1.0-plugins-bad_1.26.5-1ubuntu2backport2_amd64.deb",
+      "entry": "usr/share/doc/gstreamer1.0-plugins-bad/copyright",
+      "target": "licenses/gstreamer1.0-plugins-bad-copyright.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/LGPL-2.0-or-later.txt",
+      "target": "licenses/LGPL-2.0-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/LGPL-2.1-or-later.txt",
+      "target": "licenses/LGPL-2.1-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/LGPL-3.0-or-later.txt",
+      "target": "licenses/LGPL-3.0-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/GPL-2.0-or-later.txt",
+      "target": "licenses/GPL-2.0-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/GPL-3.0-or-later.txt",
+      "target": "licenses/GPL-3.0-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/Apache-2.0.txt",
+      "target": "licenses/Apache-2.0.txt"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libdrm.so.2",
+      "target": "lib/libdrm.so.2"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libswscale.so.9",
+      "target": "lib/libswscale.so.9"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libva-drm.so.2",
+      "target": "lib/libva-drm.so.2"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libavfilter.so.11",
+      "target": "lib/libavfilter.so.11"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libavformat.so.62",
+      "target": "lib/libavformat.so.62"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libswresample.so.6",
+      "target": "lib/libswresample.so.6"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libva.so.2",
+      "target": "lib/libva.so.2"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libavcodec.so.62",
+      "target": "lib/libavcodec.so.62"
+    },
+    {
+      "archive": "ffmpeg-8.1.2-1.5.14-linux-x86_64.jar",
+      "entry": "org/bytedeco/ffmpeg/linux-x86_64/libavutil.so.60",
+      "target": "lib/libavutil.so.60"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.GPLv2",
+      "target": "licenses/ffmpeg-COPYING.GPLv2.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.GPLv3",
+      "target": "licenses/ffmpeg-COPYING.GPLv3.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.LGPLv2.1",
+      "target": "licenses/ffmpeg-COPYING.LGPLv2.1.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.LGPLv3",
+      "target": "licenses/ffmpeg-COPYING.LGPLv3.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.lame",
+      "target": "licenses/ffmpeg-COPYING.lame.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.libva",
+      "target": "licenses/ffmpeg-COPYING.libva.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.libwebp",
+      "target": "licenses/ffmpeg-COPYING.libwebp.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.opus",
+      "target": "licenses/ffmpeg-COPYING.opus.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.speex",
+      "target": "licenses/ffmpeg-COPYING.speex.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYING.vo-amrwbenc",
+      "target": "licenses/ffmpeg-COPYING.vo-amrwbenc.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/COPYRIGHT.nvcodec",
+      "target": "licenses/ffmpeg-COPYRIGHT.nvcodec.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/Copyright.libxml2",
+      "target": "licenses/ffmpeg-Copyright.libxml2.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.freetype",
+      "target": "licenses/ffmpeg-LICENSE.freetype.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.lame",
+      "target": "licenses/ffmpeg-LICENSE.lame.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.libvpx",
+      "target": "licenses/ffmpeg-LICENSE.libvpx.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.md",
+      "target": "licenses/ffmpeg-LICENSE.md.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.mfx",
+      "target": "licenses/ffmpeg-LICENSE.mfx.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.opencore-amr",
+      "target": "licenses/ffmpeg-LICENSE.opencore-amr.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.openh264",
+      "target": "licenses/ffmpeg-LICENSE.openh264.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.openssl",
+      "target": "licenses/ffmpeg-LICENSE.openssl.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.srt",
+      "target": "licenses/ffmpeg-LICENSE.srt.txt"
+    },
+    {
+      "archive": "javacpp-presets-1.5.14.tar.gz",
+      "entry": "javacpp-presets-1.5.14/ffmpeg/LICENSE.zlib",
+      "target": "licenses/ffmpeg-LICENSE.zlib.txt"
+    },
+    {
+      "archive": "harfbuzz-COPYING.txt",
+      "entry": "harfbuzz-COPYING.txt",
+      "target": "licenses/ffmpeg-harfbuzz-COPYING.txt"
+    },
+    {
+      "archive": "zimg-COPYING.txt",
+      "entry": "zimg-COPYING.txt",
+      "target": "licenses/ffmpeg-zimg-COPYING.txt"
+    },
+    {
+      "archive": "aom-LICENSE.txt",
+      "entry": "aom-LICENSE.txt",
+      "target": "licenses/ffmpeg-aom-LICENSE.txt",
+      "encoding": "base64"
+    },
+    {
+      "archive": "aom-PATENTS.txt",
+      "entry": "aom-PATENTS.txt",
+      "target": "licenses/ffmpeg-aom-PATENTS.txt",
+      "encoding": "base64"
+    },
+    {
+      "archive": "svt-av1-LICENSE.txt",
+      "entry": "svt-av1-LICENSE.txt",
+      "target": "licenses/ffmpeg-svt-av1-LICENSE.txt"
+    },
+    {
+      "archive": "svt-av1-PATENTS.txt",
+      "entry": "svt-av1-PATENTS.txt",
+      "target": "licenses/ffmpeg-svt-av1-PATENTS.txt"
+    }
+  ],
+  "notice": "Experimental audio-only GStreamer runtime from ready-built Ubuntu and conda-forge packages. FFmpeg 8.1.2 LGPL v3 native SOs come from the ordinary (non-GPL) JavaCPP Presets artifact in Maven Central; neither JavaCPP classes nor its JNI SOs are shipped or used. Exact archives and SHA256 are in runtime-manifest.json. FFmpeg avcodec_license reports LGPL version 3 or later; GPL and nonfree codecs are disabled. Individual package copyrights, upstream FFmpeg dependency notices and full GNU licenses are adjacent. Libraries remain separate and replaceable. No C/C++ source compilation occurs. Source/build provenance: Ubuntu source packages for the recorded package versions; conda-forge/gst-libav-feedstock, glib-feedstock, libiconv-feedstock; https://github.com/bytedeco/javacpp-presets/tree/1.5.14/ffmpeg contains pinned build versions and patches. FFmpeg source is 8.1.2, https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz. The complete Presets source archive is pinned in this manifest. GTK and sufficiently new GLib/libdrm are shared with the operating system to avoid preloading an older graphics foundation.",
+  "preloadMode": "elf",
+  "sharedLibraries": [
+    "libdrm.so.2"
+  ]
+}

@@ -405,7 +405,9 @@ public class MainView extends BorderPane {
                 saveButton,
                 clearWorkspaceButton,
                 rebuildStateButton,
-                projectPathLabel
+                projectPathLabel,
+                createSpacer(),
+                waveformLoadingIndicator
         );
         toolBar.getStyleClass().add("main-header");
         recentProjectsButton.setOnShowing(event -> refreshRecentProjects());
@@ -549,7 +551,7 @@ public class MainView extends BorderPane {
         workspacePlayPauseButton.setFocusTraversable(false);
         workspaceStopButton.setFocusTraversable(false);
         waveformLoadingIndicator.setVisible(false);
-        waveformLoadingIndicator.setManaged(false);
+        waveformLoadingIndicator.setManaged(true);
         waveformLoadingIndicator.setProgress(0d);
         waveformLoadingIndicator.setPrefSize(18d, 18d);
         waveformLoadingIndicator.setMinSize(18d, 18d);
@@ -563,8 +565,7 @@ public class MainView extends BorderPane {
                 createSpacer(),
                 masterVolumeLabel,
                 masterVolumeSlider,
-                masterVolumeValueLabel,
-                waveformLoadingIndicator
+                masterVolumeValueLabel
         );
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
@@ -1382,6 +1383,11 @@ public class MainView extends BorderPane {
         rebuildWorkspace();
     }
 
+    /**
+     * Structural edits must restart bounded waveform prefetch after the queue index and focus are updated.
+     * A newly created queue is empty during initial preload; without this step files added later are decoded
+     * only when selected. The shared refresh path also covers transfers into an existing queue.
+     */
     private void refreshQueueView(UUID queueId) {
         WorkspaceQueueItem workspaceQueueItem = workspaceQueueItems.get(queueId);
         QueueView queueView = queueViews.get(queueId);
@@ -1390,6 +1396,9 @@ public class MainView extends BorderPane {
         }
         if (queueView != null) {
             queueView.rebuildChips();
+        }
+        if (workspaceQueueItem != null) {
+            preloadQueueWaveforms(workspaceQueueItem);
         }
     }
 
@@ -1637,12 +1646,18 @@ public class MainView extends BorderPane {
         virtualTileViews.values().forEach(VirtualTileView::refreshPlayback);
     }
 
+    /**
+     * The project remains busy while scanning/restoring or preparing any requested workspace waveform.
+     * Deferred prefetch counts too: an empty decoder queue must not imply completion while paths await admission.
+     * Keep the indicator visible across the handoff from project loading to background preparation.
+     * Its managed slot stays reserved at the right of the top toolbar even when hidden, so busy/idle transitions
+     * cannot resize toolbar controls or the independent master-volume header.
+     */
     private void refreshWaveformLoadingIndicator() {
-        boolean loadingWaveforms = waveformService.getPendingLoadCount() > 0;
-        if (waveformLoadingIndicator.isVisible() != loadingWaveforms) {
-            waveformLoadingIndicator.setVisible(loadingWaveforms);
-            waveformLoadingIndicator.setManaged(loadingWaveforms);
-            waveformLoadingIndicator.setProgress(loadingWaveforms
+        boolean loading = session.isLoading() || waveformService.getPendingLoadCount() > 0;
+        if (waveformLoadingIndicator.isVisible() != loading) {
+            waveformLoadingIndicator.setVisible(loading);
+            waveformLoadingIndicator.setProgress(loading
                     ? ProgressIndicator.INDETERMINATE_PROGRESS
                     : 0d);
         }

@@ -142,9 +142,18 @@ public class WorkspaceQueueItem {
         return Optional.of(audioPath);
     }
 
+    /**
+     * Starts speculative waveform preparation at the focused entry, then follows playback order and wraps once.
+     * The preload budget is bounded, so starting at the author's first entry can spend it entirely on unrelated
+     * tracks when an old workspace restores a selection near the end. This must not change persisted queue order,
+     * selection, or create players; shuffled queues use the same indexed order as playback.
+     */
     public List<Path> getAudioPaths() {
         List<Path> audioPaths = new ArrayList<>();
-        for (QueueTrack queueTrack : workspaceQueue.getTracks()) {
+        List<QueueTrack> queueTracks = getTracks();
+        int start = Math.max(positionsById.getOrDefault(focusedQueueTrackId, 0), 0);
+        for (int offset = 0; offset < queueTracks.size(); offset++) {
+            QueueTrack queueTrack = queueTracks.get((start + offset) % queueTracks.size());
             AudioFile audioFile = audioFilesById.get(queueTrack.getAudioFileId());
             if (audioFile == null || audioFile.isMissing()) {
                 continue;

@@ -1,0 +1,553 @@
+{
+  "schema": 1,
+  "platform": "windows-x64",
+  "gstreamerVersion": "1.28.7",
+  "experimental": true,
+  "upstream": "https://gstreamer.freedesktop.org/download/",
+  "buildRecipes": {
+    "url": "https://codeload.github.com/GStreamer/cerbero/tar.gz/refs/tags/1.28.7",
+    "sha256": "f4926fb8e730a8aba6742d497764b2906ad933639bc6e8905e11a5011b7195e3"
+  },
+  "archives": [
+    {
+      "name": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/db/10/1f71e13414c505253c86990a129c74af5adffb556a63d99483b4333bc5f7/gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "sha256": "ea81c0f3aba25ca53053202b274c9a05e71037761def9e2dbb172982e8e961bf"
+    },
+    {
+      "name": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/62/4d/8f60c96a1c2afeaf00b3a90b60cd2f3bec1f2fc5c381c58337068ef48f39/gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "sha256": "960f8cc19f4c4dfb460e782b1c8a426e95d06a300195b6f356319731a3a2b70b"
+    },
+    {
+      "name": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/ea/0e/ae869eaefbcc164494be251260ba953e624b873ada017eb3c66877b1939d/gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "sha256": "5bfd41b8f3ec6ad1dac30132ad0ae4738a8a79de926606c7cc2c736bb1d22d06"
+    },
+    {
+      "name": "cerbero-1.28.7.tar.gz",
+      "url": "https://codeload.github.com/GStreamer/cerbero/tar.gz/refs/tags/1.28.7",
+      "sha256": "f4926fb8e730a8aba6742d497764b2906ad933639bc6e8905e11a5011b7195e3"
+    },
+    {
+      "name": "glib-2.82.4.tar.xz",
+      "url": "https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz",
+      "sha256": "37dd0877fe964cd15e9a2710b044a1830fb1bd93652a6d0cb6b8b2dff187c709",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/glib/glib-2.82.4.tar.xz"
+      ]
+    },
+    {
+      "name": "libffi-meson-3.2.9999.5.tar.bz2",
+      "url": "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi/-/archive/meson-3.2.9999.5/libffi-meson-3.2.9999.5.tar.bz2",
+      "sha256": "b4d403932a8860589e571300e807e40bb4f7d9d2630c8ec19c29fb9e7b0fd227",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/libffi/libffi-meson-3.2.9999.5.tar.bz2"
+      ]
+    },
+    {
+      "name": "orc-0.4.42.tar.xz",
+      "url": "https://gstreamer.freedesktop.org/src/orc/orc-0.4.42.tar.xz",
+      "sha256": "7ec912ab59af3cc97874c456a56a8ae1eec520c385ec447e8a102b2bd122c90c",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/orc/orc-0.4.42.tar.xz"
+      ]
+    },
+    {
+      "name": "libogg-1.3.5.tar.xz",
+      "url": "https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz",
+      "sha256": "c4d91be36fc8e54deae7575241e03f4211eb102afb3fc0775fbbc1b740016705",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/libogg/libogg-1.3.5.tar.xz"
+      ]
+    },
+    {
+      "name": "libvorbis-1.3.7.tar.xz",
+      "url": "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz",
+      "sha256": "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/libvorbis/libvorbis-1.3.7.tar.xz"
+      ]
+    },
+    {
+      "name": "opus-1.5.2.tar.gz",
+      "url": "https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz",
+      "sha256": "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/opus/opus-1.5.2.tar.gz"
+      ]
+    },
+    {
+      "name": "flac-1.4.3.tar.xz",
+      "url": "https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz",
+      "sha256": "6c58e69cd22348f441b861092b825e591d0b822e106de6eb0ee4d05d27205b70",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/flac/flac-1.4.3.tar.xz"
+      ]
+    },
+    {
+      "name": "pcre2-10.42.tar.bz2",
+      "url": "https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2",
+      "sha256": "8d36cd8cb6ea2a4c2bb358ff6411b0c788633a2a45dabbf1aeb4b701d1b5e840",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/pcre2/pcre2-10.42.tar.bz2"
+      ]
+    },
+    {
+      "name": "bzip2-1.0.8.tar.gz",
+      "url": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz",
+      "sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/bzip2/bzip2-1.0.8.tar.gz"
+      ]
+    },
+    {
+      "name": "zlib-1.3.1.tar.gz",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/zlib/zlib-1.3.1.tar.gz"
+      ]
+    },
+    {
+      "name": "mpg123-1.32.7.tar.bz2",
+      "url": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.7/mpg123-1.32.7.tar.bz2",
+      "sha256": "3c8919243707951cac0e3c39bbf28653bcaffc43c98ff16801a27350db8f0f21",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/mpg123/mpg123-1.32.7.tar.bz2"
+      ]
+    },
+    {
+      "name": "proxy-libintl-0.5.tar.gz",
+      "url": "https://github.com/frida/proxy-libintl/archive/refs/tags/0.5.tar.gz",
+      "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303",
+      "mirrors": [
+        "https://gstreamer.freedesktop.org/src/mirror/proxy-libintl/proxy-libintl-0.5.tar.gz"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/avcodec-61.dll",
+      "target": "bin/avcodec-61.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/avfilter-10.dll",
+      "target": "bin/avfilter-10.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/avformat-61.dll",
+      "target": "bin/avformat-61.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/avutil-59.dll",
+      "target": "bin/avutil-59.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/bz2.dll",
+      "target": "bin/bz2.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/ffi-7.dll",
+      "target": "bin/ffi-7.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/FLAC-8.dll",
+      "target": "bin/FLAC-8.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gio-2.0-0.dll",
+      "target": "bin/gio-2.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/glib-2.0-0.dll",
+      "target": "bin/glib-2.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gmodule-2.0-0.dll",
+      "target": "bin/gmodule-2.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gobject-2.0-0.dll",
+      "target": "bin/gobject-2.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gstapp-1.0-0.dll",
+      "target": "bin/gstapp-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gstaudio-1.0-0.dll",
+      "target": "bin/gstaudio-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gstbase-1.0-0.dll",
+      "target": "bin/gstbase-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gstpbutils-1.0-0.dll",
+      "target": "bin/gstpbutils-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gstreamer-1.0-0.dll",
+      "target": "bin/gstreamer-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gstriff-1.0-0.dll",
+      "target": "bin/gstriff-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gstrtp-1.0-0.dll",
+      "target": "bin/gstrtp-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gsttag-1.0-0.dll",
+      "target": "bin/gsttag-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/gstvideo-1.0-0.dll",
+      "target": "bin/gstvideo-1.0-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/intl-8.dll",
+      "target": "bin/intl-8.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/libmpg123-1.dll",
+      "target": "bin/libmpg123-1.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/ogg-0.dll",
+      "target": "bin/ogg-0.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/opus-0.dll",
+      "target": "bin/opus-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/orc-0.4-0.dll",
+      "target": "bin/orc-0.4-0.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/pcre2-8-0.dll",
+      "target": "bin/pcre2-8-0.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/swresample-5.dll",
+      "target": "bin/swresample-5.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/swscale-8.dll",
+      "target": "bin/swscale-8.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/vorbis-0.dll",
+      "target": "bin/vorbis-0.dll"
+    },
+    {
+      "archive": "gstreamer_plugins_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins_libs-1.28.7.data/purelib/gstreamer_plugins_libs/bin/vorbisenc-2.dll",
+      "target": "bin/vorbisenc-2.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/bin/z-1.dll",
+      "target": "bin/z-1.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstaiff.dll",
+      "target": "lib/gstreamer-1.0/gstaiff.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstapetag.dll",
+      "target": "lib/gstreamer-1.0/gstapetag.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/gstapp.dll",
+      "target": "lib/gstreamer-1.0/gstapp.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/gstaudioconvert.dll",
+      "target": "lib/gstreamer-1.0/gstaudioconvert.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/gstaudiomixer.dll",
+      "target": "lib/gstreamer-1.0/gstaudiomixer.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstaudioparsers.dll",
+      "target": "lib/gstreamer-1.0/gstaudioparsers.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/gstaudioresample.dll",
+      "target": "lib/gstreamer-1.0/gstaudioresample.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/gstcoreelements.dll",
+      "target": "lib/gstreamer-1.0/gstcoreelements.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstflac.dll",
+      "target": "lib/gstreamer-1.0/gstflac.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstid3demux.dll",
+      "target": "lib/gstreamer-1.0/gstid3demux.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstisomp4.dll",
+      "target": "lib/gstreamer-1.0/gstisomp4.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstlibav.dll",
+      "target": "lib/gstreamer-1.0/gstlibav.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstmpg123.dll",
+      "target": "lib/gstreamer-1.0/gstmpg123.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstogg.dll",
+      "target": "lib/gstreamer-1.0/gstogg.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstopus.dll",
+      "target": "lib/gstreamer-1.0/gstopus.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstplayback.dll",
+      "target": "lib/gstreamer-1.0/gstplayback.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/gsttypefindfunctions.dll",
+      "target": "lib/gstreamer-1.0/gsttypefindfunctions.dll"
+    },
+    {
+      "archive": "gstreamer_libs-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_libs-1.28.7.data/purelib/gstreamer_libs/lib/gstreamer-1.0/gstvolume.dll",
+      "target": "lib/gstreamer-1.0/gstvolume.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstvorbis.dll",
+      "target": "lib/gstreamer-1.0/gstvorbis.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstwasapi.dll",
+      "target": "lib/gstreamer-1.0/gstwasapi.dll"
+    },
+    {
+      "archive": "gstreamer_plugins-1.28.7-cp39-abi3-win_amd64.whl",
+      "entry": "gstreamer_plugins-1.28.7.data/purelib/gstreamer_plugins/lib/gstreamer-1.0/gstwavparse.dll",
+      "target": "lib/gstreamer-1.0/gstwavparse.dll"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/LGPL-2.0-or-later.txt",
+      "target": "licenses/LGPL-2.0-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/LGPL-2.1-or-later.txt",
+      "target": "licenses/LGPL-2.1-or-later.txt"
+    },
+    {
+      "archive": "cerbero-1.28.7.tar.gz",
+      "entry": "cerbero-1.28.7/data/licenses/GPL-2.0-or-later.txt",
+      "target": "licenses/GPL-2.0-or-later.txt"
+    },
+    {
+      "archive": "libffi-meson-3.2.9999.5.tar.bz2",
+      "entry": "libffi-meson-3.2.9999.5/LICENSE",
+      "target": "licenses/libffi-LICENSE.txt"
+    },
+    {
+      "archive": "orc-0.4.42.tar.xz",
+      "entry": "orc-0.4.42/COPYING",
+      "target": "licenses/orc-COPYING.txt"
+    },
+    {
+      "archive": "libogg-1.3.5.tar.xz",
+      "entry": "libogg-1.3.5/COPYING",
+      "target": "licenses/libogg-COPYING.txt"
+    },
+    {
+      "archive": "libvorbis-1.3.7.tar.xz",
+      "entry": "libvorbis-1.3.7/COPYING",
+      "target": "licenses/libvorbis-COPYING.txt"
+    },
+    {
+      "archive": "opus-1.5.2.tar.gz",
+      "entry": "opus-1.5.2/COPYING",
+      "target": "licenses/opus-COPYING.txt"
+    },
+    {
+      "archive": "flac-1.4.3.tar.xz",
+      "entry": "flac-1.4.3/COPYING.Xiph",
+      "target": "licenses/flac-COPYING.Xiph.txt"
+    },
+    {
+      "archive": "pcre2-10.42.tar.bz2",
+      "entry": "pcre2-10.42/LICENCE",
+      "target": "licenses/pcre2-LICENCE.txt"
+    },
+    {
+      "archive": "pcre2-10.42.tar.bz2",
+      "entry": "pcre2-10.42/COPYING",
+      "target": "licenses/pcre2-COPYING.txt"
+    },
+    {
+      "archive": "bzip2-1.0.8.tar.gz",
+      "entry": "bzip2-1.0.8/LICENSE",
+      "target": "licenses/bzip2-LICENSE.txt"
+    },
+    {
+      "archive": "zlib-1.3.1.tar.gz",
+      "entry": "zlib-1.3.1/README",
+      "target": "licenses/zlib-README.txt"
+    },
+    {
+      "archive": "mpg123-1.32.7.tar.bz2",
+      "entry": "mpg123-1.32.7/COPYING",
+      "target": "licenses/mpg123-COPYING.txt"
+    },
+    {
+      "archive": "proxy-libintl-0.5.tar.gz",
+      "entry": "proxy-libintl-0.5/COPYING",
+      "target": "licenses/proxy-libintl-COPYING.txt"
+    }
+  ],
+  "foundation": [
+    "Windows system DLLs",
+    "JDK-provided vcruntime140.dll (C ABI); C++ WASAPI2 is deliberately excluded"
+  ],
+  "components": [
+    {
+      "component": "glib",
+      "version": "2.82.4",
+      "url": "https://download.gnome.org/sources/glib/2.82/glib-2.82.4.tar.xz",
+      "sha256": "37dd0877fe964cd15e9a2710b044a1830fb1bd93652a6d0cb6b8b2dff187c709"
+    },
+    {
+      "component": "libffi",
+      "version": "3.2.9999.5",
+      "url": "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi/-/archive/meson-3.2.9999.5/libffi-meson-3.2.9999.5.tar.bz2",
+      "sha256": "b4d403932a8860589e571300e807e40bb4f7d9d2630c8ec19c29fb9e7b0fd227"
+    },
+    {
+      "component": "orc",
+      "version": "0.4.42",
+      "url": "https://gstreamer.freedesktop.org/src/orc/orc-0.4.42.tar.xz",
+      "sha256": "7ec912ab59af3cc97874c456a56a8ae1eec520c385ec447e8a102b2bd122c90c"
+    },
+    {
+      "component": "libogg",
+      "version": "1.3.5",
+      "url": "https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.xz",
+      "sha256": "c4d91be36fc8e54deae7575241e03f4211eb102afb3fc0775fbbc1b740016705"
+    },
+    {
+      "component": "libvorbis",
+      "version": "1.3.7",
+      "url": "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz",
+      "sha256": "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b"
+    },
+    {
+      "component": "opus",
+      "version": "1.5.2",
+      "url": "https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz",
+      "sha256": "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
+    },
+    {
+      "component": "flac",
+      "version": "1.4.3",
+      "url": "https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz",
+      "sha256": "6c58e69cd22348f441b861092b825e591d0b822e106de6eb0ee4d05d27205b70"
+    },
+    {
+      "component": "pcre2",
+      "version": "10.42",
+      "url": "https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2",
+      "sha256": "8d36cd8cb6ea2a4c2bb358ff6411b0c788633a2a45dabbf1aeb4b701d1b5e840"
+    },
+    {
+      "component": "bzip2",
+      "version": "1.0.8",
+      "url": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz",
+      "sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269"
+    },
+    {
+      "component": "zlib",
+      "version": "1.3.1",
+      "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz",
+      "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+    },
+    {
+      "component": "mpg123",
+      "version": "1.32.7",
+      "url": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.7/mpg123-1.32.7.tar.bz2",
+      "sha256": "3c8919243707951cac0e3c39bbf28653bcaffc43c98ff16801a27350db8f0f21"
+    },
+    {
+      "component": "proxy-libintl",
+      "version": "0.5",
+      "url": "https://github.com/frida/proxy-libintl/archive/refs/tags/0.5.tar.gz",
+      "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303"
+    },
+    {
+      "component": "FFmpeg",
+      "version": "7.1 (Cerbero Meson port)",
+      "license": "LGPL-2.1-or-later",
+      "url": "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz",
+      "sha256": "40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6",
+      "patches": "cerbero-1.28.7/recipes/ffmpeg"
+    }
+  ],
+  "notice": "Experimental GStreamer audio runtime. Native libraries remain separate and replaceable. Upstream build recipes and exact source archive hashes are recorded in runtime-manifest.json. Only selected audio plugins are shipped; a wheel containing other plugins is not copied wholesale. GStreamer/GLib/proxy-libintl: LGPL-2.0-or-later. FFmpeg/mpg123: LGPL-2.1-or-later. libffi: MIT; Ogg/Vorbis/Opus/FLAC/ORC: BSD; PCRE2: BSD and Unicode; bzip2 and zlib: their respective permissive licenses. Full license and copyright texts are adjacent. FFmpeg GPL, nonfree and version3 options are disabled in these binaries. Build recipes, including upstream patches, are in the pinned Cerbero archive. No native source compilation is performed by The Soundboard runtime builder."
+}
