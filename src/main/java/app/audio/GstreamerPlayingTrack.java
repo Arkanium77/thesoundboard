@@ -37,6 +37,8 @@ import java.util.concurrent.TimeUnit;
  * discovery, while conversion/resampling and software gain stay explicit. Its dynamic pad must be linked on every
  * activation: parseLaunch's delayed link only survives the first preroll and breaks replay after NULL. NULL already
  * resets the source to zero, so replay must not add a redundant flushing seek unless the caller requested a position.
+ * Add/link elements individually: the binding's native variadic addMany/linkMany signatures do not describe the fixed
+ * arguments correctly for the Apple arm64 ABI and can pass invalid element pointers there. Ordinary calls work on all hosts.
  */
 final class GstreamerPlayingTrack implements PlayingTrack {
     private static final Logger LOGGER = LoggerFactory.getLogger(GstreamerPlayingTrack.class);
@@ -79,9 +81,11 @@ final class GstreamerPlayingTrack implements PlayingTrack {
             Element output = element(outputFactory, "soundboard-output");
             output.set("sync", true);
             if (outputFactory.equals("wasapisink")) output.set("low-latency", true);
-            player.addMany(fileSource, decoder, convert, resample, gain, output);
+            for (Element element : elements) {
+                if (!player.add(element)) throw new IllegalStateException("Cannot add an audio element");
+            }
             fileSource.set("location", path.toString());
-            if (!Element.linkMany(fileSource, decoder) || !Element.linkMany(convert, resample, gain, output)) {
+            if (!fileSource.link(decoder) || !convert.link(resample) || !resample.link(gain) || !gain.link(output)) {
                 throw new IllegalStateException("Cannot connect the audio pipeline");
             }
             decoder.connect((Element.PAD_ADDED) (element, pad) -> {
