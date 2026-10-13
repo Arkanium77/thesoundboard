@@ -100,3 +100,15 @@ jobs:
           path: build/release/*.dmg
           if-no-files-found: error
           retention-days: 7
+
+      - name: Preserve native crash and test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diagnostics-${{ matrix.os }}
+          path: |
+            **/hs_err_pid*.log
+            build/test-results/
+            build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 7
