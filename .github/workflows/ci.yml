@@ -63,13 +63,17 @@ jobs:
         if: runner.os == 'Windows'
         run: .\gradlew.bat gstreamerTest --no-daemon --max-workers=1 --console=plain
 
-      # Decoder tests alone do not prove jpackage kept the private libraries in the app bundle.
-      - name: Package and verify the default backend on macOS
-        if: runner.os == 'macOS'
+      # Decoder tests alone do not prove jpackage kept the private libraries in the app bundle on each host.
+      - name: Package and verify the default backend on Linux and macOS
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           ./gradlew release --no-daemon --max-workers=1 --console=plain
-          app=$(find build -path '*/TheSoundboard.app/Contents/app' -type d -print -quit)
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            app=$(find build -path '*/TheSoundboard.app/Contents/app' -type d -print -quit)
+          else
+            app=$(find build/release -path '*/TheSoundboard/lib/app' -type d -print -quit)
+          fi
           test -n "$app"
           cat > "$RUNNER_TEMP/DefaultAudioEngineProbe.java" <<'JAVA'
           import app.audio.AudioEngine;
@@ -92,12 +96,47 @@ jobs:
           javac -cp "$app/*" -d "$RUNNER_TEMP" "$RUNNER_TEMP/DefaultAudioEngineProbe.java"
           java -cp "$RUNNER_TEMP:$app/*" DefaultAudioEngineProbe
 
-      - name: Upload verified macOS package
-        if: runner.os == 'macOS'
+      - name: Package and verify the default backend on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\gradlew.bat release --no-daemon --max-workers=1 --console=plain
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $app = Get-ChildItem build/release -Directory -Recurse | Where-Object {
+            $_.Name -eq 'app' -and $_.Parent.Name -eq 'TheSoundboard'
+          } | Select-Object -First 1 -ExpandProperty FullName
+          if (!$app) { throw 'Packaged application JAR directory is missing' }
+          @'
+          import app.audio.AudioEngine;
+          import app.audio.AudioEngineMode;
+          import app.audio.GstreamerAudioEngine;
+          import app.audio.GstreamerRuntime;
+          import java.util.List;
+          public class DefaultAudioEngineProbe {
+              public static void main(String[] args) {
+                  AudioEngineMode mode = AudioEngineMode.fromArguments(List.of());
+                  if (mode != AudioEngineMode.GSTREAMER) throw new AssertionError(mode);
+                  AudioEngine engine = mode.createEngine();
+                  if (!(engine instanceof GstreamerAudioEngine)) throw new AssertionError(engine.getClass());
+                  engine.shutdown();
+                  GstreamerRuntime.shutdown();
+                  System.out.println("DEFAULT_GSTREAMER_PACKAGED_RUNTIME_OK");
+              }
+          }
+          '@ | Set-Content "$env:RUNNER_TEMP/DefaultAudioEngineProbe.java" -Encoding utf8
+          javac -cp "$app/*" -d "$env:RUNNER_TEMP" "$env:RUNNER_TEMP/DefaultAudioEngineProbe.java"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          java -cp "$env:RUNNER_TEMP;$app/*" DefaultAudioEngineProbe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload verified application package
         uses: actions/upload-artifact@v7
         with:
           name: thesoundboard-${{ matrix.os }}
-          path: build/release/*.dmg
+          path: |
+            build/release/*.dmg
+            build/release/*.zip
+            build/release/*.tar.gz
           if-no-files-found: error
           retention-days: 7
 

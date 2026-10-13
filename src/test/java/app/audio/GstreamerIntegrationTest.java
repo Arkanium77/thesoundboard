@@ -247,6 +247,15 @@ class GstreamerIntegrationTest {
                 Thread.interrupted();
             }
             track.dispose();
+            PlayingTrack recovered = engine.createTrack(Path.of(getClass().getResource("/audio/tone.mp3").toURI()));
+            recovered.restorePlayback(Duration.millis(200), true);
+            await(() -> recovered.getStatus() == PlaybackStatus.PAUSED || recovered.getStatus() == PlaybackStatus.ERROR);
+            Assertions.assertThat(recovered.getStatus()).isEqualTo(PlaybackStatus.PAUSED);
+            Assertions.assertThat(recovered.getCurrentTime().toMillis()).isBetween(150d, 250d);
+            recovered.play();
+            await(() -> recovered.getStatus() == PlaybackStatus.PLAYING || recovered.getStatus() == PlaybackStatus.ERROR);
+            Assertions.assertThat(recovered.getStatus()).isEqualTo(PlaybackStatus.PLAYING);
+            recovered.dispose();
         } finally {
             engine.shutdown();
         }
