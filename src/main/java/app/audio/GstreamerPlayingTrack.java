@@ -30,6 +30,10 @@ import java.util.concurrent.TimeUnit;
  * from a monotonic timestamp, avoiding a staircase cursor or a 200 ms artificial first-play delay. NULL precedes disposal.
  * Windows uses the C WASAPI plugin: WASAPI2's newer C++ mutex implementation crashes with the older MSVC
  * runtime already loaded by supported JDK 21 installations. Changing a DLL directory cannot replace that runtime.
+ * WASAPI keeps low-latency mode but uses ordinary shared IAudioClient by default: negotiating AudioClient3 again on
+ * every cold trigger cost about 10 ms in both preroll and measured loopback onset, without a resume benefit on the
+ * tested device. Other drivers may benefit from AudioClient3; the system property
+ * thesoundboard.gstreamer.wasapi.audioclient3 retains that option without changing saved projects or other platforms.
  * Initial validation, Stop and end use NULL, retaining only the reusable player shell and known duration. PAUSED would
  * keep decoder/device threads for every tile ever created. Resume from Pause stays warm; replay after Stop prerolls
  * and applies any requested seek. ASYNC_DONE is accepted only when the pipeline reached PAUSED/PLAYING, not a stale stop.
@@ -80,7 +84,10 @@ final class GstreamerPlayingTrack implements PlayingTrack {
                     : os.contains("mac") ? "osxaudiosink" : "pulsesink";
             Element output = element(outputFactory, "soundboard-output");
             output.set("sync", true);
-            if (outputFactory.equals("wasapisink")) output.set("low-latency", true);
+            if (outputFactory.equals("wasapisink")) {
+                output.set("low-latency", true);
+                output.set("use-audioclient3", Boolean.getBoolean("thesoundboard.gstreamer.wasapi.audioclient3"));
+            }
             for (Element element : elements) {
                 if (!player.add(element)) throw new IllegalStateException("Cannot add an audio element");
             }
