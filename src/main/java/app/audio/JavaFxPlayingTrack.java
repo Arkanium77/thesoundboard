@@ -101,6 +101,7 @@ public class JavaFxPlayingTrack implements PlayingTrack {
         mediaPlayer.play();
     }
 
+    /** MediaPlayer caps amplitude at unity; retain its native limit for the explicit legacy fallback. */
     @Override
     public void setVolume(double volume) {
         mediaPlayer.setVolume(Math.max(0d, Math.min(1d, volume)));

@@ -1,6 +1,7 @@
 package app.audio;
 
 import app.model.PlaybackStatus;
+import app.support.TestDirectorySupport;
 import app.waveform.GstreamerWaveformExtractor;
 import app.waveform.WaveformData;
 import javafx.util.Duration;
@@ -21,6 +22,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.reflect.Field;
+import org.assertj.core.data.Offset;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
@@ -42,6 +45,77 @@ import javax.sound.sampled.AudioSystem;
 
 /** Exercises the real Java binding without opening speakers; opt in with a private runtime path. */
 class GstreamerIntegrationTest {
+    @Test
+    @Timeout(30)
+    void amplifiesAndAttenuatesDecodedPcmWithoutClampingAtUnity() throws Exception {
+        prepareRuntime();
+        GstreamerAudioEngine engine = new GstreamerAudioEngine(Runnable::run, "appsink");
+        try {
+            PlayingTrack track = engine.createTrack(Path.of(getClass().getResource("/audio/tone.wav").toURI()));
+            track.restorePlayback(Duration.millis(200), true);
+            await(() -> track.getStatus() == PlaybackStatus.PAUSED);
+            double unity = trimmedPreroll(engine, track, 1d);
+            double boosted = trimmedPreroll(engine, track, Math.pow(10d, 6d / 20d));
+            double attenuated = trimmedPreroll(engine, track, Math.pow(10d, -6d / 20d));
+            Assertions.assertThat(unity).isPositive();
+            Assertions.assertThat(boosted / unity).isCloseTo(1.995262d, Offset.offset(0.002d));
+            Assertions.assertThat(attenuated / unity).isCloseTo(0.501187d, Offset.offset(0.002d));
+            Path quiet = TestDirectorySupport.createTempDirectory("quiet-gain-").resolve("quiet.wav");
+            try (AudioInputStream input = AudioSystem.getAudioInputStream(getClass().getResource("/audio/tone.wav"))) {
+                byte[] pcm = input.readAllBytes();
+                ByteBuffer samples = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN);
+                for (int index = 0; index < pcm.length; index += Short.BYTES) {
+                    samples.putShort(index, (short) (samples.getShort(index) / 64));
+                }
+                try (AudioInputStream quietInput = new AudioInputStream(new ByteArrayInputStream(pcm),
+                        input.getFormat(), pcm.length / input.getFormat().getFrameSize())) {
+                    AudioSystem.write(quietInput, AudioFileFormat.Type.WAVE, quiet.toFile());
+                }
+            }
+            PlayingTrack quietTrack = engine.createTrack(quiet);
+            quietTrack.restorePlayback(Duration.millis(200), true);
+            await(() -> quietTrack.getStatus() == PlaybackStatus.PAUSED);
+            double quietUnity = trimmedPreroll(engine, quietTrack, 1d);
+            double loud = trimmedPreroll(engine, quietTrack, Math.pow(10d, 30d / 20d));
+            Assertions.assertThat(loud / quietUnity).isCloseTo(31.622777d, Offset.offset(0.05d));
+            quietTrack.dispose();
+            track.dispose();
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    private double trimmedPreroll(GstreamerAudioEngine engine, PlayingTrack track, double amplitude) throws Exception {
+        track.setVolume(amplitude);
+        track.seek(Duration.millis(400));
+        CountDownLatch changed = new CountDownLatch(1);
+        engine.execute(changed::countDown);
+        Assertions.assertThat(changed.await(5, TimeUnit.SECONDS)).isTrue();
+        Field field = GstreamerPlayingTrack.class.getDeclaredField("output");
+        field.setAccessible(true);
+        Sample sample = ((AppSink) field.get(track)).pullPreroll();
+        Assertions.assertThat(sample).isNotNull();
+        try {
+            Assertions.assertThat(sample.getCaps().getStructure(0).getString("format")).isEqualTo("S16LE");
+            Buffer buffer = sample.getBuffer();
+            ByteBuffer bytes = buffer.map(false);
+            try {
+                bytes.order(ByteOrder.LITTLE_ENDIAN);
+                double sum = 0d;
+                int count = bytes.remaining() / Short.BYTES;
+                while (bytes.remaining() >= Short.BYTES) {
+                    double value = bytes.getShort();
+                    sum += value * value;
+                }
+                return Math.sqrt(sum / count);
+            } finally {
+                buffer.unmap();
+            }
+        } finally {
+            sample.dispose();
+        }
+    }
+
     @Test
     void platformAudioPluginCanBeConstructedWithoutOpeningADevice() {
         prepareRuntime();

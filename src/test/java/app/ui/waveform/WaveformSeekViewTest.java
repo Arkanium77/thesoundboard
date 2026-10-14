@@ -1,5 +1,11 @@
 package app.ui.waveform;
 
+import app.waveform.WaveformData;
+import javafx.util.Duration;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
+import java.util.concurrent.atomic.AtomicReference;
+import javafx.event.EventType;
 import javafx.css.CssMetaData;
 import javafx.css.Styleable;
 import org.assertj.core.api.Assertions;
@@ -8,6 +14,33 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 class WaveformSeekViewTest {
+    @Test
+    void onlyPrimaryMouseInputMovesThePlayheadAndCommitsSeek() {
+        WaveformSeekView view = new WaveformSeekView();
+        view.resize(200d, 40d);
+        view.setWaveformData(new WaveformData(new double[]{0.5d}, new double[]{0.3d}, Duration.seconds(10)));
+        view.setPlaybackPosition(Duration.seconds(2), Duration.seconds(10));
+        AtomicReference<Duration> seek = new AtomicReference<>();
+        view.setSeekHandler(seek::set);
+        view.fireEvent(mouse(MouseEvent.MOUSE_PRESSED, MouseButton.SECONDARY, false));
+        view.fireEvent(mouse(MouseEvent.MOUSE_DRAGGED, MouseButton.SECONDARY, false));
+        view.fireEvent(mouse(MouseEvent.MOUSE_RELEASED, MouseButton.SECONDARY, false));
+        Assertions.assertThat(seek.get()).isNull();
+        Assertions.assertThat(view.getDisplayedPosition()).isEqualTo(Duration.seconds(2));
+        view.fireEvent(mouse(MouseEvent.MOUSE_PRESSED, MouseButton.PRIMARY, true));
+        view.fireEvent(mouse(MouseEvent.MOUSE_RELEASED, MouseButton.SECONDARY, true));
+        Assertions.assertThat(seek.get()).isNull();
+        view.fireEvent(mouse(MouseEvent.MOUSE_RELEASED, MouseButton.PRIMARY, false));
+        Assertions.assertThat(seek.get()).isEqualTo(Duration.seconds(8));
+        view.dispose();
+    }
+
+    private MouseEvent mouse(EventType<MouseEvent> type, MouseButton button, boolean primaryDown) {
+        return new MouseEvent(type, 160d, 20d, 160d, 20d, button, 1,
+                false, false, false, false, primaryDown, false, button == MouseButton.SECONDARY,
+                false, button == MouseButton.SECONDARY, true, null);
+    }
+
     @Test
     void exposesSkinCustomizableWaveformColors() {
         WaveformSeekView view = new WaveformSeekView();

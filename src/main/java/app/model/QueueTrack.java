@@ -9,6 +9,8 @@ public class QueueTrack {
     private int order;
     private Integer shuffledOrder;
     private boolean loop;
+    /** Optional project field: the JVM zero default keeps older projects at unity without a schema migration. */
+    private double gainDb;
     private double volume = DEFAULT_VOLUME;
 
     public QueueTrack() {
@@ -59,6 +61,14 @@ public class QueueTrack {
 
     public void setLoop(boolean loop) {
         this.loop = loop;
+    }
+
+    public double getGainDb() {
+        return gainDb;
+    }
+
+    public void setGainDb(double gainDb) {
+        this.gainDb = TrackGain.normalize(gainDb);
     }
 
     public double getVolume() {

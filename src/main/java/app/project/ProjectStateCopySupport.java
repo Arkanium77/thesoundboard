@@ -52,13 +52,15 @@ public final class ProjectStateCopySupport {
     private static List<WorkspaceTrack> copyWorkspaceTracks(List<WorkspaceTrack> source) {
         List<WorkspaceTrack> workspaceTracks = new ArrayList<>();
         for (WorkspaceTrack workspaceTrack : source) {
-            workspaceTracks.add(new WorkspaceTrack(
+            WorkspaceTrack copiedTrack = new WorkspaceTrack(
                     workspaceTrack.getId(),
                     workspaceTrack.getAudioFileId(),
                     workspaceTrack.getOrder(),
                     workspaceTrack.getVolume(),
                     workspaceTrack.isLoop()
-            ));
+            );
+            copiedTrack.setGainDb(workspaceTrack.getGainDb());
+            workspaceTracks.add(copiedTrack);
         }
         return workspaceTracks;
     }
@@ -92,6 +94,7 @@ public final class ProjectStateCopySupport {
                     queueTrack.isLoop()
             );
             copiedTrack.setVolume(queueTrack.getVolume());
+            copiedTrack.setGainDb(queueTrack.getGainDb());
             copiedTrack.setShuffledOrder(queueTrack.getShuffledOrder());
             queueTracks.add(copiedTrack);
         }
@@ -108,6 +111,7 @@ public final class ProjectStateCopySupport {
                         track.getId(), track.getAudioFileId(), track.getOrder(), track.getVolume()
                 );
                 copiedTrack.setLoop(track.isLoop());
+                copiedTrack.setGainDb(track.getGainDb());
                 tracks.add(copiedTrack);
             }
             copiedTile.setTracks(tracks);

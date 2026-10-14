@@ -1,5 +1,7 @@
 package app.ui.workspace;
 
+import app.model.TrackGain;
+import org.assertj.core.data.Offset;
 import app.audio.AudioEngine;
 import app.audio.PlayingTrack;
 import app.model.AudioFile;
@@ -17,6 +19,29 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class WorkspaceTrackItemTest {
+    @Test
+    void appliesTrimAboveUnityAndKeepsMuteAndFadersIndependent() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("track-gain-");
+        Files.writeString(root.resolve("tone.wav"), "audio");
+        WorkspaceTrack model = new WorkspaceTrack(UUID.randomUUID(), UUID.randomUUID(), 0, 1d, false);
+        model.setGainDb(6d);
+        FakePlayingTrack player = new FakePlayingTrack();
+        WorkspaceTrackItem item = new WorkspaceTrackItem(root, model,
+                new AudioFile(model.getAudioFileId(), "tone.wav", "tone.wav", false), path -> player, 1d, error -> { });
+        item.togglePlayPause();
+        Assertions.assertThat(player.volume).isCloseTo(1.995262d, Offset.offset(0.00001d));
+        item.setVolume(0.5d);
+        item.setMasterVolume(0.4d);
+        Assertions.assertThat(player.volume).isCloseTo(0.2d * TrackGain.multiplier(6d), Offset.offset(0.00001d));
+        item.toggleMuted();
+        Assertions.assertThat(player.volume).isZero();
+        item.setGainDb(-6d);
+        item.toggleMuted();
+        Assertions.assertThat(player.volume).isCloseTo(0.2d * TrackGain.multiplier(-6d), Offset.offset(0.00001d));
+        Assertions.assertThat(model.getVolume()).isEqualTo(0.5d);
+        item.dispose();
+    }
+
     @Test
     void createsPlayingTrackLazilyOnFirstPlayback() throws IOException {
         Path rootPath = TestDirectorySupport.createTempDirectory("workspace-track-item-");

@@ -27,8 +27,11 @@ Release descriptions, newest version first. This file is maintained in the repos
 - Automatically highlight the first track and display its waveform when tracks are added to an empty queue.
 - Keep the repeat-current-track control on the queue so its state and playback behavior remain consistent when selecting another track.
 - Buffer encoded waveform input to reduce small filesystem reads during analysis.
+- Seek with the left mouse button only, preserving the playback position when opening a context menu.
 - Prepare waveforms for queued workspace tracks in the background, prioritizing the selected track. The top-bar loading indicator follows pending work without resizing Master Volume.
 - Show actionable native-library startup errors on Windows, Linux and macOS.
+
+- Adjust per-track gain from −30 to +30 dB in track context menus, independently of volume. Double-click the gain control to reset it to zero. Gain is saved for standalone, queue and virtual-tile tracks and follows them when moved.
 
 ### Audio engine performance
 

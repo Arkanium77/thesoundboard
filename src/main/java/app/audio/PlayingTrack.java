@@ -23,6 +23,8 @@ public interface PlayingTrack {
         if (paused) pause();
     }
 
+    /** Linear amplitude after track trim and normalized faders. Native playback accepts values above unity;
+     * the legacy JavaFX backend is limited to its MediaPlayer 0..1 output range. Zero always remains mute. */
     void setVolume(double volume);
 
     void setLoop(boolean loop);

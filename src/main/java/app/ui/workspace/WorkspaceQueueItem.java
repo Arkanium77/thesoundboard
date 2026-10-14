@@ -5,6 +5,7 @@ import app.audio.PlayingTrack;
 import app.model.AudioFile;
 import app.project.AudioFileIndex;
 import app.model.PlaybackStatus;
+import app.model.TrackGain;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import javafx.util.Duration;
@@ -317,6 +318,13 @@ public class WorkspaceQueueItem {
     public void setTrackVolume(UUID queueTrackId, double volume) {
         getTracks().stream().filter(track -> track.getId().equals(queueTrackId)).findFirst().ifPresent(track -> {
             track.setVolume(clampVolume(volume));
+            if (queueTrackId.equals(playingQueueTrackId)) applyVolume();
+        });
+    }
+
+    public void setTrackGainDb(UUID queueTrackId, double gainDb) {
+        getTracks().stream().filter(track -> track.getId().equals(queueTrackId)).findFirst().ifPresent(track -> {
+            track.setGainDb(gainDb);
             if (queueTrackId.equals(playingQueueTrackId)) applyVolume();
         });
     }
@@ -639,7 +647,10 @@ public class WorkspaceQueueItem {
                     .map(QueueTrack::getVolume)
                     .findFirst()
                     .orElse(1d);
-            playingTrack.setVolume(workspaceQueue.getVolume() * trackVolume * masterVolume);
+            double gain = getTracks().stream()
+                    .filter(track -> track.getId().equals(playingQueueTrackId))
+                    .map(track -> TrackGain.multiplier(track.getGainDb())).findFirst().orElse(1d);
+            playingTrack.setVolume(workspaceQueue.getVolume() * trackVolume * masterVolume * gain);
         }
     }
 

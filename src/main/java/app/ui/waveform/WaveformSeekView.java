@@ -20,6 +20,7 @@ import javafx.css.StyleablePropertyFactory;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.MouseButton;
 import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.CycleMethod;
@@ -367,8 +368,9 @@ public class WaveformSeekView extends Region {
         return STYLEABLE_PROPERTY_FACTORY.getCssMetaData();
     }
 
+    /** Context-menu clicks must bubble to the track owner without moving the cursor or starting a seek drag. */
     private void handleMousePressed(MouseEvent event) {
-        if (isDisabled() || !seekState.canSeek()) {
+        if (event.getButton() != MouseButton.PRIMARY || isDisabled() || !seekState.canSeek()) {
             return;
         }
 
@@ -378,7 +380,7 @@ public class WaveformSeekView extends Region {
     }
 
     private void handleMouseDragged(MouseEvent event) {
-        if (!seekState.isDragging() || isDisabled()) {
+        if (!event.isPrimaryButtonDown() || !seekState.isDragging() || isDisabled()) {
             return;
         }
 
@@ -388,7 +390,7 @@ public class WaveformSeekView extends Region {
     }
 
     private void handleMouseReleased(MouseEvent event) {
-        if (!seekState.isDragging() || isDisabled()) {
+        if (event.getButton() != MouseButton.PRIMARY || !seekState.isDragging() || isDisabled()) {
             return;
         }
 

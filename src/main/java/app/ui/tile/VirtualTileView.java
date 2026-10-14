@@ -7,6 +7,7 @@ import app.model.VirtualTileLayout;
 import app.ui.UiIcons;
 import app.ui.UiViewport;
 import app.ui.TitleScrollAnimation;
+import app.ui.GainSliderSupport;
 import app.ui.VolumeSliderSupport;
 import app.ui.drag.DragPayload;
 import app.ui.waveform.WaveformSeekView;
@@ -284,7 +285,9 @@ public class VirtualTileView extends StackPane implements WorkspaceItemView {
         });
         MenuItem removeTrack = new MenuItem(Texts.text(TextKey.VIRTUAL_TILE_REMOVE_TRACK));
         removeTrack.setOnAction(event -> removeTrackAction.remove(trackItem.getWorkspaceTrack().getId()));
-        return new ContextMenu(volumeItem, loopItem, muteItem, removeTrack,
+        return new ContextMenu(volumeItem,
+                GainSliderSupport.create(trackItem.getWorkspaceTrack().getGainDb(), trackItem::setGainDb, persistenceChangeAction),
+                loopItem, muteItem, removeTrack,
                 new SeparatorMenuItem(), createRemoveTileItem());
     }
 

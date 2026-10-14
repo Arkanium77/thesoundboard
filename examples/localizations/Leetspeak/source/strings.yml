@@ -143,3 +143,5 @@ main.recent_projects: "R3c3nt Pr0j3ct5"
 main.recent_projects_empty: "N0 r3c3nt pr0j3ct5"
 
 main.link_folder_short: "L1nk"
+
+track.gain: "G41n: {0} dB"

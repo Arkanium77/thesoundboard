@@ -231,6 +231,7 @@ public class QueueView extends StackPane implements WorkspaceItemView {
                         refresh();
                     },
                     volume -> workspaceQueueItem.setTrackVolume(queueTrack.getId(), volume),
+                    gain -> workspaceQueueItem.setTrackGainDb(queueTrack.getId(), gain),
                     persistenceChangeAction
             );
             chipView.updateScale(currentScale);

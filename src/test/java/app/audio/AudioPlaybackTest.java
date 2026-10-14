@@ -1,6 +1,12 @@
 package app.audio;
 
 import app.model.PlaybackStatus;
+import javafx.event.Event;
+import javafx.scene.input.MouseEvent;
+import javafx.scene.input.MouseButton;
+import javafx.scene.control.Slider;
+import javafx.scene.control.CustomMenuItem;
+import app.ui.GainSliderSupport;
 import app.model.AudioFile;
 import app.model.ProjectState;
 import app.model.WorkspaceTrack;
@@ -92,6 +98,33 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Runs identical workspace contracts against real native players, separately from device-free checks. */
 @Tag("audio-device")
 class AudioPlaybackTest {
+    @Test
+    void quantizesDraggingAndResetsDoubleClickAnywhereInsideTheMenuItem() throws Exception {
+        AudioTestSupport.runOnFx(() -> {
+            AtomicReference<Double> gain = new AtomicReference<>(6d);
+            AtomicInteger saves = new AtomicInteger();
+            CustomMenuItem item = GainSliderSupport.create(6d, gain::set, saves::incrementAndGet);
+            Slider slider = (Slider) item.getContent().lookup(".track-gain-slider");
+            Assertions.assertThat(slider.getMin()).isEqualTo(-30d);
+            Assertions.assertThat(slider.getMax()).isEqualTo(30d);
+            slider.setValue(25.23d);
+            Assertions.assertThat(slider.getValue()).isEqualTo(25d);
+            Assertions.assertThat(gain.get()).isEqualTo(25d);
+            slider.setValue(25.26d);
+            Assertions.assertThat(gain.get()).isEqualTo(25.5d);
+            Assertions.assertThat(saves.get()).isZero();
+            MouseEvent reset = new MouseEvent(MouseEvent.MOUSE_PRESSED, 1d, 1d, 1d, 1d, MouseButton.PRIMARY, 2,
+                    false, false, false, false, true, false, false, false, false, true, null);
+            Event.fireEvent(item.getContent(), reset);
+            Assertions.assertThat(slider.getValue()).isZero();
+            Assertions.assertThat(gain.get()).isZero();
+            Assertions.assertThat(saves.get()).isEqualTo(1);
+            slider.setValue(-3d);
+            Event.fireEvent(slider, reset.copyFor(slider, slider));
+            Assertions.assertThat(gain.get()).isZero();
+        });
+    }
+
     @ParameterizedTest
     @EnumSource(AudioEngineMode.class)
     void queueRepeatControlSurvivesSelectionAndUpdatesTheActiveBackend(AudioEngineMode mode) throws Exception {

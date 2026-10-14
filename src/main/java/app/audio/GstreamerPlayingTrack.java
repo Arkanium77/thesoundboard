@@ -1,6 +1,7 @@
 package app.audio;
 
 import app.model.PlaybackStatus;
+import app.model.TrackGain;
 import javafx.util.Duration;
 import org.freedesktop.gstreamer.Bus;
 import org.freedesktop.gstreamer.BusSyncReply;
@@ -125,7 +126,7 @@ final class GstreamerPlayingTrack implements PlayingTrack {
                 return BusSyncReply.DROP;
             });
             attachOutput();
-            gain.set("volume", volume);
+            gain.set("volume-full-range", volume);
             if (preroll) {
                 initializedAt = System.nanoTime();
                 if (player.setState(State.PAUSED) == StateChangeReturn.FAILURE) fail("Cannot open the audio stream");
@@ -315,11 +316,13 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         updateStatus(value);
     }
 
+    /** Use the bundled runtime's volume-full-range (GStreamer 1.24+): the legacy volume property caps at 10,
+     * silently limiting gain to +20 dB. Accept the complete UI trim range, preserving zero as mute. */
     @Override
     public void setVolume(double volume) {
         engine.execute(() -> {
-            this.volume = Math.max(0d, Math.min(1d, volume));
-            if (!disposed && gain != null) gain.set("volume", this.volume);
+            this.volume = Double.isFinite(volume) ? Math.max(0d, Math.min(TrackGain.MAX_MULTIPLIER, volume)) : 0d;
+            if (!disposed && gain != null) gain.set("volume-full-range", this.volume);
         });
     }
 

@@ -6,6 +6,8 @@ public class WorkspaceTrack {
     private UUID id;
     private UUID audioFileId;
     private int order;
+    /** Optional project field: the JVM zero default keeps older projects at unity without a schema migration. */
+    private double gainDb;
     private double volume;
     private boolean loop;
 
@@ -42,6 +44,14 @@ public class WorkspaceTrack {
 
     public void setOrder(int order) {
         this.order = order;
+    }
+
+    public double getGainDb() {
+        return gainDb;
+    }
+
+    public void setGainDb(double gainDb) {
+        this.gainDb = TrackGain.normalize(gainDb);
     }
 
     public double getVolume() {

@@ -128,6 +128,7 @@ public enum TextKey {
     QUEUE_TRACK("queue.track", "Track"),
     QUEUE_QUEUE("queue.queue", "Queue"),
     QUEUE_VOLUME("queue.volume", "Volume"),
+    TRACK_GAIN("track.gain", "Gain: {0} dB"),
     QUEUE_TRACK_VOLUME("queue.track_volume", "Track Volume"),
     QUEUE_RESET_TRACK_VOLUMES("queue.reset_track_volumes", "Reset All Track Volumes"),
     QUEUE_NAME("queue.name", "Queue name"),

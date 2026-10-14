@@ -143,3 +143,5 @@ main.recent_projects: "Последние проекты"
 main.recent_projects_empty: "Нет недавних проектов"
 
 main.link_folder_short: "Подключить"
+
+track.gain: "Усиление: {0} дБ"

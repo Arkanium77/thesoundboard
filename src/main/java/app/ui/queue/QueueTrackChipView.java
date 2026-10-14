@@ -1,5 +1,6 @@
 package app.ui.queue;
 
+import app.ui.GainSliderSupport;
 import app.ui.InsertionMarkers;
 import app.ui.VolumeSliderSupport;
 import app.ui.TitleScrollAnimation;
@@ -50,6 +51,7 @@ public class QueueTrackChipView extends StackPane {
     private final TitleScrollAnimation titleAnimation = new TitleScrollAnimation(
             titleViewport, titleLabel, titleClip, TitleScrollAnimation.Style.CHIP);
     private boolean titleHovered;
+    private ContextMenu activeContextMenu;
 
     public QueueTrackChipView(
             QueueTrack queueTrack,
@@ -58,6 +60,7 @@ public class QueueTrackChipView extends StackPane {
             Runnable playAction,
             Consumer<QueueTrack> removeAction,
             Consumer<Double> volumeAction,
+            Consumer<Double> gainAction,
             Runnable persistenceChangeAction
     ) {
         getStyleClass().add("queue-chip");
@@ -94,16 +97,20 @@ public class QueueTrackChipView extends StackPane {
             }
         });
 
-        MenuItem removeItem = new MenuItem(Texts.text(TextKey.QUEUE_REMOVE_TRACK));
-        removeItem.setOnAction(event -> removeAction.accept(queueTrack));
-        Slider volume = new Slider(0d, 100d, queueTrack.getVolume() * 100d);
-        VolumeSliderSupport.bind(volume, volumeAction::accept, persistenceChangeAction);
-        VBox volumeBox = new VBox(4d, new Label(Texts.text(TextKey.QUEUE_TRACK_VOLUME)), volume);
-        volumeBox.setPadding(new Insets(6d));
-        CustomMenuItem volumeItem = new CustomMenuItem(volumeBox, false);
-        ContextMenu contextMenu = new ContextMenu(volumeItem, removeItem);
         setOnContextMenuRequested(event -> {
-            contextMenu.show(this, event.getScreenX(), event.getScreenY());
+            if (activeContextMenu != null) activeContextMenu.hide();
+            MenuItem removeItem = new MenuItem(Texts.text(TextKey.QUEUE_REMOVE_TRACK));
+            removeItem.setOnAction(action -> removeAction.accept(queueTrack));
+            Slider volume = new Slider(0d, 100d, queueTrack.getVolume() * 100d);
+            VolumeSliderSupport.bind(volume, volumeAction::accept, persistenceChangeAction);
+            VBox volumeBox = new VBox(4d, new Label(Texts.text(TextKey.QUEUE_TRACK_VOLUME)), volume);
+            volumeBox.setPadding(new Insets(6d));
+            CustomMenuItem volumeItem = new CustomMenuItem(volumeBox, false);
+            ContextMenu menu = new ContextMenu(volumeItem,
+                    GainSliderSupport.create(queueTrack.getGainDb(), gainAction::accept, persistenceChangeAction), removeItem);
+            activeContextMenu = menu;
+            menu.setOnHidden(hidden -> { if (activeContextMenu == menu) activeContextMenu = null; });
+            menu.show(this, event.getScreenX(), event.getScreenY());
             event.consume();
         });
         updateScale(1d);
@@ -119,6 +126,7 @@ public class QueueTrackChipView extends StackPane {
      * merely replacing the children would otherwise keep obsolete chips and labels alive indefinitely.
      */
     public void dispose() {
+        if (activeContextMenu != null) activeContextMenu.hide();
         stopTitleAnimation();
     }
 

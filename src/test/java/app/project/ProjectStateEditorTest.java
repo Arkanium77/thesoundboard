@@ -2,6 +2,8 @@ package app.project;
 
 import app.model.AudioFile;
 import app.model.ProjectState;
+import app.model.VirtualTileLayout;
+import app.model.WorkspaceVirtualTile;
 import app.model.QueueTrack;
 import app.model.WorkspaceQueue;
 import app.model.WorkspaceTrack;
@@ -12,6 +14,39 @@ import java.util.List;
 import java.util.UUID;
 
 class ProjectStateEditorTest {
+    @Test
+    void preservesTrimThroughEveryCrossContainerMove() {
+        ProjectState state = new ProjectState(2);
+        ProjectStateEditor editor = new ProjectStateEditor();
+        UUID audioId = UUID.randomUUID();
+        state.getAudioFiles().add(new AudioFile(audioId, "tone.wav", "tone.wav", false));
+        WorkspaceTrack track = editor.addWorkspaceTrack(state, audioId, 0.8d, false);
+        track.setGainDb(3d);
+        WorkspaceQueue first = editor.createWorkspaceQueue(state, "First", 0.5d);
+        WorkspaceQueue second = editor.createWorkspaceQueue(state, "Second", 0.3d);
+        WorkspaceVirtualTile tile = editor.createWorkspaceVirtualTile(state, VirtualTileLayout.values()[0]);
+        WorkspaceVirtualTile other = editor.createWorkspaceVirtualTile(state, VirtualTileLayout.values()[0]);
+        editor.moveWorkspaceTrackToQueue(state, track.getId(), first.getId(), null, false);
+        QueueTrack queued = first.getTracks().getFirst();
+        Assertions.assertThat(queued.getGainDb()).isEqualTo(3d);
+        editor.moveQueueTrackToQueue(state, first.getId(), second.getId(), queued.getId(), null, false);
+        queued = second.getTracks().getFirst();
+        Assertions.assertThat(queued.getGainDb()).isEqualTo(3d);
+        editor.moveQueueTrackToVirtualTile(state, second.getId(), queued.getId(), tile.getId(), null, false);
+        Assertions.assertThat(tile.getTracks().getFirst().getGainDb()).isEqualTo(3d);
+        editor.moveVirtualTileTrack(state, tile.getId(), other.getId(), tile.getTracks().getFirst().getId(), null, false);
+        Assertions.assertThat(other.getTracks().getFirst().getGainDb()).isEqualTo(3d);
+        track = editor.moveVirtualTileTrackToWorkspace(state, other.getId(), other.getTracks().getFirst().getId(), null, false);
+        Assertions.assertThat(track.getGainDb()).isEqualTo(3d);
+        editor.moveWorkspaceTrackToVirtualTile(state, track.getId(), tile.getId(), null, false);
+        Assertions.assertThat(tile.getTracks().getFirst().getGainDb()).isEqualTo(3d);
+        editor.moveVirtualTileTrackToQueue(state, tile.getId(), tile.getTracks().getFirst().getId(), first.getId(), null, false);
+        queued = first.getTracks().getFirst();
+        Assertions.assertThat(queued.getGainDb()).isEqualTo(3d);
+        track = editor.moveQueueTrackToWorkspace(state, first.getId(), queued.getId(), null, false);
+        Assertions.assertThat(track.getGainDb()).isEqualTo(3d);
+    }
+
     @Test
     void addsSameAudioFileToMultipleQueues() {
         UUID audioFileId = UUID.randomUUID();

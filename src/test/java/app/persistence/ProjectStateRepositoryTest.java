@@ -1,5 +1,8 @@
 package app.persistence;
 
+import app.model.WorkspaceVirtualTile;
+import app.model.VirtualTileTrack;
+import app.model.VirtualTileLayout;
 import app.model.AudioFile;
 import app.model.ProjectState;
 import app.model.QueueTrack;
@@ -17,6 +20,38 @@ import java.util.List;
 import java.util.UUID;
 
 class ProjectStateRepositoryTest {
+    @Test
+    void roundTripsTrackTrimInSaveSnapshotsAndDefaultsOldProjectsToZero() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("track-gain-save-");
+        ProjectStateRepository repository = new ProjectStateRepository("state.json");
+        ProjectState state = new ProjectState(2);
+        UUID audioId = UUID.randomUUID();
+        WorkspaceTrack solo = new WorkspaceTrack(UUID.randomUUID(), audioId, 0, 0.8d, false);
+        solo.setGainDb(3d);
+        state.setWorkspaceTracks(List.of(solo));
+        QueueTrack queued = new QueueTrack(UUID.randomUUID(), audioId, 0, false);
+        queued.setGainDb(-2d);
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue", 1, 0.5d, false);
+        queue.setTracks(List.of(queued));
+        state.setWorkspaceQueues(List.of(queue));
+        VirtualTileTrack virtual = new VirtualTileTrack(UUID.randomUUID(), audioId, 0, 0.6d);
+        virtual.setGainDb(6d);
+        WorkspaceVirtualTile tile = new WorkspaceVirtualTile(UUID.randomUUID(), 2, VirtualTileLayout.values()[0]);
+        tile.setTracks(List.of(virtual));
+        state.setWorkspaceVirtualTiles(List.of(tile));
+        repository.save(root, ProjectStateCopySupport.copy(state));
+        ProjectState loaded = repository.load(root).orElseThrow();
+        Assertions.assertThat(loaded.getWorkspaceTracks().getFirst().getGainDb()).isEqualTo(3d);
+        Assertions.assertThat(loaded.getWorkspaceQueues().getFirst().getTracks().getFirst().getGainDb()).isEqualTo(-2d);
+        Assertions.assertThat(loaded.getWorkspaceVirtualTiles().getFirst().getTracks().getFirst().getGainDb()).isEqualTo(6d);
+        String legacy = Files.readString(root.resolve("state.json")).replaceAll("\"gainDb\"\\s*:\\s*-?[0-9.]+\\s*,?", "");
+        Files.writeString(root.resolve("state.json"), legacy);
+        loaded = repository.load(root).orElseThrow();
+        Assertions.assertThat(loaded.getWorkspaceTracks().getFirst().getGainDb()).isZero();
+        Assertions.assertThat(loaded.getWorkspaceQueues().getFirst().getTracks().getFirst().getGainDb()).isZero();
+        Assertions.assertThat(loaded.getWorkspaceVirtualTiles().getFirst().getTracks().getFirst().getGainDb()).isZero();
+    }
+
     @Test
     void retainsQueueTrackLoopInSaveSnapshotsAndRoundTrips() throws IOException {
         Path root = TestDirectorySupport.createTempDirectory("queue-loop-save-");

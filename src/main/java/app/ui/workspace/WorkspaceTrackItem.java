@@ -4,6 +4,7 @@ import app.audio.AudioEngine;
 import app.audio.PlayingTrack;
 import app.model.AudioFile;
 import app.model.PlaybackStatus;
+import app.model.TrackGain;
 import app.model.WorkspaceTrack;
 import javafx.util.Duration;
 import org.slf4j.Logger;
@@ -147,6 +148,11 @@ public class WorkspaceTrackItem {
         pendingSeekPosition = seekPosition;
     }
 
+    public void setGainDb(double gainDb) {
+        workspaceTrack.setGainDb(gainDb);
+        applyVolume();
+    }
+
     public void setVolume(double volume) {
         workspaceTrack.setVolume(volume);
         applyVolume();
@@ -225,7 +231,8 @@ public class WorkspaceTrackItem {
 
     private void applyVolume() {
         if (playingTrack != null) {
-            double effectiveVolume = muted ? 0d : workspaceTrack.getVolume() * masterVolume;
+            double effectiveVolume = muted ? 0d : workspaceTrack.getVolume() * masterVolume
+                    * TrackGain.multiplier(workspaceTrack.getGainDb());
             playingTrack.setVolume(effectiveVolume);
         }
     }

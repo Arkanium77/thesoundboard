@@ -138,6 +138,7 @@ public class ProjectStateEditor {
         return created;
     }
 
+    /** Cross-container moves create new IDs but preserve track trim independently of destination faders. */
     public TrackMoveResult moveWorkspaceTrackToVirtualTile(ProjectState projectState, UUID workspaceTrackId, UUID tileId,
                                                    UUID targetTrackId, boolean placeAfter) {
         WorkspaceTrack track = projectState.getWorkspaceTracks().stream()
@@ -147,6 +148,7 @@ public class ProjectStateEditor {
                 List.of(track.getAudioFileId()), track.getVolume(), targetTrackId, placeAfter);
         if (created.isEmpty()) return TrackMoveResult.rejected();
         created.getFirst().setLoop(track.isLoop());
+        created.getFirst().setGainDb(track.getGainDb());
         created.getFirst().setVolume(track.getVolume());
         removeWorkspaceTrack(projectState, workspaceTrackId);
         return new TrackMoveResult(created.getFirst().getId());
@@ -173,6 +175,7 @@ public class ProjectStateEditor {
                 List.of(track.getAudioFileId()), track.getVolume(), targetTrackId, placeAfter);
         if (created.isEmpty()) return TrackMoveResult.rejected();
         created.getFirst().setLoop(track.isLoop());
+        created.getFirst().setGainDb(track.getGainDb());
         removeVirtualTileTrack(projectState, sourceTileId, trackId);
         return new TrackMoveResult(created.getFirst().getId());
     }
@@ -187,6 +190,7 @@ public class ProjectStateEditor {
         List<WorkspaceTrack> created = addWorkspaceTracks(projectState, List.of(track.getAudioFileId()),
                 track.getVolume(), track.isLoop(), targetWorkspaceItemId, placeAfter);
         if (created.isEmpty()) return null;
+        created.getFirst().setGainDb(track.getGainDb());
         removeVirtualTileTrack(projectState, tileId, trackId);
         return created.getFirst();
     }
@@ -202,6 +206,7 @@ public class ProjectStateEditor {
                 targetQueueTrackId, placeAfter);
         if (created.isEmpty()) return TrackMoveResult.rejected();
         created.getFirst().setLoop(track.isLoop());
+        created.getFirst().setGainDb(track.getGainDb());
         removeVirtualTileTrack(projectState, tileId, trackId);
         return new TrackMoveResult(created.getFirst().getId());
     }
@@ -214,6 +219,7 @@ public class ProjectStateEditor {
                 List.of(track.getAudioFileId()), track.getVolume(), targetTrackId, placeAfter);
         if (created.isEmpty()) return TrackMoveResult.rejected();
         created.getFirst().setLoop(track.isLoop());
+        created.getFirst().setGainDb(track.getGainDb());
         removeQueueTrack(projectState, queueId, queueTrackId);
         return new TrackMoveResult(created.getFirst().getId());
     }
@@ -275,6 +281,7 @@ public class ProjectStateEditor {
         }
 
         createdTracks.getFirst().setVolume(workspaceTrack.getVolume());
+        createdTracks.getFirst().setGainDb(workspaceTrack.getGainDb());
 
         removeWorkspaceTrack(projectState, workspaceTrackId);
         return new TrackMoveResult(createdTracks.getFirst().getId());
@@ -308,6 +315,7 @@ public class ProjectStateEditor {
             return null;
         }
 
+        createdTracks.getFirst().setGainDb(queueTrack.getGainDb());
         removeQueueTrack(projectState, sourceQueueId, queueTrackId);
         return createdTracks.getFirst();
     }
@@ -347,6 +355,7 @@ public class ProjectStateEditor {
 
         createdTracks.getFirst().setLoop(queueTrack.isLoop());
         createdTracks.getFirst().setVolume(queueTrack.getVolume());
+        createdTracks.getFirst().setGainDb(queueTrack.getGainDb());
         removeQueueTrack(projectState, sourceQueueId, queueTrackId);
         return new TrackMoveResult(createdTracks.getFirst().getId());
     }

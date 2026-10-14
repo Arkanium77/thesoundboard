@@ -5,6 +5,7 @@ import app.audio.PlayingTrack;
 import app.model.AudioFile;
 import app.model.PlaybackStatus;
 import app.model.QueueTrack;
+import org.assertj.core.data.Offset;
 import app.model.WorkspaceQueue;
 import app.support.TestDirectorySupport;
 import javafx.util.Duration;
@@ -20,6 +21,35 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class WorkspaceQueueItemTest {
+    @Test
+    void keepsGainOnTheConcreteQueueTrackAndDoesNotChangeAnotherActiveTrack() throws IOException {
+        Path root = TestDirectorySupport.createTempDirectory("queue-gain-");
+        Files.writeString(root.resolve("tone.wav"), "audio");
+        UUID audioId = UUID.randomUUID();
+        QueueTrack first = new QueueTrack(UUID.randomUUID(), audioId, 0, false);
+        QueueTrack second = new QueueTrack(UUID.randomUUID(), audioId, 1, false);
+        first.setVolume(1d);
+        second.setVolume(1d);
+        first.setGainDb(6d);
+        second.setGainDb(-6d);
+        WorkspaceQueue queue = new WorkspaceQueue(UUID.randomUUID(), "Queue", 0, 1d, false);
+        queue.setTracks(List.of(first, second));
+        FakePlayingTrack player = new FakePlayingTrack();
+        WorkspaceQueueItem item = new WorkspaceQueueItem(root, queue,
+                List.of(new AudioFile(audioId, "tone.wav", "tone.wav", false)), path -> player, 1d, error -> { });
+        item.playSelectedTrack(first.getId());
+        Assertions.assertThat(player.volume).isCloseTo(1.995262d, Offset.offset(0.00001d));
+        item.setTrackGainDb(second.getId(), -3d);
+        Assertions.assertThat(player.volume).isCloseTo(1.995262d, Offset.offset(0.00001d));
+        item.setTrackGainDb(first.getId(), 0d);
+        Assertions.assertThat(player.volume).isEqualTo(1d);
+        item.playSelectedTrack(second.getId());
+        Assertions.assertThat(player.volume).isCloseTo(0.707946d, Offset.offset(0.00001d));
+        item.resetTrackVolumes();
+        Assertions.assertThat(second.getGainDb()).isEqualTo(-3d);
+        item.dispose();
+    }
+
     @Test
     void restoresLongQueueWaveformPreparationAtTheCurrentTrackWithoutOpeningPlayers() {
         Path root = Path.of("library").toAbsolutePath();

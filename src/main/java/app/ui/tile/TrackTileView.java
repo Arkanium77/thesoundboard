@@ -1,5 +1,6 @@
 package app.ui.tile;
 
+import app.ui.GainSliderSupport;
 import app.ui.InsertionMarkers;
 import app.ui.TitleScrollAnimation;
 
@@ -22,6 +23,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
 import javafx.scene.control.Slider;
@@ -81,6 +83,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     private final HBox progressRow = new HBox();
     private final VBox content = new VBox();
 
+    private ContextMenu activeContextMenu;
     private double currentScale = 1d;
     private final double baseWaveformHeight;
     private final WaveformSubscription waveformSubscription;
@@ -108,6 +111,7 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     }
 
     public void dispose() {
+        if (activeContextMenu != null) activeContextMenu.hide();
         workspaceTrackItem.setOnPlaybackChanged(null);
         waveformSeekView.dispose();
         waveformSubscription.dispose();
@@ -207,6 +211,15 @@ public class TrackTileView extends StackPane implements WorkspaceItemView {
     }
 
     private void configureActions() {
+        setOnContextMenuRequested(event -> {
+            if (activeContextMenu != null) activeContextMenu.hide();
+            ContextMenu menu = new ContextMenu(GainSliderSupport.create(
+                    workspaceTrackItem.getWorkspaceTrack().getGainDb(), workspaceTrackItem::setGainDb, persistenceChangeAction));
+            activeContextMenu = menu;
+            menu.setOnHidden(hidden -> { if (activeContextMenu == menu) activeContextMenu = null; });
+            menu.show(this, event.getScreenX(), event.getScreenY());
+            event.consume();
+        });
         playPauseButton.setOnAction(event -> {
             workspaceTrackItem.togglePlayPause();
             refresh();
