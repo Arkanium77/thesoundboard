@@ -51,7 +51,6 @@ import app.ui.waveform.WaveformSeekView;
 import app.waveform.WaveformService;
 import app.waveform.WaveformData;
 
-import com.badlogic.gdx.Gdx;
 
 import javafx.stage.Stage;
 import javafx.beans.property.SimpleDoubleProperty;
@@ -87,7 +86,6 @@ import java.util.List;
 import java.util.UUID;
 import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -464,97 +462,6 @@ class AudioPlaybackTest {
                     && track.getCurrentTime().toMillis() > 50d);
         } finally {
             AudioTestSupport.runOnFx(track::dispose);
-            AudioTestSupport.runOnFx(engine::shutdown);
-        }
-    }
-
-    @Test
-    void streamsAllNativeFormatsWithoutLibGdxAndStopsIdleDevice() throws Exception {
-        MiniaudioAudioEngine engine = AudioTestSupport.onFx(MiniaudioAudioEngine::new);
-        try {
-            for (String extension : List.of("wav", "mp3", "ogg", "flac", "opus", "24.flac", "float.wav", "flac.ogg")) {
-                Path path = AudioTestSupport.fixture(extension);
-                PlayingTrack track = AudioTestSupport.onFx(() -> engine.createTrack(path));
-                try {
-                    Assertions.assertThat(AudioTestSupport.onFx(() -> track.getTotalDuration().toSeconds()))
-                            .isBetween(0.9d, 1.2d);
-                    AudioTestSupport.runOnFx(() -> { track.setVolume(0d); track.restorePlayback(Duration.millis(400), true); });
-                    Assertions.assertThat(AudioTestSupport.onFx(engine::isProcessingAudio)).isFalse();
-                    AudioTestSupport.runOnFx(track::play);
-                    AudioTestSupport.await(() -> track.getCurrentTime().toMillis() > 450d);
-                    AudioTestSupport.runOnFx(track::pause);
-                    Assertions.assertThat(AudioTestSupport.onFx(engine::isProcessingAudio)).isFalse();
-                    Assertions.assertThat(Gdx.app).isNull();
-                } finally {
-                    AudioTestSupport.runOnFx(track::dispose);
-                    AudioTestSupport.runOnFx(track::dispose);
-                }
-            }
-        } finally {
-            AudioTestSupport.runOnFx(engine::shutdown);
-            AudioTestSupport.runOnFx(engine::shutdown);
-        }
-    }
-
-    @Test
-    void rejectsSecondNativeMixerWithoutChangingFirstMixer() throws Exception {
-        Path path = AudioTestSupport.fixture("wav");
-        MiniaudioAudioEngine first = AudioTestSupport.onFx(MiniaudioAudioEngine::new);
-        MiniaudioAudioEngine second = AudioTestSupport.onFx(MiniaudioAudioEngine::new);
-        try {
-            PlayingTrack track = AudioTestSupport.onFx(() -> first.createTrack(path));
-            AudioTestSupport.runOnFx(() -> Assertions.assertThatThrownBy(() -> second.createTrack(path))
-                    .isInstanceOf(IllegalStateException.class));
-            AudioTestSupport.runOnFx(() -> { track.setVolume(0d); track.play(); });
-            AudioTestSupport.await(() -> track.getCurrentTime().toMillis() > 100d);
-        } finally {
-            AudioTestSupport.runOnFx(first::shutdown);
-            AudioTestSupport.runOnFx(second::shutdown);
-        }
-    }
-
-    @Test
-    void stoppingOneOwnerDoesNotPauseAnotherAndShutdownReleasesBoth() throws Exception {
-        Path path = AudioTestSupport.fixture("wav");
-        MiniaudioAudioEngine engine = AudioTestSupport.onFx(MiniaudioAudioEngine::new);
-        PlayingTrack first = AudioTestSupport.onFx(() -> engine.createTrack(path));
-        PlayingTrack second = AudioTestSupport.onFx(() -> engine.createTrack(path));
-        try {
-            AudioTestSupport.runOnFx(() -> {
-                first.setVolume(0d); second.setVolume(0d);
-                first.setLoop(true); second.setLoop(true);
-                first.play(); second.play();
-                first.pause();
-            });
-            AudioTestSupport.await(() -> second.getCurrentTime().toMillis() > 100d);
-            Assertions.assertThat(AudioTestSupport.onFx(engine::isProcessingAudio)).isTrue();
-            AudioTestSupport.runOnFx(second::dispose);
-            Assertions.assertThat(AudioTestSupport.onFx(engine::isProcessingAudio)).isFalse();
-        } finally {
-            AudioTestSupport.runOnFx(engine::shutdown);
-        }
-        AudioTestSupport.runOnFx(first::dispose);
-        AudioTestSupport.runOnFx(first::play);
-        Assertions.assertThatThrownBy(() -> engine.createTrack(path)).isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void queuedCompletionCannotTouchDisposedSoundOrFinishRestartedOwner() throws Exception {
-        ConcurrentLinkedQueue<Runnable> notifications = new ConcurrentLinkedQueue<>();
-        MiniaudioAudioEngine engine = AudioTestSupport.onFx(() -> new MiniaudioAudioEngine(notifications::add));
-        Path path = AudioTestSupport.fixture("wav");
-        PlayingTrack track = AudioTestSupport.onFx(() -> engine.createTrack(path));
-        try {
-            AudioTestSupport.runOnFx(() -> { track.setVolume(0d); track.restorePlayback(Duration.millis(900), false); });
-            AudioTestSupport.await(() -> !notifications.isEmpty());
-            AudioTestSupport.runOnFx(() -> { track.stop(); track.play(); });
-            AudioTestSupport.runOnFx(() -> { Runnable event; while ((event = notifications.poll()) != null) event.run(); });
-            Assertions.assertThat(AudioTestSupport.onFx(track::getStatus)).isEqualTo(PlaybackStatus.PLAYING);
-            AudioTestSupport.runOnFx(() -> track.seek(Duration.millis(900)));
-            AudioTestSupport.await(() -> !notifications.isEmpty());
-            AudioTestSupport.runOnFx(track::dispose);
-            AudioTestSupport.runOnFx(() -> { Runnable event; while ((event = notifications.poll()) != null) event.run(); });
-        } finally {
             AudioTestSupport.runOnFx(engine::shutdown);
         }
     }

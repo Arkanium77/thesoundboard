@@ -47,7 +47,7 @@ class OggAudioMetadataTest {
         bytes[packet + 5] = 'r';
         bytes[packet + 6] = 'a';
         Files.write(path, bytes);
-        Assertions.assertThat(AudioEngineMode.MINIAUDIO.supportsFile(path)).isFalse();
+        Assertions.assertThat(AudioEngineMode.GSTREAMER.supportsFile(path)).isFalse();
         Assertions.assertThatThrownBy(() -> OggAudioMetadata.duration(path)).isInstanceOf(IOException.class);
         Files.write(path, new byte[]{'O', 'g', 'g', 'S'});
         Assertions.assertThat(OggAudioMetadata.isSupported(path)).isFalse();
@@ -58,7 +58,7 @@ class OggAudioMetadataTest {
         Path path = fixture("opus");
         Path renamed = path.resolveSibling("opus.ogg");
         Files.move(path, renamed);
-        Assertions.assertThat(AudioEngineMode.MINIAUDIO.supportsFile(renamed)).isTrue();
+        Assertions.assertThat(AudioEngineMode.GSTREAMER.supportsFile(renamed)).isTrue();
         Assertions.assertThat(AudioEngineMode.JAVAFX.supportsFile(renamed)).isFalse();
         byte[] bytes = Files.readAllBytes(renamed);
         Files.write(renamed, Arrays.copyOf(bytes, bytes.length - 1));

@@ -19,8 +19,8 @@ import java.io.BufferedInputStream;
 
 /**
  * Uses Java Sound providers for background MP3, PCM WAV, Vorbis and FLAC analysis independently of playback.
- * The native binding exposes no streaming PCM reader, so using its whole-file decode API would violate the
- * bounded-memory design. Opus uses a separate portable packet decoder; detect it by container contents,
+ * This portable fallback remains independent of the GStreamer runtime; its bounded-memory design must not
+ * decode whole recordings at once. Opus uses a separate packet decoder; detect it by container contents,
  * including .ogg files, rather than sending it to an unsupported Java Sound provider. Ogg FLAC packets are
  * demultiplexed into their original encoded bitstream for jFLAC; both Ogg paths share bounded packet input.
  * No source file is converted or cached as audio; only the existing bounded envelopes are retained.

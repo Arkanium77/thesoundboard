@@ -14,10 +14,6 @@ This product includes third-party software distributed under its own licenses:
 - VorbisSPI and its audio decoding dependencies, licensed under LGPL-2.1-or-later.
 - jFLAC, licensed under LGPL-2.1-or-later.
 - Concentus, licensed under BSD-3-Clause, and VorbisJava, licensed under Apache License 2.0.
-- gdx-miniaudio, libGDX and the native loaders, licensed under Apache License 2.0.
-  gdx-miniaudio bundles miniaudio (public domain or MIT No Attribution),
-  libvorbis, libogg, libopus and libopusfile (Xiph BSD-style licenses).
-  License texts and source links are included in THIRD-PARTY-LICENSES.
 - gst1-java-core, licensed under LGPL-3.0, and JNA, used under Apache License 2.0.
   License texts and source links are included in THIRD-PARTY-LICENSES.
 - Twemoji graphics, Copyright 2019 Twitter, Inc and other contributors,

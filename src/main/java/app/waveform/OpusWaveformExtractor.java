@@ -14,10 +14,9 @@ import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Analyses Opus independently of the playback mixer. The released miniaudio binding only exposes whole-file
- * PCM decoding; a portable Java decoder instead feeds the existing bounded envelope accumulator one packet at
- * a time. No audio is retained or written. Opus granules always use 48 kHz, regardless of the original sample
- * rate in its header. Pre-skip and the final page granule remove codec padding so waveform seeks match playback.
+ * Analyses Opus independently of playback for the portable Java Sound waveform path. A Java packet decoder
+ * feeds the existing bounded envelope accumulator without requiring an installed native runtime. No audio is retained
+ * or written. Opus granules always use 48 kHz, regardless of the original sample rate in its header. Pre-skip and the final page granule remove codec padding so waveform seeks match playback.
  * Chained streams reset the decoder but share the envelope. A per-packet input budget rejects oversized metadata
  * or unterminated packets before the Ogg reader can accumulate arbitrary memory; cancellation also reaches reads.
  */

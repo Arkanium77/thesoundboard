@@ -12,7 +12,7 @@ import java.util.Locale;
 
 /**
  * Selects one backend for the entire process so comparisons cannot silently fall back to another decoder.
- * GStreamer is the default; miniaudio and JavaFX remain explicit comparison/recovery options.
+ * GStreamer is the default; JavaFX remains an explicit comparison/recovery option.
  * GStreamer waveform uses its own decoder family as well, so format support does not depend on Java Sound SPIs.
  * Command-line selection also survives the existing application restart mechanism without persisted settings.
  * Scanning intersects configured extensions with this backend's capabilities; changing backend may mark unsupported
@@ -20,7 +20,6 @@ import java.util.Locale;
  */
 public enum AudioEngineMode {
     JAVAFX,
-    MINIAUDIO,
     GSTREAMER;
 
     public static AudioEngineMode fromArguments(List<String> arguments) {
@@ -32,9 +31,8 @@ public enum AudioEngineMode {
             selected = true;
             mode = switch (argument.substring("--audio-engine=".length())) {
                 case "javafx" -> JAVAFX;
-                case "miniaudio" -> MINIAUDIO;
                 case "gstreamer" -> GSTREAMER;
-                default -> throw new IllegalArgumentException("Audio engine must be javafx, miniaudio or gstreamer: " + argument);
+                default -> throw new IllegalArgumentException("Audio engine must be javafx or gstreamer: " + argument);
             };
         }
         return mode;
@@ -42,7 +40,6 @@ public enum AudioEngineMode {
 
     public AudioEngine createEngine() {
         return switch (this) {
-            case MINIAUDIO -> new MiniaudioAudioEngine();
             case JAVAFX -> new JavaFxAudioEngine();
             case GSTREAMER -> new GstreamerAudioEngine();
         };
@@ -55,7 +52,6 @@ public enum AudioEngineMode {
 
     public List<String> getSupportedExtensions() {
         return switch (this) {
-            case MINIAUDIO -> List.of("mp3", "wav", "ogg", "flac", "opus");
             case JAVAFX -> List.of("mp3", "wav");
             case GSTREAMER -> List.of("mp3", "wav", "ogg", "flac", "opus", "aac", "m4a", "aiff", "aif");
         };

@@ -41,10 +41,6 @@ repositories {
 dependencies {
     implementation("org.freedesktop.gstreamer:gst1-java-core:1.4.0")
     implementation("net.java.dev.jna:jna:5.18.1")
-    implementation("games.rednblack.miniaudio:miniaudio:0.8")
-    // The binding publishes libGDX utilities as runtime-only, but its public API implements their interfaces.
-    implementation("com.badlogicgames.gdx:gdx:1.14.2")
-    runtimeOnly("games.rednblack.miniaudio:gdx-miniaudio-platform:0.8:natives-desktop")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3") {
         exclude(group = "junit", module = "junit")
     }
@@ -497,7 +493,7 @@ tasks.test {
 }
 
 tasks.register<Test>("audioDeviceTest") {
-    description = "Compares real JavaFX and miniaudio playback; requires a working audio output and graphical session."
+    description = "Verifies real JavaFX and GStreamer playback; requires a working audio output and graphical session."
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
@@ -507,7 +503,7 @@ tasks.register<Test>("audioDeviceTest") {
 }
 
 tasks.register<Test>("audioBenchmark") {
-    description = "Measures playback CPU, JVM heap and threads for both engines; requires audio output and a graphical session."
+    description = "Measures playback CPU, JVM heap and threads for JavaFX and GStreamer engines; requires audio output and a graphical session."
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
@@ -540,14 +536,6 @@ tasks.register<JavaExec>("runJavaFx") {
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass = application.mainClass
     args("--audio-engine=javafx")
-}
-
-tasks.register<JavaExec>("runMiniaudio") {
-    description = "Runs the application with the streaming miniaudio engine."
-    group = "application"
-    classpath = sourceSets.main.get().runtimeClasspath
-    mainClass = application.mainClass
-    args("--audio-engine=miniaudio")
 }
 
 tasks.register<JavaExec>("runGstreamer") {
