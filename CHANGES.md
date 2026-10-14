@@ -2,44 +2,18 @@
 
 Release descriptions, newest version first. This file is maintained in the repository and is not included in application archives.
 
-## 1.3.0 — Unreleased
+## 1.3.0 — 2026-10-14
 
-### Project navigation
+- Поддержка WAV, OGG Vorbis, Opus, FLAC, AAC, M4A и AIFF в дополнение к MP3 — с воспроизведением, перемоткой и waveform.
+- Подключение внешних папок с подпапками: используйте одну аудиобиблиотеку в нескольких проектах без копирования файлов.
+- Усиление отдельных треков от −30 до +30 дБ с шагом 0,5 дБ. Настройка сохраняется; двойной клик сбрасывает её в ноль.
+- Быстрое открытие десяти последних проектов.
+- Улучшена отзывчивость воспроизведения и остановки нескольких треков, сокращено число фоновых потоков.
+- Волны треков очереди подготавливаются заранее, индикатор загрузки отражает текущую работу.
+- Диалоги и контекстные меню используют оформление выбранного скина.
+- Исправлены выбор первого трека пустой очереди, поведение зацикливания и случайная перемотка при ПКМ по waveform.
 
-- Quickly reopen the ten most recent projects, ordered by last access.
-- Keep project navigation compact with a recent-project arrow beside Open Folder and a small Link button in the project tree header.
-
-### Dialogs and popup menus
-
-- Apply the active skin to error dialogs and popup menus, with concise error messages and no stock alert artwork.
-- Use one confirmation when unlinking an audio folder.
-
-### Linked audio folders
-
-- Link audio folders and their subfolders into a project tree to reuse libraries across projects without copying audio files.
-- Unlink a folder after confirmation to remove its project references and associated tracks while preserving the original files.
-
-### Playback and waveforms
-
-- Added streaming playback and waveforms for MP3, WAV, OGG Vorbis, Opus, FLAC, AAC, M4A and AIFF through the default GStreamer engine, with bundled native libraries for Windows, Linux and macOS.
-- Read OGG duration from container metadata so streaming playback and seeking work when the decoder's length query is unavailable.
-- Detect the codec inside OGG containers during library scans so unsupported files receive the existing unavailable-file appearance before playback.
-- Automatically highlight the first track and display its waveform when tracks are added to an empty queue.
-- Keep the repeat-current-track control on the queue so its state and playback behavior remain consistent when selecting another track.
-- Buffer encoded waveform input to reduce small filesystem reads during analysis.
-- Seek with the left mouse button only, preserving the playback position when opening a context menu.
-- Prepare waveforms for queued workspace tracks in the background, prioritizing the selected track. The top-bar loading indicator follows pending work without resizing Master Volume.
-- Show actionable native-library startup errors on Windows, Linux and macOS.
-
-- Adjust per-track gain from −30 to +30 dB in track context menus, independently of volume. Double-click the gain control to reset it to zero. Gain is saved for standalone, queue and virtual-tile tracks and follows them when moved.
-
-### Audio engine performance
-
-- Made GStreamer the default playback engine; JavaFX remains available through `--audio-engine=javafx`.
-- Reduced native playback tasks when multiple tracks play simultaneously and released audio-device resources held by stopped tracks.
-- Reduced repeated native metadata parsing while preparing waveforms.
-- Accelerated playback startup on Windows by reducing repeated audio-device negotiation.
-- Stop multiple tracks promptly and release their audio devices in the background, keeping new playback commands responsive.
+**Full Changelog**: https://github.com/Arkanium77/thesoundboard/compare/v1.2.0...v1.3.0
 
 ## 1.2.0 — 2026-09-26
 

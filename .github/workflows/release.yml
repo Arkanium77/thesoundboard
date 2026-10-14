@@ -60,11 +60,11 @@ jobs:
 
       - name: Verify and package
         if: runner.os != 'Windows'
-        run: ./gradlew check release --no-daemon --console=plain
+        run: ./gradlew check gstreamerTest release --no-daemon --max-workers=1 --console=plain
 
       - name: Verify and package on Windows
         if: runner.os == 'Windows'
-        run: .\gradlew.bat check release --no-daemon --console=plain
+        run: .\gradlew.bat check gstreamerTest release --no-daemon --max-workers=1 --console=plain
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7
