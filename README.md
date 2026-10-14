@@ -23,12 +23,12 @@ Release archives are self-contained and include a Java runtime plus ready-to-use
 
 ### Windows
 
-1. Extract `thesoundboard-1.2.0-windows-x64.zip`.
+1. Extract `thesoundboard-1.3.0-windows-x64.zip`.
 2. Run `TheSoundboard/TheSoundboard.exe`.
 
 ### Linux
 
-1. Extract `thesoundboard-1.2.0-linux-x64.tar.gz`.
+1. Extract `thesoundboard-1.3.0-linux-x64.tar.gz`.
 2. Run `TheSoundboard/bin/TheSoundboard`.
 
 ### macOS
