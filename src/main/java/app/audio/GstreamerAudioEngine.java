@@ -58,6 +58,23 @@ public class GstreamerAudioEngine implements AudioEngine {
         this.outputFactory = outputFactory;
         executor.scheduleWithFixedDelay(() -> tracks.forEach(GstreamerPlayingTrack::refreshPosition),
                 200, 200, TimeUnit.MILLISECONDS);
+        if (!Boolean.getBoolean("thesoundboard.gstreamer.coldBindings")) execute(this::warmBindings);
+    }
+
+    /**
+     * Binding factories and native graph wrappers initialize lazily, making the first trigger pay their startup cost.
+     * Prepare one disposable graph in NULL on the control thread while the UI loads; never preroll it, read a file,
+     * open an audio device or notify an owner. Its detached NULL sink becomes the existing single bounded spare.
+     * The dummy location is only a property value and must never be activated. coldBindings keeps a fresh-start A/B.
+     */
+    private void warmBindings() {
+        if (closed) return;
+        GstreamerPlayingTrack warmup = new GstreamerPlayingTrack(this, Path.of("."));
+        try {
+            warmup.prepare();
+        } finally {
+            warmup.release();
+        }
     }
 
     @Override

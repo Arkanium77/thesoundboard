@@ -81,7 +81,12 @@ final class GstreamerPlayingTrack implements PlayingTrack {
         this.path = path.toAbsolutePath();
     }
 
-    void initialize() {
+    void initialize() { initialize(true); }
+
+    void prepare() { initialize(false); }
+
+    /** NULL-only preparation warms binding factories without opening the placeholder source or starting a device. */
+    private void initialize(boolean preroll) {
         if (disposed) return;
         try {
             player = new Pipeline("soundboard-track");
@@ -121,8 +126,10 @@ final class GstreamerPlayingTrack implements PlayingTrack {
             });
             attachOutput();
             gain.set("volume", volume);
-            initializedAt = System.nanoTime();
-            if (player.setState(State.PAUSED) == StateChangeReturn.FAILURE) fail("Cannot open the audio stream");
+            if (preroll) {
+                initializedAt = System.nanoTime();
+                if (player.setState(State.PAUSED) == StateChangeReturn.FAILURE) fail("Cannot open the audio stream");
+            }
         } catch (RuntimeException | Error exception) {
             LOGGER.warn("Cannot initialize the GStreamer player for {}", path, exception);
             fail(exception.getMessage());
